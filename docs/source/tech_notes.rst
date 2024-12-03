@@ -58,11 +58,10 @@ Glossary
 
 - machine batch / statistical batch: often in ML we use batch of data to estimate quantities and to process data together to make computation faster. For example in stochastic gradient descent we estimate the gradient on a batch of examples that is computed at the same time. In our case we can compute multiple examples at the same time and do it multiple times to compute a statistics. We refer to the first one to machine batch and to the second as statistical batch.
 
-=========
+=============
 Bibliography
-=========
+=============
 
 .. [TMLR24] Verbockhaven, M., Rudkiewicz, T., Chevallier, S., and Charpiat, G.
         (2024). Growing tiny networks: Spotting expressivity bottlenecks and
         fixing them optimally. TMLR.
-
