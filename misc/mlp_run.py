@@ -98,7 +98,7 @@ def create_parser() -> argparse.ArgumentParser:
         choices=activation_functions.keys(),
     )
     architecture_group.add_argument(
-        "--bias", default=True, help="use bias (default: True)", choices=[True, False]
+        "--no-bias", action="store_false", default=True, help="disables bias"
     )
 
     # dataset arguments
