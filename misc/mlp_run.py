@@ -378,7 +378,7 @@ def main(args: argparse.Namespace):
             hidden_shape=args.hidden_size,
             number_hidden_layers=args.nb_hidden_layer,
             activation=activation_functions[args.activation.lower().strip()],
-            bias=args.bias,
+            bias=not args.no_bias,
             seed=args.seed,
             device=device,
         )
