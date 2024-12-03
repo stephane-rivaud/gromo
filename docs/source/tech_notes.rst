@@ -3,7 +3,7 @@ GrowingModule (GroMo)
 
 This is the documentation of the growing method described in [TMLR24]_.
 
-We propose to build growing networks using `GroMo` inherited from `torch.nn.Module`. We have two type of modules, the standard `GrowingModule` and the `AdditionGrowingModule`. The first one is a connections that contains the parameters of the network. The second one aims to connect multiple `GrowingModule` together.
+We propose to build growing networks using `GroMo` inherited from `torch.nn.Module`. We have two types of modules, the standard `GrowingModule` and the `AdditionGrowingModule`. The first one is a connection that contains the parameters of the network. The second one aims to connect multiple `GrowingModule` together.
 
 =====================
 Attributes
