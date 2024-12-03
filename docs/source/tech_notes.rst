@@ -9,7 +9,7 @@ We propose to build growing networks using `GroMo` inherited from `torch.nn.Modu
 Attributes
 =====================
 
-To compute the special updates (*i.e.* the ones that are different from classical gradient descent) we need to store tensor statistics. Those are computed using the `TensorStatistics` class as they are average over possibly multiple machines batches.
+To compute the special updates (*i.e.* the ones that are different from classical gradient descent) we need to store tensor statistics. Those are computed using the `TensorStatistics` class as they are averaged over possibly multiple machine batches.
 
 Here is a list of statistics that can be useful:
 
