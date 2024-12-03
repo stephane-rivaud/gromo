@@ -54,8 +54,8 @@ activation="selu"
 bias=true
 
 command="${command} --nb-hidden-layer $nb_hidden_layer --hidden-size $hidden_size --activation $activation"
-if [ "$bias" = true ]; then
-    command="${command} --bias"
+if [ "$bias" = false ]; then
+    command="${command} --no-bias"
 fi
 
 # Classical training arguments
