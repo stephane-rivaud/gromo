@@ -341,7 +341,11 @@ prolog += """
 prolog += """
 .. |ensp| unicode:: U+2002 .. EN SPACE
 """
+# -- Options for MathJax ---------------------------------------
 
+mathjax_path = (
+    "https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"
+)
 
 # -- Options for manual page output ---------------------------------------
 
