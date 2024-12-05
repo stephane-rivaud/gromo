@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Callable, Iterable
 
 import matplotlib.cm as mpl_cm
 import matplotlib.colors as mpl_colors
@@ -47,10 +47,17 @@ def global_device() -> torch.device:
 
 
 def torch_zeros(*size: tuple[int, int], **kwargs) -> torch.Tensor:
-    """
-    Create zero tensors on selected device
-    :param tuple[int, int] size: size of tensor
-    :returns torch.Tensor: zero-initialized tensor of defined size on device
+    """Create zero tensors on global selected device
+
+    Parameters
+    ----------
+    size : tuple[int, int]
+        size of tensor
+
+    Returns
+    -------
+    torch.Tensor
+        zero-initialized tensor of defined size on global device
     """
     global __global_device
     try:
@@ -60,10 +67,17 @@ def torch_zeros(*size: tuple[int, int], **kwargs) -> torch.Tensor:
 
 
 def torch_ones(*size: tuple[int, int], **kwargs) -> torch.Tensor:
-    """
-    Create zero tensors on selected device
-    :param tuple[int, int] size: size of tensor
-    :returns torch.Tensor: zero-initialized tensor of defined size on device
+    """Create one tensors on global selected device
+
+    Parameters
+    ----------
+    size : tuple[int, int]
+        size of tensor
+
+    Returns
+    -------
+    torch.Tensor
+        one-initialized tensor of defined size on global device
     """
     global __global_device
     try:
@@ -73,17 +87,17 @@ def torch_ones(*size: tuple[int, int], **kwargs) -> torch.Tensor:
 
 
 def activation_fn(fn_name: str) -> nn.Module:
-    """_summary_
+    """Create activation function module by name
 
     Parameters
     ----------
     fn_name : str
-        _description_
+        name of activation function
 
     Returns
     -------
     torch.nn.Module
-        _description_
+        activation function module
     """
     if fn_name is None:
         return nn.Identity()
@@ -169,7 +183,7 @@ def batch_gradient_descent(
     loss_name: str = "loss",
     title: str = "",
 ) -> tuple[list[float], list[float]]:
-    """_summary_
+    """Batch gradient descent implementation
 
     Parameters
     ----------
@@ -234,8 +248,6 @@ def batch_gradient_descent(
 
         if not fast:
             labels = ["train"]
-            if eval_fn:
-                labels.extend(["test"] * (len(acc_history[0]) - 1))
             plt.figure()
             plt.plot(acc_history, label=labels)
             plt.xlabel("epochs")
@@ -248,8 +260,23 @@ def batch_gradient_descent(
 
 
 def DAG_to_pyvis(dag):
+    """Create pyvis graph based on GrowableDAG
+
+    Parameters
+    ----------
+    dag : GrowableDAG
+        growable dag object
+
+    Returns
+    -------
+    _type_
+        pyvis object
+    """
     # nt = Network('500px', '500px', directed=True, notebook=True, cdn_resources='remote')
     nt = Network(directed=True)
+
+    default_offset_x = 150.0
+    default_offset_y = 0.0
 
     for node in dag.nodes:
         size = dag.nodes[node]["size"]
@@ -260,12 +287,15 @@ def DAG_to_pyvis(dag):
             "label": node,
             "title": str(size),
             "color": size_to_color(size),
+            "size": np.sqrt(size),
             "mass": 4,
         }
         if node == "start":
-            attrs.update({"x": -20.0, "y": 0.0, "physics": False})
+            attrs.update(
+                {"x": -default_offset_x, "y": -default_offset_y, "physics": False}
+            )
         elif node == "end":
-            attrs.update({"x": 20.0, "y": 0.0, "physics": False})
+            attrs.update({"x": default_offset_x, "y": default_offset_y, "physics": False})
         nt.add_node(node, **attrs)
     for edge in dag.edges:
         prev_node, next_node = edge
@@ -283,3 +313,106 @@ def size_to_color(size):
     norm = mpl_colors.Normalize(vmin=0, vmax=784)
     rgba = cmap(norm(size))
     return mpl_colors.rgb2hex(rgba)
+
+
+def calculate_true_positives(
+    actual: torch.Tensor, predicted: torch.Tensor, label: int
+) -> tuple[float, float, float]:
+    """Calculate true positives, false positives and false negatives of a specific label
+
+    Parameters
+    ----------
+    actual : torch.Tensor
+        true labels
+    predicted : torch.Tensor
+        predicted labels
+    label : int
+        target label to calculate metrics
+
+    Returns
+    -------
+    tuple[float, float, float]
+        true positives, false positives, false negatives
+    """
+    true_positives = np.sum((actual == label) & (predicted == label))
+    false_positives = np.sum((actual != label) & (predicted == label))
+    false_negatives = np.sum((predicted != label) & (actual == label))
+
+    return true_positives, false_positives, false_negatives
+
+
+def f1(actual: torch.Tensor, predicted: torch.Tensor, label: int) -> float:
+    """Calculate f1 score of specific label
+
+    Parameters
+    ----------
+    actual : torch.Tensor
+        true labels
+    predicted : torch.Tensor
+        predicted labels
+    label : int
+        target label to calculate f1 score
+
+    Returns
+    -------
+    float
+        f1 score of label
+    """
+    # F1 = 2 * (precision * recall) / (precision + recall)
+    tp, fp, fn = calculate_true_positives(actual, predicted, label)
+    precision = tp / (tp + fp)
+    recall = tp / (tp + fn)
+    f1 = 2 * (precision * recall) / (precision + recall)
+    return f1
+
+
+def f1_micro(actual: torch.Tensor, predicted: torch.Tensor) -> float:
+    """Calculate f1 score with micro average
+
+    Parameters
+    ----------
+    actual : torch.Tensor
+        true labels
+    predicted : torch.Tensor
+        predicted labels
+
+    Returns
+    -------
+    float
+        micro-average f1 score
+    """
+    true_positives, false_positives, false_negatives = {}, {}, {}
+    for label in np.unique(actual):
+        tp, fp, fn = calculate_true_positives(actual, predicted, label)
+        true_positives[label] = tp
+        false_positives[label] = fp
+        false_negatives[label] = fn
+
+    all_true_positives = np.sum(list(true_positives.values()))
+    all_false_positives = np.sum(list(false_positives.values()))
+    all_false_negatives = np.sum(list(false_negatives.values()))
+
+    micro_precision = all_true_positives / (all_true_positives + all_false_positives)
+    micro_recall = all_true_positives / (all_true_positives + all_false_negatives)
+
+    f1 = 2 * (micro_precision * micro_recall) / (micro_precision + micro_recall)
+
+    return f1
+
+
+def f1_macro(actual: torch.Tensor, predicted: torch.Tensor) -> float:
+    """Calculate f1 score with macro average
+
+    Parameters
+    ----------
+    actual : torch.Tensor
+        true labels
+    predicted : torch.Tensor
+        predicted labels
+
+    Returns
+    -------
+    float
+        macro-average f1 score
+    """
+    return float(np.mean([f1(actual, predicted, label) for label in np.unique(actual)]))
