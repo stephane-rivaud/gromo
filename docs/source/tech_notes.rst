@@ -47,8 +47,8 @@ To grow a layer of neurons, we need new incoming connections and new outgoing co
 
 You can then use the `extended_forward` method to compute the forward pass with the new weights. More precisely, the `extended_forward` with integrating the `scaling_factor` (noted :math:`\gamma`) to the forward pass:
 
-- :math:`\texttt{extended\_forward}(x) = (M1(x), \gamma  O1(x))`
-- :math:`\texttt{extended\_forward}(M1(x), \gamma  O1(x)) = M2(M1(x)) + \gamma^2  I2(O1(x))`
+- :math:`\texttt{extended_forward}(x) = (M1(x), \gamma  O1(x))`
+- :math:`\texttt{extended_forward}(M1(x), \gamma  O1(x)) = M2(M1(x)) + \gamma^2  I2(O1(x))`
 
 Once satisfied with the extension and the scaling factor, they are incorporated in the forward pass by using the method `apply_change` in `M2` with the option `apply_previous` set to `True`.
 
