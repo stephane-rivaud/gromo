@@ -1,5 +1,5 @@
-from unittest import TestCase, main
 from copy import deepcopy
+from unittest import TestCase, main
 
 import torch
 
@@ -7,30 +7,19 @@ from gromo.conv2d_growing_module import Conv2dGrowingModule
 from gromo.utils.utils import global_device
 
 
-
 class MyTestCase(TestCase):
     def setUp(self):
         self.demo_layer = torch.nn.Conv2d(
-            2,
-            7,
-            (3, 5),
-            bias=False,
-            device=global_device()
+            2, 7, (3, 5), bias=False, device=global_device()
         )
         self.demo = Conv2dGrowingModule(
-            in_channels=2,
-            out_channels=7,
-            kernel_size=(3, 5),
-            use_bias=False
+            in_channels=2, out_channels=7, kernel_size=(3, 5), use_bias=False
         )
         self.demo.layer = self.demo_layer
 
     def test_init(self):
         m = Conv2dGrowingModule(
-            in_channels=2,
-            out_channels=7,
-            kernel_size=(3, 5),
-            use_bias=False
+            in_channels=2, out_channels=7, kernel_size=(3, 5), use_bias=False
         )
         self.assertIsInstance(m, Conv2dGrowingModule)
 
@@ -55,8 +44,7 @@ class MyTestCase(TestCase):
         self.assertTrue(torch.equal(y, wl(x)))
 
     def test_layer_in_extension(self):
-        in_extension = torch.nn.Conv2d(3,
-                                            7, (3, 5), bias=False, device=global_device())
+        in_extension = torch.nn.Conv2d(3, 7, (3, 5), bias=False, device=global_device())
         local_demo = deepcopy(self.demo)
         local_demo.layer_in_extension(in_extension.weight)
 
@@ -66,12 +54,13 @@ class MyTestCase(TestCase):
         x_ext = x[:, 2:]
         y_th = self.demo(x_main) + in_extension(x_ext)
         y = local_demo(x)
-        self.assertTrue(torch.allclose(y, y_th, atol=1e-6),
-                        f"Error: ({torch.abs(y - y_th).max().item():.2e})")
+        self.assertTrue(
+            torch.allclose(y, y_th, atol=1e-6),
+            f"Error: ({torch.abs(y - y_th).max().item():.2e})",
+        )
 
     def test_layer_out_extension(self):
-        out_extension = torch.nn.Conv2d(2,
-                                        1, (3, 5), bias=False, device=global_device())
+        out_extension = torch.nn.Conv2d(2, 1, (3, 5), bias=False, device=global_device())
         local_demo = deepcopy(self.demo)
         local_demo.layer_out_extension(out_extension.weight)
 
@@ -82,10 +71,14 @@ class MyTestCase(TestCase):
         y = local_demo(x)
         y_main = y[:, :7]
         y_ext = y[:, 7:]
-        self.assertTrue(torch.allclose(y_main, y_main_th, atol=1e-6),
-                        f"Error: ({torch.abs(y_main - y_main_th).max().item():.2e})")
-        self.assertTrue(torch.allclose(y_ext, y_ext_th, atol=1e-6),
-                        f"Error: ({torch.abs(y_ext - y_ext_th).max().item():.2e})")
+        self.assertTrue(
+            torch.allclose(y_main, y_main_th, atol=1e-6),
+            f"Error: ({torch.abs(y_main - y_main_th).max().item():.2e})",
+        )
+        self.assertTrue(
+            torch.allclose(y_ext, y_ext_th, atol=1e-6),
+            f"Error: ({torch.abs(y_ext - y_ext_th).max().item():.2e})",
+        )
 
     def test_tensor_s_update(self):
         torch.manual_seed(0)
@@ -159,5 +152,5 @@ class MyTestCase(TestCase):
     # test compute compute_prev_s_update update : how ?
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -5,12 +5,13 @@ import torch
 from gromo.growing_module import AdditionGrowingModule, GrowingModule
 from gromo.linear_growing_module import LinearAdditionGrowingModule, LinearGrowingModule
 from gromo.tensor_statistic import TensorStatistic
-from gromo.tools import compute_optimal_added_parameters, compute_mask_tensor_t
+from gromo.tools import compute_mask_tensor_t, compute_optimal_added_parameters
 from gromo.utils.utils import global_device
 
 
 class Conv2dAdditionGrowingModule(AdditionGrowingModule):
     pass
+
 
 class Conv2dGrowingModule(GrowingModule):
     def __init__(
@@ -38,18 +39,27 @@ class Conv2dGrowingModule(GrowingModule):
             kernel_size = (kernel_size, kernel_size)
         super(Conv2dGrowingModule, self).__init__(
             layer=torch.nn.Conv2d(
-                in_channels, out_channels,
-                kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation,
-                bias=use_bias, device=device
+                in_channels,
+                out_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                bias=use_bias,
+                device=device,
             ),
             post_layer_function=post_layer_function,
             previous_module=previous_module,
             next_module=next_module,
             allow_growing=allow_growing,
-            tensor_s_shape=((in_channels + use_bias) * kernel_size[0] * kernel_size[1],
-                            (in_channels + use_bias) * kernel_size[0] * kernel_size[1]),
-            tensor_m_shape=((in_channels + use_bias) * kernel_size[0] * kernel_size[1],
-                            out_channels),
+            tensor_s_shape=(
+                (in_channels + use_bias) * kernel_size[0] * kernel_size[1],
+                (in_channels + use_bias) * kernel_size[0] * kernel_size[1],
+            ),
+            tensor_m_shape=(
+                (in_channels + use_bias) * kernel_size[0] * kernel_size[1],
+                out_channels,
+            ),
             device=device,
             name=name,
         )
@@ -57,8 +67,10 @@ class Conv2dGrowingModule(GrowingModule):
 
         # TODO: change S_ext, M_prev, P
         self.tensor_s_prev = TensorStatistic(
-            shape=(in_channels * kernel_size[0] * kernel_size[1],
-                   in_channels * kernel_size[0] * kernel_size[1]),
+            shape=(
+                in_channels * kernel_size[0] * kernel_size[1],
+                in_channels * kernel_size[0] * kernel_size[1],
+            ),
             update_function=self.compute_prev_s_update,
             name=f"Local S({self.name})",
         )
@@ -120,7 +132,16 @@ class Conv2dGrowingModule(GrowingModule):
         """
         if self.use_bias:
             return torch.cat(
-                (self.input, torch.ones(self.input.shape[0], 1, self.input.shape[2], self.input.shape[3], device=self.device)),
+                (
+                    self.input,
+                    torch.ones(
+                        self.input.shape[0],
+                        1,
+                        self.input.shape[2],
+                        self.input.shape[3],
+                        device=self.device,
+                    ),
+                ),
                 dim=1,
             )
         else:
@@ -138,7 +159,11 @@ class Conv2dGrowingModule(GrowingModule):
         """
         # TODO: maybe we could compute it only once if we use it multiple times (e.g. in S, S_prev, M, M_prev, P...)
         return torch.nn.functional.unfold(
-            self.input_extended, self.layer.kernel_size, padding=self.layer.padding, stride=self.layer.stride, dilation=self.layer.dilation
+            self.input_extended,
+            self.layer.kernel_size,
+            padding=self.layer.padding,
+            stride=self.layer.stride,
+            dilation=self.layer.dilation,
         )
 
     @property
@@ -157,7 +182,11 @@ class Conv2dGrowingModule(GrowingModule):
                 "Therefore the previous masked unfolded activation is not defined."
             )
         elif isinstance(self.previous_module, Conv2dGrowingModule):
-            return torch.einsum("ial, jel -> ijea", self.previous_module.unfolded_extended_input, self.mask_tensor_t)
+            return torch.einsum(
+                "ial, jel -> ijea",
+                self.previous_module.unfolded_extended_input,
+                self.mask_tensor_t,
+            )
         elif isinstance(self.previous_module, Conv2dAdditionGrowingModule):
             raise NotImplementedError("TODO: implement this")
         else:
@@ -176,7 +205,10 @@ class Conv2dGrowingModule(GrowingModule):
             number of parameters
         """
         return (
-            self.layer.in_channels * self.layer.out_channels * self.layer.kernel_size[0] * self.layer.kernel_size[1]
+            self.layer.in_channels
+            * self.layer.out_channels
+            * self.layer.kernel_size[0]
+            * self.layer.kernel_size[1]
             + self.layer.kernel_size[0] * self.layer.kernel_size[1] * self.use_bias
         )
 
@@ -212,7 +244,11 @@ class Conv2dGrowingModule(GrowingModule):
             self.input is not None
         ), f"The input must be stored to compute the update of S. (error in {self.name})"
         return (
-            torch.einsum("iam, ibm -> ab", self.unfolded_extended_input, self.unfolded_extended_input),
+            torch.einsum(
+                "iam, ibm -> ab",
+                self.unfolded_extended_input,
+                self.unfolded_extended_input,
+            ),
             self.input.shape[0],
         )
 
@@ -242,7 +278,9 @@ class Conv2dGrowingModule(GrowingModule):
         desired_activation = desired_activation.flatten(start_dim=-2)
 
         return (
-            torch.einsum("iam, icm -> ac", self.unfolded_extended_input, desired_activation),
+            torch.einsum(
+                "iam, icm -> ac", self.unfolded_extended_input, desired_activation
+            ),
             self.input.shape[0],
         )
 
@@ -277,7 +315,14 @@ class Conv2dGrowingModule(GrowingModule):
         elif isinstance(self.previous_module, LinearAdditionGrowingModule):
             raise NotImplementedError("TODO: implement this")
         elif isinstance(self.previous_module, Conv2dGrowingModule):
-            return torch.einsum("ixab, icx -> bca", self.prev_masked_unfolded_activation, desired_activation), self.input.shape[0]
+            return (
+                torch.einsum(
+                    "ixab, icx -> bca",
+                    self.prev_masked_unfolded_activation,
+                    desired_activation,
+                ),
+                self.input.shape[0],
+            )
         elif isinstance(self.previous_module, Conv2dAdditionGrowingModule):
             raise NotImplementedError("TODO: implement this")
         else:
@@ -306,8 +351,14 @@ class Conv2dGrowingModule(GrowingModule):
         elif isinstance(self.previous_module, LinearAdditionGrowingModule):
             raise NotImplementedError("TODO: implement this")
         elif isinstance(self.previous_module, Conv2dGrowingModule):
-            return (torch.einsum("ixab, iex -> abe", self.prev_masked_unfolded_activation, self.unfolded_extended_input),
-            self.input.shape[0])
+            return (
+                torch.einsum(
+                    "ixab, iex -> abe",
+                    self.prev_masked_unfolded_activation,
+                    self.unfolded_extended_input,
+                ),
+                self.input.shape[0],
+            )
         elif isinstance(self.previous_module, Conv2dAdditionGrowingModule):
             raise NotImplementedError("TODO: implement this")
         else:
@@ -333,12 +384,23 @@ class Conv2dGrowingModule(GrowingModule):
                 f"No previous module for {self.name}. Thus the S prev tensor is not defined."
             )
         elif isinstance(self.previous_module, LinearGrowingModule):
-            raise NotImplementedError("TODO: implement this")  # ? do we need to implement this?
+            raise NotImplementedError(
+                "TODO: implement this"
+            )  # ? do we need to implement this?
         elif isinstance(self.previous_module, LinearAdditionGrowingModule):
-            raise NotImplementedError("TODO: implement this")  # ? do we need to implement this?
+            raise NotImplementedError(
+                "TODO: implement this"
+            )  # ? do we need to implement this?
         elif isinstance(self.previous_module, Conv2dGrowingModule):
-            return (multiplicative_factor * torch.einsum("ijea, ijeb -> ab", self.prev_masked_unfolded_activation, self.prev_masked_unfolded_activation),
-                    self.input.shape[0])
+            return (
+                multiplicative_factor
+                * torch.einsum(
+                    "ijea, ijeb -> ab",
+                    self.prev_masked_unfolded_activation,
+                    self.prev_masked_unfolded_activation,
+                ),
+                self.input.shape[0],
+            )
         elif isinstance(self.previous_module, Conv2dAdditionGrowingModule):
             raise NotImplementedError("TODO: implement this")
         else:
@@ -358,7 +420,9 @@ class Conv2dGrowingModule(GrowingModule):
         torch.Tensor
             N
         """
-        return -self.tensor_m_prev() - torch.einsum("abe, ce -> bca", self.cross_covariance(), self.delta_raw)
+        return -self.tensor_m_prev() - torch.einsum(
+            "abe, ce -> bca", self.cross_covariance(), self.delta_raw
+        )
 
     # Layer edition
     def layer_of_tensor(
@@ -385,25 +449,27 @@ class Conv2dGrowingModule(GrowingModule):
             f"the main layer bias ({self.use_bias =}) is not None."
         )
         for i in (0, 1):
-            assert (weight.shape[2 + i] == self.layer.kernel_size[i]
-                ), f"{weight.shape[2 + i]=} should be equal to {self.layer.kernel_size[i]=}"
+            assert (
+                weight.shape[2 + i] == self.layer.kernel_size[i]
+            ), f"{weight.shape[2 + i]=} should be equal to {self.layer.kernel_size[i]=}"
         self.layer.kernel_size: tuple[int, int]
         self.layer.stride: tuple[int, int]
         self.layer.dilation: tuple[int, int]
 
         new_layer = torch.nn.Conv2d(
-            weight.shape[1], weight.shape[0],
-            bias=self.use_bias, device=self.device,
+            weight.shape[1],
+            weight.shape[0],
+            bias=self.use_bias,
+            device=self.device,
             kernel_size=self.layer.kernel_size,
             stride=self.layer.stride,
             padding=self.layer.padding,
-            dilation=self.layer.dilation
+            dilation=self.layer.dilation,
         )
         new_layer.weight = torch.nn.Parameter(weight)
         if self.use_bias:
             new_layer.bias = torch.nn.Parameter(bias)
         return new_layer
-
 
     # FIXME: should we delete this method?
     def add_parameters(
@@ -504,8 +570,9 @@ class Conv2dGrowingModule(GrowingModule):
             weight.shape[0] == self.out_channels
         ), f"{weight.shape[0]=} should be equal to {self.out_features=}"
         for i in (0, 1):
-            assert (weight.shape[2 + i] == self.layer.kernel_size[i]
-                ), f"{weight.shape[2 + i]=} should be equal to {self.layer.kernel_size[i]=}"
+            assert (
+                weight.shape[2 + i] == self.layer.kernel_size[i]
+            ), f"{weight.shape[2 + i]=} should be equal to {self.layer.kernel_size[i]=}"
 
         # TODO: check this is working
         self.layer = self.layer_of_tensor(
@@ -514,14 +581,24 @@ class Conv2dGrowingModule(GrowingModule):
 
         self.in_channels += weight.shape[1]
         self._tensor_s = TensorStatistic(
-            ((self.in_channels + self.use_bias) * self.layer.kernel_size[0] * self.layer.kernel_size[1],
-             (self.in_channels + self.use_bias) * self.layer.kernel_size[0] * self.layer.kernel_size[1]),
+            (
+                (self.in_channels + self.use_bias)
+                * self.layer.kernel_size[0]
+                * self.layer.kernel_size[1],
+                (self.in_channels + self.use_bias)
+                * self.layer.kernel_size[0]
+                * self.layer.kernel_size[1],
+            ),
             update_function=self.compute_s_update,
             name=self.tensor_s.name,
         )
         self.tensor_m = TensorStatistic(
-            ((self.in_channels + self.use_bias) * self.layer.kernel_size[0] * self.layer.kernel_size[1],
-             self.out_channels),
+            (
+                (self.in_channels + self.use_bias)
+                * self.layer.kernel_size[0]
+                * self.layer.kernel_size[1],
+                self.out_channels,
+            ),
             update_function=self.compute_m_update,
             name=self.tensor_m.name,
         )
@@ -702,25 +779,31 @@ class Conv2dGrowingModule(GrowingModule):
 
         assert self.delta_raw.shape[0] == self.out_channels, (
             f"delta_raw should have shape ({self.out_features=},...)"
-            f"but got {self.delta_raw.shape=}")
+            f"but got {self.delta_raw.shape=}"
+        )
         if self.use_bias:
-            assert self.delta_raw.shape[1] == (self.in_channels * self.kernel_size[0] * self.kernel_size[1] + 1), (
+            assert self.delta_raw.shape[1] == (
+                self.in_channels * self.kernel_size[0] * self.kernel_size[1] + 1
+            ), (
                 f"delta_raw should have shape (..., {self.in_channels * self.kernel_size[0] * self.kernel_size[1] + 1=}) "
                 f"but got (..., {self.delta_raw.shape[1]}) (this could be not correctly implemented)"
             )
             delta_weight = self.delta_raw[:, :-1]
             delta_bias = self.delta_raw[:, -1]
         else:
-            assert self.delta_raw.shape[1] == (self.in_channels * self.kernel_size[0] * self.kernel_size[1]), (
+            assert self.delta_raw.shape[1] == (
+                self.in_channels * self.kernel_size[0] * self.kernel_size[1]
+            ), (
                 f"delta_raw should have shape (..., {self.in_channels * self.kernel_size[0] * self.kernel_size[1]=})"
                 f"but got {self.delta_raw.shape=}"
             )
             delta_weight = self.delta_raw
             delta_bias = None
 
-        delta_weight = delta_weight.reshape(self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
+        delta_weight = delta_weight.reshape(
+            self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]
+        )
 
         if update:
             self.optimal_delta_layer = self.layer_of_tensor(delta_weight, delta_bias)
         return delta_weight, delta_bias, self.parameter_update_decrease
-
