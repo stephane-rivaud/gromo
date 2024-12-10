@@ -23,6 +23,14 @@ class MyTestCase(TestCase):
         )
         self.assertIsInstance(m, Conv2dGrowingModule)
 
+        m = Conv2dGrowingModule(
+            in_channels=2, out_channels=7, kernel_size=3, padding=1, use_bias=True
+        )
+        self.assertIsInstance(m, Conv2dGrowingModule)
+        self.assertEqual(m.layer.padding, (1, 1))
+        self.assertTrue(m.layer.bias is not None)
+        self.assertEqual(m.layer.kernel_size, (3, 3))
+
     def test_forward(self):
         torch.manual_seed(0)
         x = torch.randn(5, 2, 10, 10, device=global_device())
@@ -34,6 +42,8 @@ class MyTestCase(TestCase):
 
     def test_str(self):
         self.assertIsInstance(str(self.demo), str)
+        for i in (0, 1, 2):
+            self.assertIsInstance(self.demo.__str__(i), str)
 
     def test_layer_of_tensor(self):
         wl = self.demo.layer_of_tensor(self.demo_layer.weight.data)

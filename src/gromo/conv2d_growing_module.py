@@ -471,90 +471,7 @@ class Conv2dGrowingModule(GrowingModule):
             new_layer.bias = torch.nn.Parameter(bias)
         return new_layer
 
-    # FIXME: should we delete this method?
-    def add_parameters(
-        self,
-        matrix_extension: torch.Tensor | None,
-        bias_extension: torch.Tensor | None,
-        added_in_features: int = 0,
-        added_out_features: int = 0,
-    ) -> None:
-        """
-        Add new parameters to the layer.
-
-        Parameters
-        ----------
-        matrix_extension: torch.Tensor
-            extension of the weight matrix of the layer if None,
-            the layer is extended with zeros
-            should be of shape:
-             - (out_features, in_features + added_in_features) if added_in_features > 0
-             - (out_features + added_out_features, in_features) if added_out_features > 0
-        bias_extension: torch.Tensor of shape (out_features + added_out_features,)
-            extension of the bias vector of the layer if None,
-            the layer is extended with zeros
-        added_in_features: int >= 0
-            number of input features added if None, the number of input
-            features is not changed
-        added_out_features: int >= 0
-            number of output features added if None, the number of output
-            features is not changed
-
-        Raises
-        ------
-        AssertionError
-            if we try to add input and output features at the same time
-        """
-        raise NotImplementedError("TODO: implement this")
-        assert (added_in_features > 0) ^ (
-            added_out_features > 0
-        ), "cannot add input and output features at the same time"
-        if added_in_features > 0:
-            if matrix_extension is None:
-                matrix_extension = torch.zeros(
-                    self.out_features, added_in_features, device=self.device
-                )
-            else:
-                assert matrix_extension.shape == (self.out_features, added_in_features), (
-                    f"matrix_extension should have shape "
-                    f"{(self.out_features, added_in_features)}, "
-                    f"but got {matrix_extension.shape}"
-                )
-            self.layer_in_extension(
-                weight=torch.cat((self.weight, matrix_extension), dim=1)
-            )
-
-        if added_out_features > 0:
-            if matrix_extension is None:
-                matrix_extension = torch.zeros(
-                    added_out_features, self.in_features, device=self.device
-                )
-            else:
-                assert matrix_extension.shape == (added_out_features, self.in_features), (
-                    f"matrix_extension should have shape "
-                    f"{(added_out_features, self.in_features)}, "
-                    f"but got {matrix_extension.shape}"
-                )
-            if bias_extension is None:
-                bias_extension = torch.zeros(added_out_features, device=self.device)
-            else:
-                assert bias_extension.shape == (
-                    self.out_features + added_out_features,
-                ), (
-                    f"bias_extension should have shape {(self.out_features + added_out_features,)}, "
-                    f"but got {bias_extension.shape}"
-                )
-
-            self.layer_out_extension(
-                torch.cat((self.weight, matrix_extension), dim=0),
-                bias=torch.cat((self.bias, bias_extension), dim=0),
-            )
-
-        warn(
-            f"The size of {self.name} has been changed to "
-            f"({self.in_features}, {self.out_features}) but it is up to the user"
-            f" to change the connected layers."
-        )
+    # FIXME: should we implement .add_parameters
 
     def layer_in_extension(self, weight: torch.Tensor) -> None:
         """
@@ -807,3 +724,5 @@ class Conv2dGrowingModule(GrowingModule):
         if update:
             self.optimal_delta_layer = self.layer_of_tensor(delta_weight, delta_bias)
         return delta_weight, delta_bias, self.parameter_update_decrease
+
+    # TODO: implement compute_optimal_added_parameters
