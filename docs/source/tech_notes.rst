@@ -53,6 +53,21 @@ The computation of all statistic has the same structure.
 
 The previously mentioned statistics (`S local`, `M`, `S prev`, `M prev`, `cross covariance`) are transparently accessible in the `GrowingModule`. However they are not necessary stored in the `GrowingModule`. In the case of a `GrowingModule`,  (`M`, `M prev`, `cross covariance`) are computed in the `GrowingModule`. `S local` is computed either in the previous module if it is an `AdditionGrowingModule` or in the `GrowingModule` if it is a `GrowingModule` (this is due to the fact that all next modules of an addition module require the same `S local`). The computation of `S prev` is left to the previous module in any case (this is due to the fact that in the case of fully-connected layers (`nn.Linear`) the `S prev` is exactly the `S local` of the previous module).
 
+---------------------
+Example
+---------------------
+
+If we take an example with two growing modules and look at most of the objects that are computed we have the following graph:
+
+.. image:: images/gromo_statistics.png
+    :width: 800px
+    :align: center
+    :height: 565px
+    :alt: computation graph of the statistics
+
+Here we have for example the `S local` and `S growth` tensors computed using the input of the module. `S prev` is not computed in the module but point to the `S growth` of the previous module. `cross covariance` is computed using the input of the module and of the previous module. `M` is computed using the input and the output gradient of the module. `M prev` is computed using the input of the previous module and the output gradient of the current module.
+
+Then `S local` and `M` are used to compute the natural gradient stored in the `optimal_delta_layer` attribute of the module. Then this layer combined with the `cross covariance` is and the `M prev` is used to compute the tensor `N` (which is the equivalent of `M` for the new weights). Then `N` can be combined with `S prev` using the `compute_optimal_added_parameters` method to compute the new weights stored in `layer_in_extension` of the current module and `layer_out_extension` of the previous module.
 
 =====================
 Growing a layer
