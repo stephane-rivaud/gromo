@@ -5,7 +5,7 @@ import torch
 from gromo.growing_module import AdditionGrowingModule, GrowingModule
 from gromo.linear_growing_module import LinearAdditionGrowingModule, LinearGrowingModule
 from gromo.tensor_statistic import TensorStatistic
-from gromo.tools import compute_mask_tensor_t, compute_optimal_added_parameters
+from gromo.tools import compute_mask_tensor_t
 from gromo.utils.utils import global_device
 
 
@@ -88,6 +88,10 @@ class Conv2dGrowingModule(GrowingModule):
         torch.Tensor
             mask tensor T
         """
+        assert self.input_size != (-1, -1), (
+            f"The input size should be set before computing the mask tensor T "
+            f"for {self.name}."
+        )
         self.layer: torch.nn.Conv2d  # CHECK: why do we need to specify the type here?
         if self._mask_tensor_t is None:
             self._mask_tensor_t = compute_mask_tensor_t(self.input_size, self.layer)

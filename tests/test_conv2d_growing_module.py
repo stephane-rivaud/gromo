@@ -111,7 +111,7 @@ class MyTestCase(TestCase):
 
         self.demo.reset_computation()
 
-    def tensor_m_update(self):
+    def test_tensor_m_update(self):
         torch.manual_seed(0)
         x = torch.randn(23, 2, 10, 10, device=global_device())
 
@@ -136,7 +136,7 @@ class MyTestCase(TestCase):
 
         self.demo.reset_computation()
 
-    def compute_optimal_delta(self):
+    def test_compute_optimal_delta(self):
         torch.manual_seed(0)
         x = torch.randn(23, 2, 10, 10, device=global_device())
 
@@ -155,6 +155,28 @@ class MyTestCase(TestCase):
 
         self.demo.reset_computation()
         self.demo.delete_update()
+
+    def test_mask_tensor_t(self):
+        with self.assertRaises(AssertionError):
+            _ = self.demo.mask_tensor_t
+
+        hin, win = 11, 13
+        x = torch.randn(1, 2, hin, win, device=global_device())
+        hout, wout = self.demo(x).shape[2:]
+        self.demo.input_size = (hin, win)
+
+        tensor_t = self.demo.mask_tensor_t
+
+        self.assertIsInstance(tensor_t, torch.Tensor)
+        self.assertIsInstance(self.demo._mask_tensor_t, torch.Tensor)
+
+        size_theoretic = (
+            hout * wout,
+            self.demo.kernel_size[0] * self.demo.kernel_size[1],
+            hin * win,
+        )
+        for i, (t, t_th) in enumerate(zip(tensor_t.shape, size_theoretic)):
+            self.assertEqual(t, t_th, f"Error for dim {i}: should be {t_th}, got {t}")
 
     # test input extended
     # test compute m prev update : how ?
