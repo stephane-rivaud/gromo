@@ -394,7 +394,7 @@ class GrowingModule(torch.nn.Module):
             previous_module, (GrowingModule, AdditionGrowingModule)
         ), (
             f"to grow previous_module must be an instance of GrowingModule"
-            f"or AdditionGrowingModule, but got {type(next_module)}"
+            f"or AdditionGrowingModule, but got {type(previous_module)}"
         )
 
         self.next_module: torch.nn.Module | None = next_module
