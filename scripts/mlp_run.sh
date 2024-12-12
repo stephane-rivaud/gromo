@@ -8,7 +8,7 @@ log_dir_suffix=""
 log_file_name=""
 log_file_prefix=""
 tags="new-test"
-nb_step=10
+nb_step=30
 no_cuda=false
 training_threshold=""
 
@@ -36,7 +36,7 @@ if [ -n "$training_threshold" ]; then
 fi
 
 # Dataset arguments
-dataset="mnist"
+dataset="cifar10"
 nb_class=10
 split_train_val=0.3
 dataset_path="dataset"
@@ -68,7 +68,7 @@ weight_decay=0
 command="${command} --seed $seed --batch-size $batch_size --optimizer $optimizer --lr $lr --weight-decay $weight_decay"
 
 # Growing training arguments
-epochs_per_growth=1
+epochs_per_growth=-1
 selection_method="none"
 growing_batch_limit=-1
 growing_part="all"
@@ -88,13 +88,13 @@ if [ "$init_new_neurons_with_random_in_and_zero_out" = true ]; then
 fi
 
 ## Line search arguments
-#line_search_alpha=0.1
-#line_search_beta=0.5
-#line_search_max_iter=20
-#line_search_epsilon=1e-7
-#line_search_batch_limit=-1
-#
-#command="${command} --line-search-alpha $line_search_alpha --line-search-beta $line_search_beta --line-search-max-iter $line_search_max_iter --line-search-epsilon $line_search_epsilon --line-search-batch-limit $line_search_batch_limit"
+line_search_alpha=0.1
+line_search_beta=0.5
+line_search_max_iter=20
+line_search_epsilon=1e-7
+line_search_batch_limit=-1
+
+command="${command} --line-search-alpha $line_search_alpha --line-search-beta $line_search_beta --line-search-max-iter $line_search_max_iter --line-search-epsilon $line_search_epsilon --line-search-batch-limit $line_search_batch_limit"
 
 # Execute the command
 echo "Executing command: $command"
