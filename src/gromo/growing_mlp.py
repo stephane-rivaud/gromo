@@ -199,7 +199,7 @@ class GrowingMLP(nn.Module):
                     f"Layer {i} parameter improvement: {layer.parameter_update_decrease}"
                 )
                 print(f"Layer {i} eigenvalues extension: {layer.eigenvalues_extension}")
-            if i != layer_index:
+            if i not in [layer_index - 1, layer_index]:
                 if verbose:
                     print(f"Deleting layer {i}")
                 layer.delete_update()
