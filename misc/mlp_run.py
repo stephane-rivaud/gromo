@@ -541,6 +541,9 @@ def main(args: argparse.Namespace):
                 else:
                     raise NotImplementedError("Growing the model is not implemented yet")
 
+                # debug
+                print(f"Selected layer: {last_updated_layer}")
+
                 logs["selected_update"] = last_updated_layer
 
                 if model.currently_updated_layer.eigenvalues_extension is not None:
