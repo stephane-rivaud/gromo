@@ -1196,7 +1196,7 @@ class GrowingModule(torch.nn.Module):
         include_previous: bool
             if True delete the extended_output_layer of the previous layer
         include_output: bool
-            if True delete the extended_input_layer of this layer,
+            if True delete the extended_output_layer of this layer,
             warning: this does not delete the extended_input_layer of the next layer
         """
         self.optimal_delta_layer = None
