@@ -1207,11 +1207,17 @@ class GrowingModule(torch.nn.Module):
         self._pre_activity = None
         self._input = None
 
+        # delete extended_input_layer
+        if self.extended_input_layer is not None:
+            self.extended_input_layer = None
+            
+        # delete extended_output_layer
         if include_output:
             self.extended_output_layer = None
 
+        # delete previous module extended_output_layer
         if self.extended_input_layer is not None:
-            self.extended_input_layer = None
+            # normal behavior
             if include_previous and self.previous_module is not None:
                 if isinstance(self.previous_module, GrowingModule):
                     self.previous_module.extended_output_layer = None
@@ -1219,7 +1225,9 @@ class GrowingModule(torch.nn.Module):
                     raise NotImplementedError  # TODO
                 else:
                     raise NotImplementedError
-            elif self.previous_module is not None:
+            
+            # risky behavior
+            if not include_previous and self.previous_module is not None:
                 warnings.warn(
                     f"The extended_input_layer of {self.name} has been deleted."
                     f"However, the extended_output_layer associated stored in the previous module"
@@ -1227,7 +1235,9 @@ class GrowingModule(torch.nn.Module):
                     "This may lead to errors when using extended_forward.",
                     UserWarning,
                 )
-            else:
+            
+            # incorrect behavior
+            if include_previous and self.previous_module is None:
                 warnings.warn(
                     f"The extended_input_layer of {self.name} has been deleted."
                     "However, no previous module is associated with this layer."
