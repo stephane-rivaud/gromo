@@ -1207,37 +1207,47 @@ class GrowingModule(torch.nn.Module):
         self._pre_activity = None
         self._input = None
 
-        # delete extended_input_layer
-        if self.extended_input_layer is not None:
-            self.extended_input_layer = None
-            
         # delete extended_output_layer
         if include_output:
             self.extended_output_layer = None
 
         # delete previous module extended_output_layer
         if self.extended_input_layer is not None:
-            # normal behavior
-            if include_previous and self.previous_module is not None:
-                if isinstance(self.previous_module, GrowingModule):
-                    self.previous_module.extended_output_layer = None
-                elif isinstance(self.previous_module, AdditionGrowingModule):
-                    raise NotImplementedError  # TODO
-                else:
-                    raise NotImplementedError
-            
-            # risky behavior
-            if not include_previous and self.previous_module is not None:
-                warnings.warn(
-                    f"The extended_input_layer of {self.name} has been deleted."
-                    f"However, the extended_output_layer associated stored in the previous module"
-                    f"named {self.previous_module.name} has not been deleted."
-                    "This may lead to errors when using extended_forward.",
-                    UserWarning,
-                )
-            
+            # delete extended_input_layer
+            self.extended_input_layer = None
+            if self.previous_module is not None:
+                # normal behavior
+                if include_previous:
+                    if isinstance(self.previous_module, GrowingModule):
+                        self.previous_module.extended_output_layer = None
+                    elif isinstance(self.previous_module, AdditionGrowingModule):
+                        raise NotImplementedError  # TODO
+                    else:
+                        raise TypeError(
+                            f"Unexpected type for previous_module of {self.name}"
+                            f"got {type(self.previous_module)} instead of GrowingModule or AdditionGrowingModule."
+                        )
+                # risky behavior
+                else:  # include_previous is False
+                    if isinstance(self.previous_module, GrowingModule):
+                        if self.previous_module.extended_output_layer is not None:
+                            warnings.warn(
+                                f"The extended_input_layer of {self.name} has been deleted."
+                                f"However, the extended_output_layer associated stored in the previous module"
+                                f"named {self.previous_module.name} has not been deleted."
+                                "This may lead to errors when using extended_forward.",
+                                UserWarning,
+                            )
+                        # otherwise it is ok as user already deleted the extended_output_layer
+                    elif isinstance(self.previous_module, AdditionGrowingModule):
+                        raise NotImplementedError
+                    else:
+                        raise TypeError(
+                            f"Unexpected type for previous_module of {self.name}"
+                            f"got {type(self.previous_module)} instead of GrowingModule or AdditionGrowingModule."
+                        )
             # incorrect behavior
-            if include_previous and self.previous_module is None:
+            else:  # self.previous_module is None
                 warnings.warn(
                     f"The extended_input_layer of {self.name} has been deleted."
                     "However, no previous module is associated with this layer."

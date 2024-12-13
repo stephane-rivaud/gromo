@@ -114,31 +114,60 @@ class TestGrowingModule(TestCase):
             if not first:
                 layer.extended_input_layer = dummy_layer
 
-        reset(l1, True)
-        reset(l2, False)
+        def reset_all():
+            reset(l1, True)
+            reset(l2, False)
 
+        reset_all()
         l1.delete_update()
         self.assertIsInstance(l1.extended_output_layer, torch.nn.Identity)
         self.assertIsNone(l1.optimal_delta_layer)
 
+        reset_all()
         with self.assertWarns(UserWarning):
             l2.delete_update(include_previous=False)
+        self.assertIsNone(l2.extended_input_layer)
+        self.assertIsInstance(l1.extended_output_layer, torch.nn.Identity)
+        self.assertIsNone(l2.optimal_delta_layer)
+        self.assertIsInstance(l2.extended_output_layer, torch.nn.Identity)
 
-        reset(l1, True)
-        reset(l2, False)
+        reset_all()
         l2.delete_update()
         self.assertIsNone(l2.extended_input_layer)
         self.assertIsNone(l1.extended_output_layer)
         self.assertIsNone(l2.optimal_delta_layer)
         self.assertIsInstance(l2.extended_output_layer, torch.nn.Identity)
 
-        reset(l1, True)
-        reset(l2, False)
+        reset_all()
         l2.delete_update(include_output=True)
         self.assertIsNone(l2.extended_input_layer)
         self.assertIsNone(l1.extended_output_layer)
         self.assertIsNone(l2.optimal_delta_layer)
         self.assertIsNone(l2.extended_output_layer)
+
+        reset_all()
+        l1.extended_output_layer = None
+        l2.delete_update(include_previous=False)
+        self.assertIsNone(l2.extended_input_layer)
+        self.assertIsNone(l2.optimal_delta_layer)
+        self.assertIsInstance(l2.extended_output_layer, torch.nn.Identity)
+
+        # incorrect behavior
+        reset(l1, False)
+        with self.assertWarns(UserWarning):
+            l1.delete_update()
+
+        # incorrect behavior
+        reset(l1, False)
+        with self.assertRaises(TypeError):
+            l1.previous_module = True  # type: ignore
+            l1.delete_update()
+
+        # incorrect behavior
+        reset(l1, False)
+        with self.assertRaises(TypeError):
+            l1.previous_module = True  # type: ignore
+            l1.delete_update(include_previous=False)
 
 
 if __name__ == "__main__":
