@@ -1188,8 +1188,8 @@ class GrowingModule(torch.nn.Module):
         """
         Delete the update of the optimal added parameters.
 
-        By default, we do not delete the extended_input_layer of this layer because it
-        could be used by the next layer.
+        By default, we do not delete the extended_output_layer of this layer because it
+        could be required by the next layer.
 
         Parameters
         ----------
