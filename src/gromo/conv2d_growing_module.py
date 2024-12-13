@@ -213,7 +213,7 @@ class Conv2dGrowingModule(GrowingModule):
             * self.layer.out_channels
             * self.layer.kernel_size[0]
             * self.layer.kernel_size[1]
-            + self.layer.kernel_size[0] * self.layer.kernel_size[1] * self.use_bias
+            + self.layer.out_channels * self.use_bias
         )
 
     def __str__(self, verbose: int = 0) -> str:
