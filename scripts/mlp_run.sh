@@ -8,7 +8,7 @@ log_dir_suffix=""
 log_file_name=""
 log_file_prefix=""
 tags="new-test"
-nb_step=30
+nb_step=100
 no_cuda=false
 training_threshold=""
 
@@ -48,7 +48,7 @@ if [ -n "$data_augmentation" ]; then
 fi
 
 # Model arguments
-nb_hidden_layer=1
+nb_hidden_layer=3
 hidden_size=10
 activation="selu"
 bias=true
@@ -68,7 +68,7 @@ weight_decay=0
 command="${command} --seed $seed --batch-size $batch_size --optimizer $optimizer --lr $lr --weight-decay $weight_decay"
 
 # Growing training arguments
-epochs_per_growth=-1
+epochs_per_growth=5
 selection_method="none"
 growing_batch_limit=-1
 growing_part="all"
