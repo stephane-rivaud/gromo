@@ -304,6 +304,46 @@ class MyTestCase(TestCase):
         self.demo_b.reset_computation()
         self.demo_b.delete_update()
 
+    def test_compute_optimal_delta_empirical(self):
+        self.demo.init_computation()
+        input_x = torch.zeros(2 * 3 * 5, 2, 3, 5, device=global_device())
+        for i in range(2 * 3 * 5):
+            input_x[i, i // 15, (i % 15) // 5, i % 5] = 1
+        # I keep the two following assert as it, as they don't test the module but test if the test is correct
+        assert torch.allclose(input_x.sum(0), torch.ones(2, 3, 5, device=global_device()))
+        y = self.demo(input_x)
+        assert y.shape == (2 * 3 * 5, 7, 1, 1)
+        loss = torch.norm(y)
+        loss.backward()
+
+        self.demo.tensor_s.update()
+        self.demo.tensor_m.update()
+        self.demo.compute_optimal_delta()
+
+        self.assertIsInstance(self.demo.optimal_delta_layer, torch.nn.Conv2d)
+
+        self.demo.reset_computation()
+
+        ratio_tensor = (
+            self.demo.layer.weight.data / self.demo.optimal_delta_layer.weight.data
+        )
+        ratio_value: float = ratio_tensor.mean().item()
+        self.assertGreaterEqual(
+            ratio_value,
+            0.0,
+            f"Ratio value: {ratio_value} should be positive, as we do W - gamma * dW*",
+        )
+        self.assertTrue(
+            torch.allclose(ratio_tensor, ratio_value * torch.ones_like(ratio_tensor))
+        )
+
+        self.demo.scaling_factor = abs(ratio_value) ** 0.5
+        self.demo.apply_change()
+
+        y = self.demo(input_x)
+        loss = torch.norm(y)
+        self.assertLess(loss.item(), 1e-3)
+
     def test_mask_tensor_t(self):
         with self.assertRaises(AssertionError):
             _ = self.demo.mask_tensor_t
@@ -326,7 +366,6 @@ class MyTestCase(TestCase):
         for i, (t, t_th) in enumerate(zip(tensor_t.shape, size_theoretic)):
             self.assertEqual(t, t_th, f"Error for dim {i}: should be {t_th}, got {t}")
 
-    # test input extended
     # test compute m prev update : how ?
     # test cross covariance update : how ?
     # test compute compute_prev_s_update update : how ?
