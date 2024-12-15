@@ -15,7 +15,7 @@ Here is a list of statistics that can be useful:
 
 - `S local`: the tensor :math:`S_{-1}` for the natural gradient
 - `M`: the tensor :math:`M_{-1}` for the natural gradient
-- `S prev`: the tensor :math:`S_{-2}` to compute the new weights
+- `S growth`: the tensor :math:`S_{-2}` to compute the new weights
 - `M prev`: the tensor :math:`M_{-2}` to compute the new weights
 - `cross covariance`: the cross covariance :math:`P` to compute the new weights
 
@@ -51,10 +51,17 @@ The computation of all statistic has the same structure.
 3. We call the method `update` of the statistic to update it with the intermediate quantities. This includes updating the number of samples seen to compute the current statistic.
 4. We can then access the statistic by calling it (i.e. using `__call__`).
 
-The previously mentioned statistics (`S local`, `M`, `S prev`, `M prev`, `cross covariance`) are transparently accessible in the `GrowingModule`. However they are not necessary stored in the `GrowingModule`. In the case of a `GrowingModule`,  (`M`, `M prev`, `cross covariance`) are computed in the `GrowingModule`. `S local` is computed either in the previous module if it is an `AdditionGrowingModule` or in the `GrowingModule` if it is a `GrowingModule` (this is due to the fact that all next modules of an addition module require the same `S local`). The computation of `S prev` is left to the previous module in any case (this is due to the fact that in the case of fully-connected layers (`nn.Linear`) the `S prev` is exactly the `S local` of the previous module).
+The previously mentioned statistics (`S local`, `M`, `S growth`, `M prev`, `cross covariance`) are transparently accessible in the `GrowingModule`. However they are not necessary stored in the `GrowingModule`. In the case of a `GrowingModule`,  (`M`, `M prev`, `cross covariance`) are computed in the `GrowingModule`. `S local` is computed either in the previous module if it is an `AdditionGrowingModule` or in the `GrowingModule` if it is a `GrowingModule` (this is due to the fact that all next modules of an addition module require the same `S local`). The computation of `S growth` is left to the previous module in any case (this is due to the fact that in the case of fully-connected layers (`nn.Linear`) the `S growth` is exactly the `S local` of the previous module). (Note that here we talk about the `S growth` used to by the current layer to compute new weights. Indeed, the layer still needs to compute a `S growth` but which is used by the next layer to compute its new weights).
 
----------------------
-Example
+`S local` and `S growth` (for the next module) tensors are computed using the input of the module. `cross covariance` is computed using the input of the module and of the previous module. `M` is computed using the input and the output gradient of the module. `M prev` is computed using the input of the previous module and the output gradient of the current module.
+
+
+Updates
+--------
+
+Once the statistics are computed we can compute the optimal updates. First the natural gradient using the `S local` and `M` tensors that get stored in the `optimal_delta_layer` attribute of the module. Then we can compute the tensor `N` using the `cross covariance` and `M prev` tensors. Finally we can compute the new weights using the `S growth` and `N` tensors. Those new weights are stored in the `layer_in_extension` attribute of the current module and in the `layer_out_extension` attribute of the previous module.
+
+Wrap-up
 ---------------------
 
 If we take an example with two growing modules and look at most of the objects that are computed we have the following graph:
@@ -65,9 +72,7 @@ If we take an example with two growing modules and look at most of the objects t
     :height: 565px
     :alt: computation graph of the statistics
 
-Here we have for example the `S local` and `S growth` tensors computed using the input of the module. `S prev` is not computed in the module but point to the `S growth` of the previous module. `cross covariance` is computed using the input of the module and of the previous module. `M` is computed using the input and the output gradient of the module. `M prev` is computed using the input of the previous module and the output gradient of the current module.
-
-Then `S local` and `M` are used to compute the natural gradient stored in the `optimal_delta_layer` attribute of the module. Then this layer combined with the `cross covariance` is and the `M prev` is used to compute the tensor `N` (which is the equivalent of `M` for the new weights). Then `N` can be combined with `S prev` using the `compute_optimal_added_parameters` method to compute the new weights stored in `layer_in_extension` of the current module and `layer_out_extension` of the previous module.
+The first step is to compute the statistics (the objects written in black) and which are directly computed from intermediate quantities of the network (the gray arrows indicate the dependencies of each statistic). Then we can compute the optimal parameter update (represented by `optimal_delta_layer` and represented in purple). Finally we can compute the new weights using the method `compute_optimal_added_parameters` (represented in red) which store the result in the `layer_in_extension` attribute of the current module and in the `layer_out_extension` attribute of the previous module.
 
 =====================
 Growing a layer
