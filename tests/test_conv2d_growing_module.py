@@ -109,16 +109,40 @@ class MyTestCase(TestCase):
             f"Error: ({torch.abs(y - y_th).max().item():.2e})",
         )
 
-    def test_layer_out_extension(self):
-        out_extension = torch.nn.Conv2d(2, 1, (3, 5), bias=False, device=global_device())
+    def test_layer_out_extension_without_bias(self):
+        out_extension = torch.nn.Conv2d(2, 5, (3, 5), bias=False, device=global_device())
         local_demo = deepcopy(self.demo)
-        local_demo.layer_out_extension(out_extension.weight)
+        with self.assertWarns(UserWarning):
+            local_demo.layer_out_extension(
+                out_extension.weight, torch.empty(out_extension.out_channels)
+            )
 
         y_main_th = self.demo(self.input_x)
         y_ext_th = out_extension(self.input_x)
         y = local_demo(self.input_x)
-        y_main = y[:, :7]
-        y_ext = y[:, 7:]
+        y_main = y[:, : self.demo.out_channels]
+        y_ext = y[:, self.demo.out_channels :]
+        self.assertTrue(
+            torch.allclose(y_main, y_main_th, atol=1e-6),
+            f"Error: ({torch.abs(y_main - y_main_th).max().item():.2e})",
+        )
+        self.assertTrue(
+            torch.allclose(y_ext, y_ext_th, atol=1e-6),
+            f"Error: ({torch.abs(y_ext - y_ext_th).max().item():.2e})",
+        )
+
+    def test_layer_out_extension_with_bias(self):
+        out_extension = torch.nn.Conv2d(
+            2, 5, 3, bias=True, device=global_device(), padding=1
+        )
+        local_demo = deepcopy(self.demo_b)
+        local_demo.layer_out_extension(out_extension.weight, out_extension.bias)
+
+        y_main_th = self.demo_b(self.input_x)
+        y_ext_th = out_extension(self.input_x)
+        y = local_demo(self.input_x)
+        y_main = y[:, : self.demo_b.out_channels]
+        y_ext = y[:, self.demo_b.out_channels :]
         self.assertTrue(
             torch.allclose(y_main, y_main_th, atol=1e-6),
             f"Error: ({torch.abs(y_main - y_main_th).max().item():.2e})",
@@ -152,7 +176,6 @@ class MyTestCase(TestCase):
 
         self.demo.reset_computation()
 
-    """
     def test_tensor_s_update_with_bias(self):
         self.demo_b.init_computation()
         self.demo_b(self.input_x)
@@ -162,13 +185,23 @@ class MyTestCase(TestCase):
         # TODO: improve the specificity of the test
         # here we only test that the number of samples is correct
 
-        f = self.demo_b.in_channels * self.demo_b.kernel_size[0] * self.demo_b.kernel_size[1] + 1
+        f = (
+            self.demo_b.in_channels
+            * self.demo_b.kernel_size[0]
+            * self.demo_b.kernel_size[1]
+            + 1
+        )
         self.assertEqual(self.demo_b.tensor_s().shape, (f, f))
-        self.assertEqual(self.demo_b.tensor_s()[-1, -1], 1)
-        self.assertTrue(torch.allclose(self.demo_b.tensor_s(), self.demo.tensor_s().transpose(0, 1)))
+        self.assertEqual(
+            self.demo_b.tensor_s()[-1, -1], self.input_x.size(2) * self.input_x.size(3)
+        )
+        # we do the average on the number of samples n but
+        # should we not do it on the number of blocks n * h * w ?
+        self.assertTrue(
+            torch.allclose(self.demo_b.tensor_s(), self.demo_b.tensor_s().transpose(0, 1))
+        )
 
         self.demo.reset_computation()
-    """
 
     def test_tensor_m_update_without_bias(self):
         self.demo.init_computation()
@@ -194,7 +227,6 @@ class MyTestCase(TestCase):
         self.assertEqual(self.demo.tensor_m().shape, (f, self.demo.out_channels))
         self.demo.reset_computation()
 
-    """
     def test_tensor_m_update_with_bias(self):
         self.demo_b.init_computation()
         y = self.demo_b(self.input_x)
@@ -206,10 +238,14 @@ class MyTestCase(TestCase):
         # TODO: improve the specificity of the test
         # here we only test that the number of samples is correct
 
-        f = self.demo_b.in_channels * self.demo_b.kernel_size[0] * self.demo_b.kernel_size[1] + 1
+        f = (
+            self.demo_b.in_channels
+            * self.demo_b.kernel_size[0]
+            * self.demo_b.kernel_size[1]
+            + 1
+        )
         self.assertEqual(self.demo_b.tensor_m().shape, (f, self.demo_b.out_channels))
         self.demo.reset_computation()
-    """
 
     def test_compute_optimal_delta_without_bias(self):
         self.demo.init_computation()
@@ -221,14 +257,25 @@ class MyTestCase(TestCase):
         self.demo.tensor_m.update()
 
         self.demo.compute_optimal_delta()
+        self.assertEqual(
+            self.demo.delta_raw.shape,
+            (
+                self.demo.out_channels,
+                self.demo.in_channels
+                * self.demo.kernel_size[0]
+                * self.demo.kernel_size[1],
+            ),
+        )
         self.assertTrue(self.demo.optimal_delta_layer is not None)
         self.assertIsInstance(self.demo.optimal_delta_layer, torch.nn.Conv2d)
         # TODO: improve the specificity of the test
 
+        self.demo.compute_optimal_delta(dtype=torch.float64)
+        self.assertIsInstance(self.demo.optimal_delta_layer, torch.nn.Conv2d)
+
         self.demo.reset_computation()
         self.demo.delete_update()
 
-    """
     def test_compute_optimal_delta_with_bias(self):
         self.demo_b.init_computation()
         y = self.demo_b(self.input_x)
@@ -239,6 +286,16 @@ class MyTestCase(TestCase):
         self.demo_b.tensor_m.update()
 
         self.demo_b.compute_optimal_delta()
+        self.assertEqual(
+            self.demo_b.delta_raw.shape,
+            (
+                self.demo_b.out_channels,
+                self.demo_b.in_channels
+                * self.demo_b.kernel_size[0]
+                * self.demo_b.kernel_size[1]
+                + 1,
+            ),
+        )
         self.assertTrue(self.demo_b.optimal_delta_layer is not None)
         self.assertIsInstance(self.demo_b.optimal_delta_layer, torch.nn.Conv2d)
         self.assertTrue(self.demo_b.optimal_delta_layer.bias is not None)
@@ -246,7 +303,6 @@ class MyTestCase(TestCase):
 
         self.demo_b.reset_computation()
         self.demo_b.delete_update()
-    """
 
     def test_mask_tensor_t(self):
         with self.assertRaises(AssertionError):

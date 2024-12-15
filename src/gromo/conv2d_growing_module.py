@@ -53,11 +53,11 @@ class Conv2dGrowingModule(GrowingModule):
             next_module=next_module,
             allow_growing=allow_growing,
             tensor_s_shape=(
-                (in_channels + use_bias) * kernel_size[0] * kernel_size[1],
-                (in_channels + use_bias) * kernel_size[0] * kernel_size[1],
+                use_bias + in_channels * kernel_size[0] * kernel_size[1],
+                use_bias + in_channels * kernel_size[0] * kernel_size[1],
             ),
             tensor_m_shape=(
-                (in_channels + use_bias) * kernel_size[0] * kernel_size[1],
+                use_bias + in_channels * kernel_size[0] * kernel_size[1],
                 out_channels,
             ),
             device=device,
@@ -65,15 +65,7 @@ class Conv2dGrowingModule(GrowingModule):
         )
         self.kernel_size = self.layer.kernel_size
 
-        # TODO: change S_ext, M_prev, P
-        self.tensor_s_prev = TensorStatistic(
-            shape=(
-                in_channels * kernel_size[0] * kernel_size[1],
-                in_channels * kernel_size[0] * kernel_size[1],
-            ),
-            update_function=self.compute_prev_s_update,
-            name=f"Local S({self.name})",
-        )
+        # TODO: add S_growth
         self.input_size: tuple[int, int] = input_size
         self._mask_tensor_t: torch.Tensor | None = None
         self.use_bias = use_bias
@@ -98,58 +90,9 @@ class Conv2dGrowingModule(GrowingModule):
         return self._mask_tensor_t
 
     # Information functions
-    @property
-    def activation_gradient(self) -> torch.Tensor:
-        """
-        Return the derivative of the activation function before this layer at 0+.
-
-        Returns
-        -------
-        torch.Tensor
-            derivative of the activation function before this layer at 0+
-        """
-        # TODO: could not this been done in the GrowingModule class?
-        # if isinstance(self.previous_module, GrowingModule):
-        #     return torch.func.grad(self.previous_module.post_layer_function)(
-        #         torch.tensor(1e-5)
-        #     )
-        # elif isinstance(self.previous_module, AdditionGrowingModule):
-        #     return torch.func.grad(self.previous_module.post_addition_function)(
-        #         torch.tensor([1e-5])
-        #     )
-        # else:
-        #     raise NotImplementedError(
-        #         f"The computation of the activation gradient is not implemented yet "
-        #         f"for {type(self.previous_module)} as previous module."
-        #     )
-        raise NotImplementedError("The following code should be adapted")
-
-    @property
-    def input_extended(self) -> torch.Tensor:
-        """
-        Return the input extended with a channel of ones if the bias is used.
-
-        Returns
-        -------
-        torch.Tensor
-            input extended
-        """
-        if self.use_bias:
-            return torch.cat(
-                (
-                    self.input,
-                    torch.ones(
-                        self.input.shape[0],
-                        1,
-                        self.input.shape[2],
-                        self.input.shape[3],
-                        device=self.device,
-                    ),
-                ),
-                dim=1,
-            )
-        else:
-            return self.input
+    # TODO: implement activation_gradient ?
+    # this function is used to estimate the F.O. improvement of the loss after the extension of the network
+    # however this won't work if we do not have only the activation function as the post_layer_function
 
     @property
     def unfolded_extended_input(self) -> torch.Tensor:
@@ -162,42 +105,28 @@ class Conv2dGrowingModule(GrowingModule):
             unfolded input extended
         """
         # TODO: maybe we could compute it only once if we use it multiple times (e.g. in S, S_prev, M, M_prev, P...)
-        return torch.nn.functional.unfold(
-            self.input_extended,
+        unfolded_input = torch.nn.functional.unfold(
+            self.input,
             self.layer.kernel_size,
             padding=self.layer.padding,
             stride=self.layer.stride,
             dilation=self.layer.dilation,
         )
-
-    @property
-    def prev_masked_unfolded_activation(self) -> torch.Tensor:
-        """
-        Return the previous masked unfolded activation.
-
-        Returns
-        -------
-        torch.Tensor
-            previous masked unfolded activation
-        """
-        if self.previous_module is None:
-            raise ValueError(
-                f"No previous module for {self.name}."
-                "Therefore the previous masked unfolded activation is not defined."
+        if self.use_bias:
+            return torch.cat(
+                (
+                    unfolded_input,
+                    torch.ones(
+                        unfolded_input.shape[0],
+                        1,
+                        unfolded_input.shape[2],
+                        device=self.device,
+                    ),
+                ),
+                dim=1,
             )
-        elif isinstance(self.previous_module, Conv2dGrowingModule):
-            return torch.einsum(
-                "ial, jel -> ijea",
-                self.previous_module.unfolded_extended_input,
-                self.mask_tensor_t,
-            )
-        elif isinstance(self.previous_module, Conv2dAdditionGrowingModule):
-            raise NotImplementedError("TODO: implement this")
         else:
-            raise NotImplementedError(
-                f"The computation of the previous masked unfolded activation is not implemented yet "
-                f"for {type(self.previous_module)} as previous module."
-            )
+            return unfolded_input
 
     def number_of_parameters(self) -> int:
         """
@@ -286,146 +215,6 @@ class Conv2dGrowingModule(GrowingModule):
                 "iam, icm -> ac", self.unfolded_extended_input, desired_activation
             ),
             self.input.shape[0],
-        )
-
-    def compute_m_prev_update(
-        self, desired_activation: torch.Tensor | None = None
-    ) -> tuple[torch.Tensor, int]:
-        """
-        Compute the update of the tensor M_{-2} := B[-2]^T dA . # TODO: correct this formula
-
-        Parameters
-        ----------
-        desired_activation: torch.Tensor | None
-            desired variation direction of the output  of the layer
-
-        Returns
-        -------
-        torch.Tensor
-            update of the tensor M_{-2}
-        int
-            number of samples used to compute the update
-        """
-        if desired_activation is None:
-            desired_activation = self.pre_activity.grad
-        desired_activation = desired_activation.flatten(start_dim=-2)
-
-        if self.previous_module is None:
-            raise ValueError(
-                f"No previous module for {self.name}. Thus M_{-2} is not defined."
-            )
-        elif isinstance(self.previous_module, LinearGrowingModule):
-            raise NotImplementedError("TODO: implement this")
-        elif isinstance(self.previous_module, LinearAdditionGrowingModule):
-            raise NotImplementedError("TODO: implement this")
-        elif isinstance(self.previous_module, Conv2dGrowingModule):
-            return (
-                torch.einsum(
-                    "ixab, icx -> bca",
-                    self.prev_masked_unfolded_activation,
-                    desired_activation,
-                ),
-                self.input.shape[0],
-            )
-        elif isinstance(self.previous_module, Conv2dAdditionGrowingModule):
-            raise NotImplementedError("TODO: implement this")
-        else:
-            raise NotImplementedError(
-                f"The computation of M_{-2} is not implemented yet "
-                f"for {type(self.previous_module)} as previous module."
-            )
-
-    def compute_cross_covariance_update(self) -> tuple[torch.Tensor, int]:
-        """
-        Compute the update of the tensor P := B[-2]^T B[-1] .# TODO: correct this formula
-
-        Returns
-        -------
-        torch.Tensor
-            update of the tensor P
-        int
-            number of samples used to compute the update
-        """
-        if self.previous_module is None:
-            raise ValueError(
-                f"No previous module for {self.name}. Thus the cross covariance is not defined."
-            )
-        elif isinstance(self.previous_module, LinearGrowingModule):
-            raise NotImplementedError("TODO: implement this")
-        elif isinstance(self.previous_module, LinearAdditionGrowingModule):
-            raise NotImplementedError("TODO: implement this")
-        elif isinstance(self.previous_module, Conv2dGrowingModule):
-            return (
-                torch.einsum(
-                    "ixab, iex -> abe",
-                    self.prev_masked_unfolded_activation,
-                    self.unfolded_extended_input,
-                ),
-                self.input.shape[0],
-            )
-        elif isinstance(self.previous_module, Conv2dAdditionGrowingModule):
-            raise NotImplementedError("TODO: implement this")
-        else:
-            raise NotImplementedError(
-                f"The computation of P is not implemented yet "
-                f"for {type(self.previous_module)} as previous module."
-            )
-
-    def compute_prev_s_update(self) -> tuple[torch.Tensor, int]:
-        """
-        Compute the update of the tensor S_{-2} := B^t[-2]^T B^t[-2] . # TODO: correct this formula
-
-        Returns
-        -------
-        torch.Tensor
-            update of the tensor S_{-2}
-        int
-            number of samples used to compute the update
-        """
-        multiplicative_factor = self.lauer.kernel_size[0] * self.layer.kernel_size[1]
-        if self.previous_module is None:
-            raise ValueError(
-                f"No previous module for {self.name}. Thus the S prev tensor is not defined."
-            )
-        elif isinstance(self.previous_module, LinearGrowingModule):
-            raise NotImplementedError(
-                "TODO: implement this"
-            )  # ? do we need to implement this?
-        elif isinstance(self.previous_module, LinearAdditionGrowingModule):
-            raise NotImplementedError(
-                "TODO: implement this"
-            )  # ? do we need to implement this?
-        elif isinstance(self.previous_module, Conv2dGrowingModule):
-            return (
-                multiplicative_factor
-                * torch.einsum(
-                    "ijea, ijeb -> ab",
-                    self.prev_masked_unfolded_activation,
-                    self.prev_masked_unfolded_activation,
-                ),
-                self.input.shape[0],
-            )
-        elif isinstance(self.previous_module, Conv2dAdditionGrowingModule):
-            raise NotImplementedError("TODO: implement this")
-        else:
-            raise NotImplementedError(
-                f"The computation of S_{-2} is not implemented yet "
-                f"for {type(self.previous_module)} as previous module."
-            )
-
-    # TODO: continue from here
-    @property
-    def tensor_n(self) -> torch.Tensor:
-        """
-        Compute the tensor N for the layer with the current M_-2, C and optimal delta.
-
-        Returns
-        -------
-        torch.Tensor
-            N
-        """
-        return -self.tensor_m_prev() - torch.einsum(
-            "abe, ce -> bca", self.cross_covariance(), self.delta_raw
         )
 
     # Layer edition
@@ -524,7 +313,6 @@ class Conv2dGrowingModule(GrowingModule):
             name=self.tensor_m.name,
         )
 
-    # TODO: continue from here
     def layer_out_extension(
         self, weight: torch.Tensor, bias: torch.Tensor | None = None
     ) -> None:
@@ -545,9 +333,6 @@ class Conv2dGrowingModule(GrowingModule):
         assert (
             bias is None or bias.shape[0] == weight.shape[0]
         ), f"{bias.shape[0]=} should be equal to {weight.shape[0]=}"
-        assert (
-            not self.use_bias or bias is not None
-        ), f"The bias of the extension should be provided because the layer has a bias"
 
         if self.use_bias:
             assert (
@@ -558,6 +343,11 @@ class Conv2dGrowingModule(GrowingModule):
                 bias=torch.cat((self.layer.bias, bias), dim=0),
             )
         else:
+            if bias is not None:
+                warn(
+                    f"The bias of the extension should not be provided because the layer has no bias.",
+                    UserWarning,
+                )
             self.layer = self.layer_of_tensor(
                 weight=torch.cat((self.weight, weight), dim=0), bias=None
             )
@@ -568,58 +358,6 @@ class Conv2dGrowingModule(GrowingModule):
             update_function=self.compute_m_update,
             name=self.tensor_m.name,
         )
-
-    def sub_select_optimal_added_parameters(
-        self,
-        keep_neurons: int,
-        sub_select_previous: bool = True,
-    ) -> None:
-        """
-        Select the first `keep_neurons` neurons of the optimal added parameters.
-
-        Parameters
-        ----------
-        keep_neurons: int
-            number of neurons to keep
-        sub_select_previous: bool
-            if True, sub-select the previous layer added parameters as well
-        """
-        assert (self.extended_input_layer is None) ^ (
-            self.extended_output_layer is None
-        ), "The layer should have an extended input xor output layer."
-        if self.extended_input_layer is not None:
-            self.extended_input_layer = self.layer_of_tensor(
-                self.extended_input_layer.weight[:, :keep_neurons]
-            )
-            assert self.eigenvalues_extension is not None, (
-                f"The eigenvalues of the extension should be computed before "
-                f"sub-selecting the optimal added parameters."
-            )
-            self.eigenvalues_extension = self.eigenvalues_extension[:keep_neurons]
-
-        if self.extended_output_layer is not None:
-            self.extended_output_layer = self.layer_of_tensor(
-                self.extended_output_layer.weight[:keep_neurons],
-                bias=(
-                    self.extended_output_layer.bias[:keep_neurons]
-                    if self.extended_output_layer.bias is not None
-                    else None
-                ),
-            )
-        if sub_select_previous:
-            if isinstance(self.previous_module, LinearGrowingModule):
-                self.previous_module.sub_select_optimal_added_parameters(keep_neurons)
-            elif isinstance(self.previous_module, LinearAdditionGrowingModule):
-                raise NotImplementedError(f"TODO")
-            elif isinstance(self.previous_module, Conv2dGrowingModule):
-                self.previous_module.sub_select_optimal_added_parameters(keep_neurons)
-            elif isinstance(self.previous_module, Conv2dAdditionGrowingModule):
-                raise NotImplementedError(f"TODO")
-            else:
-                raise NotImplementedError(
-                    f"The computation of the optimal added parameters is not implemented "
-                    f"yet for {type(self.previous_module)} as previous module."
-                )
 
     # Optimal update computation
     def compute_optimal_delta(
@@ -707,7 +445,7 @@ class Conv2dGrowingModule(GrowingModule):
                 self.in_channels * self.kernel_size[0] * self.kernel_size[1] + 1
             ), (
                 f"delta_raw should have shape (..., {self.in_channels * self.kernel_size[0] * self.kernel_size[1] + 1=}) "
-                f"but got (..., {self.delta_raw.shape[1]}) (this could be not correctly implemented)"
+                f"but got (..., {self.delta_raw.shape[1]})"
             )
             delta_weight = self.delta_raw[:, :-1]
             delta_bias = self.delta_raw[:, -1]
