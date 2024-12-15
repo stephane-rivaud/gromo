@@ -133,7 +133,6 @@ class TestTools(TestCase):
                                     mask,
                                     x_input_flatten,
                                 )
-                                # TODO: check if this this is the intended property of tensor_t when bias is activated
                                 assert conv.bias is not None, "Bias should be activated"
                                 y_via_mask += conv.bias.data.view(1, -1, 1)
                                 self.assertTrue(
