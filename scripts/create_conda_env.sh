@@ -6,6 +6,9 @@
 # Initialize conda
 conda init
 
+# Source the shell configuration file to apply changes
+source ~/.bashrc
+
 # Activate the conda environment
 conda activate gromo
 
