@@ -113,4 +113,4 @@ command="${command} --line-search-alpha $line_search_alpha --line-search-beta $l
 
 # Execute the command
 echo "Executing command: $command"
-eval $command
+eval "$command"
