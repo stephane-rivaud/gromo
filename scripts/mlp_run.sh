@@ -1,5 +1,9 @@
 #!/bin/bash
 
+#SBATCH --job-name=mlp-run
+#SBATCH --output=slurm/%x-%j.out
+#SBATCH --error=slurm/%x-%j.err
+
 command="python misc/mlp_run.py"
 
 # General arguments
