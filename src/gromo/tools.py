@@ -1,12 +1,44 @@
 from warnings import warn
 
 import torch
+import subprocess
+
+
+def get_cuda_version_as_number():
+    try:
+        # Run nvidia-smi and capture the output
+        output = subprocess.check_output("nvidia-smi", shell=True).decode()
+        # Look for the line containing "CUDA Version"
+        for line in output.split("\n"):
+            if "CUDA Version" in line:
+                # Extract the version part after the colon and strip unwanted characters
+                version_str = line.split(":")[-1].strip()
+                version_number = version_str.split()[0]  # Remove extra symbols or text if present
+                return float(version_number)  # Convert to float (e.g., 11.8)
+    except Exception as e:
+        raise RuntimeError(f"Error fetching CUDA version: {e}")
+
+
+def get_preferred_linalg_library() -> str:
+    """
+    Get the preferred linalg library for CUDA operations.
+
+    Returns
+    -------
+    str
+        preferred linalg library
+    """
+    cuda_version = get_cuda_version_as_number()
+    if cuda_version >= 12.1:
+        return None
+    else:
+        return "magma"
 
 
 def sqrt_inverse_matrix_semi_positive(
     matrix: torch.Tensor,
     threshold: float = 1e-5,
-    preferred_linalg_library: None | str = None,
+    preferred_linalg_library: None | str = get_preferred_linalg_library(),
 ) -> torch.Tensor:
     """
     Compute the square root of the inverse of a semi-positive definite matrix.
