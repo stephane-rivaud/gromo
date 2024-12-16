@@ -10,6 +10,7 @@ conda create -n gromo python=3.12
 conda activate gromo
 
 # Install dependencies
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 pip install -e .
 
 # Test the PyTorch installation and the GPU
