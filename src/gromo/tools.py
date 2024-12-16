@@ -41,7 +41,7 @@ def get_preferred_linalg_library() -> str:
 def sqrt_inverse_matrix_semi_positive(
     matrix: torch.Tensor,
     threshold: float = 1e-5,
-    preferred_linalg_library: None | str = get_preferred_linalg_library(),
+    preferred_linalg_library: None | str = "magma",
 ) -> torch.Tensor:
     """
     Compute the square root of the inverse of a semi-positive definite matrix.
