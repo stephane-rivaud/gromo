@@ -12,6 +12,7 @@ conda activate gromo
 # Install dependencies
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 pip install -e .
+pip install mlflow
 
 # Test the PyTorch installation and the GPU
 python -c "import torch; print(torch.cuda.is_available())"
