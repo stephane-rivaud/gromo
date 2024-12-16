@@ -12,6 +12,8 @@ source /home/tau/strivaud/.bashrc
 # Activate the conda environment
 conda activate gromo
 
+conda info --envs
+
 # Install dependencies
 #pip install -e .
 
