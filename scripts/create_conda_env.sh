@@ -7,7 +7,7 @@
 conda init
 
 # Source the shell configuration file to apply changes
-source ~/.bashrc
+source /home/tau/strivaud/.bashrc
 
 # Activate the conda environment
 conda activate gromo
