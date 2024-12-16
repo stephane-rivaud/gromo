@@ -1,5 +1,7 @@
 #!/bin/bash
 
+mkdir -p slurm
+
 # model arguments
 nb_hidden_layer=4
 hidden_size=10
