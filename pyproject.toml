@@ -21,11 +21,11 @@ classifiers = [
 dependencies = [
     "build",
     "networkx",
-    "torch",
+    "torch==2.5.0+cu118",
     "numpy",
     "matplotlib",
     "pyvis",
-    "torchvision",
+    "torchvision==0.20.0+cu118",
 ]
 [project.optional-dependencies]
 test = ["coverage"]
