@@ -30,9 +30,12 @@ def get_preferred_linalg_library() -> str:
     """
     cuda_version = get_cuda_version_as_number()
     if cuda_version >= 12.1:
-        return None
+        preferred_backend = None
     else:
-        return "magma"
+        preferred_backend = "magma"
+
+    print(f"Preferred linalg library: {preferred_backend}")
+    return preferred_backend
 
 
 def sqrt_inverse_matrix_semi_positive(
