@@ -27,6 +27,11 @@ if [ -f /home/strivaud/.bash_profile ]; then
     source /home/tau/strivaud/.bash_profile
 fi
 # activate the conda environment
+conda_path="/home/tau/strivaud/miniconda3/etc/profile.d/conda.sh"
+if [ -f "$conda_path" ]; then
+    . "$conda_path"
+fi
+
 conda activate gromo
 
 # Command to execute
