@@ -1186,7 +1186,9 @@ class GrowingModule(torch.nn.Module):
         include_output: bool = False,
     ) -> None:
         """
-        Delete the update of the optimal added parameters.
+        Delete the updates of the layer:
+        - optimal_delta_layer
+        - extended_input_layer and associated extensions
 
         By default, we do not delete the extended_output_layer of this layer because it
         could be required by the next layer.
@@ -1222,29 +1224,44 @@ class GrowingModule(torch.nn.Module):
                         self.previous_module.extended_output_layer = None
                     elif isinstance(self.previous_module, AdditionGrowingModule):
                         raise NotImplementedError  # TODO
+                        # two options for future implementation:
+                        # 1. Do nothing(ie replace raise NotImplementedError by return or
+                        # a warning) and let the user fully in charge of deleting the
+                        # associated extensions.
+                        # 2. Delete associated extension ie all previous extended output,
+                        # all parallel extended input and maybe more as we could have
+                        # skip connections...
+
                     else:
                         raise TypeError(
                             f"Unexpected type for previous_module of {self.name}"
-                            f"got {type(self.previous_module)} instead of GrowingModule or AdditionGrowingModule."
+                            f"got {type(self.previous_module)} instead of GrowingModule "
+                            f"or AdditionGrowingModule."
                         )
                 # risky behavior
                 else:  # include_previous is False
                     if isinstance(self.previous_module, GrowingModule):
                         if self.previous_module.extended_output_layer is not None:
                             warnings.warn(
-                                f"The extended_input_layer of {self.name} has been deleted."
-                                f"However, the extended_output_layer associated stored in the previous module"
-                                f"named {self.previous_module.name} has not been deleted."
+                                f"The extended_input_layer of {self.name} has been"
+                                f" deleted. However, the extended_output_layer associated "
+                                f"stored in the previous module named "
+                                f"{self.previous_module.name} has not been deleted."
                                 "This may lead to errors when using extended_forward.",
                                 UserWarning,
                             )
                         # otherwise it is ok as user already deleted the extended_output_layer
                     elif isinstance(self.previous_module, AdditionGrowingModule):
-                        raise NotImplementedError
+                        return
+                        # the user intentionally decided to take care of deletion of the
+                        # other extensions we do not raise a warning (in contrast with the
+                        # GrowingModule case) as  this is way more likely to happen
+                        # with AdditionGrowingModule
                     else:
                         raise TypeError(
                             f"Unexpected type for previous_module of {self.name}"
-                            f"got {type(self.previous_module)} instead of GrowingModule or AdditionGrowingModule."
+                            f"got {type(self.previous_module)} instead of GrowingModule "
+                            f"or AdditionGrowingModule."
                         )
             # incorrect behavior
             else:  # self.previous_module is None
@@ -1252,7 +1269,8 @@ class GrowingModule(torch.nn.Module):
                     f"The extended_input_layer of {self.name} has been deleted."
                     "However, no previous module is associated with this layer."
                     "Therefore, no extended_output_layer has been deleted."
-                    "This is not supposed to happen as to grow a layer a previous module is needed.",
+                    "This is not supposed to happen as to grow a layer a previous "
+                    "module is needed.",
                     UserWarning,
                 )
 
