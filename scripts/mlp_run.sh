@@ -4,6 +4,9 @@
 #SBATCH --output=slurm/%x-%j.out
 #SBATCH --error=slurm/%x-%j.err
 
+# activate the conda environment
+conda activate gromo
+
 command="python misc/mlp_run.py"
 
 # General arguments
