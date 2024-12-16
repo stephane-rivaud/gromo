@@ -4,7 +4,7 @@
 #conda create -n gromo python=3.12
 
 # Initialize conda
-conda init
+#conda init
 
 # Source the shell configuration file to apply changes
 source /home/tau/strivaud/.bashrc
