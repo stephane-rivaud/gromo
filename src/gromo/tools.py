@@ -5,18 +5,21 @@ import subprocess
 
 
 def get_cuda_version_as_number():
-    try:
-        # Run nvidia-smi and capture the output
-        output = subprocess.check_output("nvidia-smi", shell=True).decode()
-        # Look for the line containing "CUDA Version"
-        for line in output.split("\n"):
-            if "CUDA Version" in line:
-                # Extract the version part after the colon and strip unwanted characters
-                version_str = line.split(":")[-1].strip()
-                version_number = version_str.split()[0]  # Remove extra symbols or text if present
-                return float(version_number)  # Convert to float (e.g., 11.8)
-    except Exception as e:
-        raise RuntimeError(f"Error fetching CUDA version: {e}")
+    if not torch.cuda.is_available():
+        return None
+    else:
+        try:
+            # Run nvidia-smi and capture the output
+            output = subprocess.check_output("nvidia-smi", shell=True).decode()
+            # Look for the line containing "CUDA Version"
+            for line in output.split("\n"):
+                if "CUDA Version" in line:
+                    # Extract the version part after the colon and strip unwanted characters
+                    version_str = line.split(":")[-1].strip()
+                    version_number = version_str.split()[0]  # Remove extra symbols or text if present
+                    return float(version_number)  # Convert to float (e.g., 11.8)
+        except Exception as e:
+            raise RuntimeError(f"Error fetching CUDA version: {e}")
 
 
 def get_preferred_linalg_library() -> str:
@@ -29,7 +32,9 @@ def get_preferred_linalg_library() -> str:
         preferred linalg library
     """
     cuda_version = get_cuda_version_as_number()
-    if cuda_version >= 12.1:
+    if cuda_version is None:
+        preferred_backend = None
+    elif cuda_version >= 12.1:
         preferred_backend = None
     else:
         preferred_backend = "magma"
@@ -41,7 +46,7 @@ def get_preferred_linalg_library() -> str:
 def sqrt_inverse_matrix_semi_positive(
     matrix: torch.Tensor,
     threshold: float = 1e-5,
-    preferred_linalg_library: None | str = "magma",
+    preferred_linalg_library: None | str = get_preferred_linalg_library(),
 ) -> torch.Tensor:
     """
     Compute the square root of the inverse of a semi-positive definite matrix.

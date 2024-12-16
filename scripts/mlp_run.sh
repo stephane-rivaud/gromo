@@ -4,12 +4,15 @@
 #SBATCH --output=slurm/%x-%j.out
 #SBATCH --error=slurm/%x-%j.err
 
-# activate the conda environment
-conda_path="/home/tau/strivaud/miniconda3/etc/profile.d/conda.sh"
-if [ -f "$conda_path" ]; then
-    . "$conda_path"
-fi
+# script parameters
+nb_hidden_layer=$1
+hidden_size=$2
+weight_decay=$3
+epochs_per_growth=$4
+selection_method=$5
 
+# activate the conda environment
+conda init
 conda activate gromo
 
 command="python misc/mlp_run.py"
@@ -60,8 +63,8 @@ if [ -n "$data_augmentation" ]; then
 fi
 
 # Model arguments
-nb_hidden_layer=4
-hidden_size=10
+#nb_hidden_layer=4
+#hidden_size=10
 activation="selu"
 bias=true
 
@@ -75,13 +78,13 @@ seed=0
 batch_size=64
 optimizer="sgd"
 lr=0.01
-weight_decay=0
+#weight_decay=0
 
 command="${command} --seed $seed --batch-size $batch_size --optimizer $optimizer --lr $lr --weight-decay $weight_decay"
 
 # Growing training arguments
-epochs_per_growth=4
-selection_method="none"
+#epochs_per_growth=4
+#selection_method="none"
 growing_batch_limit=-1
 growing_part="all"
 growing_numerical_threshold=1e-5
