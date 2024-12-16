@@ -5,6 +5,11 @@
 #SBATCH --error=slurm/%x-%j.err
 
 # activate the conda environment
+conda_path="/home/tau/strivaud/miniconda3/etc/profile.d/conda.sh"
+if [ -f "$conda_path" ]; then
+    . "$conda_path"
+fi
+
 conda activate gromo
 
 command="python misc/mlp_run.py"
