@@ -382,6 +382,8 @@ def main(args: argparse.Namespace):
             seed=args.seed,
             device=device,
         )
+        print(f"Model before training: {model}")
+        print(f"Number of parameters: {model.number_of_parameters()}")
 
         growing_dtype = torch.float32
         if args.growing_computation_dtype == "float64":
@@ -602,7 +604,8 @@ def main(args: argparse.Namespace):
                 break
 
     print(f"Total duration: {time() - start_time}")
-    print(model)
+    print(f"Model after training: {model}")
+    print(f"Number of parameters: {model.number_of_parameters()}")
 
 
 if __name__ == "__main__":
