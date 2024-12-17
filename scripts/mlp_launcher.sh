@@ -20,7 +20,7 @@ for nb_hidden_layer in 1 2; do
         for selection_method in "none" "fo"; do
           command="mlp_run.sh $nb_hidden_layer $hidden_size $weight_decay $epoch_per_growth $selection_method"
           echo $command
-          sbtach --gres=gpu:1 --time=01:30:00 $command
+          sbtach --gres=gpu:1 --time=01:30:00 --partition titanic $command
         done
       done
     done
