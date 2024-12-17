@@ -28,6 +28,7 @@ tags="mlp-benchmark"
 nb_step=120
 no_cuda=false
 training_threshold=""
+log_system_metrics=true
 
 command="${command} --nb-step $nb_step"
 if [ -n "$log_dir" ]; then
@@ -50,6 +51,9 @@ if [ "$no_cuda" = true ]; then
 fi
 if [ -n "$training_threshold" ]; then
     command="${command} --training-threshold $training_threshold"
+fi
+if [ "$log_system_metrics" = true ]; then
+    command="${command} --log-system-metrics"
 fi
 
 # Dataset arguments

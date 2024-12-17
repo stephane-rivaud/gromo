@@ -78,6 +78,12 @@ def create_parser() -> argparse.ArgumentParser:
         default=None,
         help="training is stopped when the loss is below this threshold (default: None)",
     )
+    general_group.add_argument(
+        "--log-system-metrics",
+        action="store_true",
+        default=False,
+        help="log system metrics (default: False)",
+    )
 
     # model arguments
     architecture_group = parser.add_argument_group("architecture")
@@ -318,7 +324,7 @@ def main(args: argparse.Namespace):
         pass
 
     mlflow.set_experiment(f"{args.dataset}")
-    with mlflow.start_run(run_name=args.log_file_name):
+    with mlflow.start_run(run_name=args.log_file_name, log_system_metrics=args.log_system_metrics):
         if args.tags is not None:
             mlflow.set_tags({"tags": args.tags})
         with open(file_path, "w") as f:
