@@ -44,9 +44,9 @@ def get_preferred_linalg_library() -> str:
 
 
 def sqrt_inverse_matrix_semi_positive(
-    matrix: torch.Tensor,
-    threshold: float = 1e-5,
-    preferred_linalg_library: None | str = get_preferred_linalg_library(),
+        matrix: torch.Tensor,
+        threshold: float = 1e-5,
+        preferred_linalg_library: None | str = get_preferred_linalg_library(),
 ) -> torch.Tensor:
     """
     Compute the square root of the inverse of a semi-positive definite matrix.
@@ -58,8 +58,8 @@ def sqrt_inverse_matrix_semi_positive(
     threshold: float
         threshold to consider an eigenvalue as zero
     preferred_linalg_library: None | str in ("magma", "cusolver")
-        linalg library to use, "cusolver" may failed
-        for non positive definite matrix if CUDA < 12.1 is used
+        linalg library to use, "cusolver" may fail
+        for non-positive definite matrix if CUDA < 12.1 is used
         see: https://pytorch.org/docs/stable/generated/torch.linalg.eigh.html
 
     Returns
@@ -73,16 +73,23 @@ def sqrt_inverse_matrix_semi_positive(
 
     if preferred_linalg_library is not None:
         torch.backends.cuda.preferred_linalg_library(preferred_linalg_library)
+
     try:
         eigenvalues, eigenvectors = torch.linalg.eigh(matrix)
     except torch.linalg.LinAlgError as e:
         if preferred_linalg_library == "cusolver":
             raise ValueError(
-                "This is probably a bug from CUDA < 12.1"
+                "This is probably a bug from CUDA < 12.1. "
                 "Try torch.backends.cuda.preferred_linalg_library('magma')"
             )
         else:
             raise e
+    except RuntimeError as e:
+        print(f"RuntimeError: {e}")
+        print(f"Matrix shape: {matrix.shape}")
+        print(f"Matrix: {matrix}")
+        raise e
+
     selected_eigenvalues = eigenvalues > threshold
     eigenvalues = torch.rsqrt(eigenvalues[selected_eigenvalues])  # inverse square root
     eigenvectors = eigenvectors[:, selected_eigenvalues]
