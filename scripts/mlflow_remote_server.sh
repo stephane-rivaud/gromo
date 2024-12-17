@@ -3,6 +3,7 @@
 # connect to the remote server
 port=6000
 ssh -L $port:127.0.0.1:$port strivaud@ssh.saclay.inria.fr
+ssh -A $port:127.0.0.1:$port titanic
 cd /home/tau/strivaud/gromo || {
   echo "Failed to change directory"
   exit 1
