@@ -17,7 +17,7 @@ source /home/tau/strivaud/.bashrc
 # activate the conda environment
 conda activate gromo
 
-command="python misc/mlp_run.py"
+command="python -u misc/mlp_run.py"
 
 # General arguments
 log_dir="logs/mlp_run"
