@@ -292,7 +292,10 @@ def main(args: argparse.Namespace):
             "Normalizing the weights is only an invariant for ReLU activation functions."
         )
 
+    print(f'before start_time')
     start_time = time()
+    print(f'after start_time')
+
     if args.log_file_name is None:
         args.log_file_name = f"mlp_{args.dataset}_{args.activation}_model_{args.hidden_size}x{args.nb_hidden_layer}"
 
