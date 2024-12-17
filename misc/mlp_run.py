@@ -542,7 +542,7 @@ def main(args: argparse.Namespace):
                     raise NotImplementedError("Growing the model is not implemented yet")
 
                 # debug
-                print(f"Selected layer: {last_updated_layer}")
+                print(f"Updating layer: {last_updated_layer}")
 
                 logs["selected_update"] = last_updated_layer
 
@@ -646,6 +646,8 @@ def main(args: argparse.Namespace):
                 logs["GPU utilization"] = torch.cuda.utilization(device)
 
             print(f"Epoch [{step}/{args.nb_step}]: loss {val_loss: .4f} ({train_loss: .4f}) -- accuracy {val_accuracy: .4f} ({train_accuracy: .4f})  [{logs['epoch_type']}]")
+
+            print(f"Epoch [{step}/{args.nb_step}]: loss {val_loss: .4f} ({train_loss: .4f}) -- accuracy {val_accuracy: .4f} ({train_accuracy[-1]: .4f})")
 
             with open(file_path, "a") as f:
                 f.write(str(logs))
