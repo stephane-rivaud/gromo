@@ -4,7 +4,7 @@
 source /home/tau/strivaud/.bashrc
 
 # Delete the conda environment if it already exists
-conda remove --name gromo --all
+conda env remove -n gromo
 
 # Create the conda environment
 conda create -n gromo python=3.12
