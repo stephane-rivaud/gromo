@@ -488,7 +488,7 @@ def main(args: argparse.Namespace):
                     raise NotImplementedError("Growing the model is not implemented yet")
 
                 # debug
-                print(f"Selected layer: {last_updated_layer}")
+                print(f"Updating layer: {last_updated_layer}")
 
                 logs["selected_update"] = last_updated_layer
 
@@ -550,7 +550,6 @@ def main(args: argparse.Namespace):
                         model.weights_statistics()
                     )
 
-                # print(model)
             else:
                 logs["selected_update"] = -1
                 logs["epoch_type"] = "training"
@@ -584,6 +583,8 @@ def main(args: argparse.Namespace):
             logs["step_duration"] = time() - step_start_time
             logs["layers_statistics"] = model.weights_statistics()
             logs["number_of_parameters"] = model.number_of_parameters()
+
+            print(f"Epoch [{step}/{args.nb_step}]: loss {val_loss: .4f} ({train_loss: .4f}) -- accuracy {val_accuracy: .4f} ({train_accuracy[-1]: .4f})")
 
             with open(file_path, "a") as f:
                 f.write(str(logs))
