@@ -58,9 +58,11 @@ class MyTestCase(TestCase):
     def test_number_of_parameters(self):
         for bias in (True, False):
             with self.subTest(bias=bias):
-                self.assertEqual(self.bias_demos[bias].number_of_parameters(),
-                                 self.bias_demos[bias].layer.weight.numel() +
-                                 (self.bias_demos[bias].layer.bias.numel() if bias else 0))
+                self.assertEqual(
+                    self.bias_demos[bias].number_of_parameters(),
+                    self.bias_demos[bias].layer.weight.numel()
+                    + (self.bias_demos[bias].layer.bias.numel() if bias else 0),
+                )
 
     def test_str(self):
         self.assertIsInstance(str(self.demo), str)
@@ -71,26 +73,21 @@ class MyTestCase(TestCase):
 
     def test_layer_of_tensor(self):
         # no bias
-        wl = self.demo.layer_of_tensor(self.demo_layer.weight.data)
-        # way to test that wl == self.demo_layer
-        y = self.demo(self.input_x)
-        self.assertTrue(torch.equal(y, wl(self.input_x)))
+        for bias in (True, False):
+            with self.subTest(bias=bias):
+                wl = self.bias_demos[bias].layer_of_tensor(
+                    self.bias_demos[bias].layer.weight.data,
+                    self.bias_demos[bias].layer.bias.data if bias else None,
+                )
+                # way to test that wl == self.demo_layer
+                y = self.bias_demos[bias](self.input_x)
+                self.assertTrue(torch.equal(y, wl(self.input_x)))
 
-        with self.assertRaises(AssertionError):
-            _ = self.demo.layer_of_tensor(
-                self.demo_layer.weight.data, self.demo_layer_b.bias.data
-            )
-
-        # with bias
-        wl = self.demo_b.layer_of_tensor(
-            self.demo_layer_b.weight.data, self.demo_layer_b.bias.data
-        )
-        # way to test that wl == self.demo_layer
-        y = self.demo_b(self.input_x)
-        self.assertTrue(torch.equal(y, wl(self.input_x)))
-
-        with self.assertRaises(AssertionError):
-            _ = self.demo_b.layer_of_tensor(self.demo_layer_b.weight.data)
+                with self.assertRaises(AssertionError):
+                    _ = self.bias_demos[bias].layer_of_tensor(
+                        self.bias_demos[bias].layer.weight.data,
+                        self.demo_layer_b.bias.data if not bias else None,
+                    )
 
     def test_layer_in_extension(self):
         in_extension = torch.nn.Conv2d(3, 7, (3, 5), bias=False, device=global_device())
