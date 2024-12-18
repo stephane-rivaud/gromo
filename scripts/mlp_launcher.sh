@@ -14,9 +14,9 @@ epoch_per_growth=10
 selection_method="none" # "none", "fo"
 
 for nb_hidden_layer in 1 2; do
-  for hidden_size in 8 16 32 64; do
+  for hidden_size in 8 16 32; do
     for weight_decay in 0 0.0001 0.001; do
-      for epoch_per_growth in -1 1 2 4; do
+      for epoch_per_growth in -1 1 2; do
         for selection_method in "none" "fo"; do
           command="mlp_run.sh $nb_hidden_layer $hidden_size $weight_decay $epoch_per_growth $selection_method"
           echo $command
