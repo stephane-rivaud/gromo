@@ -14,6 +14,35 @@ class Conv2dAdditionGrowingModule(AdditionGrowingModule):
 
 
 class Conv2dGrowingModule(GrowingModule):
+    """
+    Conv2dGrowingModule is a GrowingModule for a Conv2d layer.
+
+    Parameters
+    ----------
+    For the parameters in_channels, out_channels, kernel_size, stride, padding, dilation,
+     use_bias they are the same as in torch.nn.Conv2d.
+
+    in_channels: int
+    out_channels: int
+    kernel_size: int | tuple[int, int]
+    stride: int | tuple[int, int]
+    padding: int | tuple[int, int]
+    dilation: int | tuple[int, int]
+    post_layer_function: torch.nn.Module
+        function applied after the layer (e.g. activation function)
+    previous_module: GrowingModule | AdditionGrowingModule | None
+        previous module in the network (None if the first module),
+        needed to extend the layer
+    next_module: GrowingModule | AdditionGrowingModule | None
+        next module in the network (None if the last module)
+    allow_growing: bool
+        whether the layer can grow in input size
+    device: torch.device | None
+        device for the layer
+    name: str | None
+        name of the layer used for debugging purpose
+    """
+
     def __init__(
         self,
         in_channels: int,
