@@ -28,6 +28,8 @@ class MyTestCase(TestCase):
         torch.manual_seed(0)
         self.input_x = torch.randn(5, 2, 10, 10, device=global_device())
 
+        self.bias_demos = {True: self.demo_b, False: self.demo}
+
     def test_init(self):
         # no bias
         m = Conv2dGrowingModule(
@@ -54,14 +56,11 @@ class MyTestCase(TestCase):
         self.assertTrue(torch.equal(y, self.demo_layer_b(self.input_x)))
 
     def test_number_of_parameters(self):
-        # no bias
-        self.assertEqual(self.demo.number_of_parameters(), self.demo_layer.weight.numel())
-
-        # with bias
-        self.assertEqual(
-            self.demo_b.number_of_parameters(),
-            self.demo_layer_b.weight.numel() + self.demo_layer_b.bias.numel(),
-        )
+        for bias in (True, False):
+            with self.subTest(bias=bias):
+                self.assertEqual(self.bias_demos[bias].number_of_parameters(),
+                                 self.bias_demos[bias].layer.weight.numel() +
+                                 (self.bias_demos[bias].layer.bias.numel() if bias else 0))
 
     def test_str(self):
         self.assertIsInstance(str(self.demo), str)
