@@ -7,7 +7,7 @@ remote_port=6000
 # Connect to the remote server with port forwarding
 ssh -L $local_port:127.0.0.1:$remote_port strivaud@ssh.saclay.inria.fr << 'EOF'
   # Connect to the titanic server
-  ssh -L $remote_port:127.0.0.1:$remote_port titanic << 'EOT'
+  ssh -L $remote_port:127.0.0.1:$remote_port 127.0.0.1 << 'EOT'
     # Navigate to the project directory
     cd /home/tau/strivaud/gromo || {
       echo "Failed to change directory"
