@@ -47,7 +47,7 @@ Statistical quantities
 The computation of all statistic has the same structure.
 
 1. Firstly the statistic is created as an instance of `TensorStatistics`.
-2. Then we use our network to compute intermediate quantities. During this forward pass we store the intermediate quantities as explained above and we set the statistics as not updated. This is sed to ensure that we do not update a statistic multiple times with the same data.
+2. Then we use our network to compute intermediate quantities. During this forward pass we store the intermediate quantities as explained above and we set the statistics as not updated. This is to ensure that we do not update a statistic multiple times with the same data.
 3. We call the method `update` of the statistic to update it with the intermediate quantities. This includes updating the number of samples seen to compute the current statistic.
 4. We can then access the statistic by calling it (i.e. using `__call__`).
 
