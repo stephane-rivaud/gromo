@@ -80,13 +80,13 @@ if [ "$bias" = false ]; then
 fi
 
 # Classical training arguments
-seed=0
+#seed=0
 batch_size=64
 optimizer="sgd"
 lr=0.01
 #weight_decay=0
 
-command="${command} --seed $seed --batch-size $batch_size --optimizer $optimizer --lr $lr --weight-decay $weight_decay"
+command="${command} --batch-size $batch_size --optimizer $optimizer --lr $lr --weight-decay $weight_decay"
 
 # Growing training arguments
 #epochs_per_growth=4
