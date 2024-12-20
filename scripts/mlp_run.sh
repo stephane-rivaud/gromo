@@ -15,8 +15,8 @@ selection_method=$5
 if [ -f /home/tau/strivaud/.bashrc ]; then
     source /home/tau/strivaud/.bashrc
 fi
-if [ -f ~/.bash_profile ]; then
-    source ~/.bash_profile
+if [ -f /home/strivaud/.bash_profile ]; then
+    source /home/tau/strivaud/.bash_profile
 fi
 # activate the conda environment
 conda activate gromo
@@ -28,7 +28,7 @@ log_dir="logs/mlp_run"
 log_dir_suffix=""
 log_file_name=""
 log_file_prefix=""
-tags="mlp-test"
+tags="mlp-benchmark"
 nb_step=100
 no_cuda=false
 training_threshold=""
