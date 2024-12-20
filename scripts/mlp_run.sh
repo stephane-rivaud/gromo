@@ -12,8 +12,12 @@ epochs_per_growth=$4
 selection_method=$5
 
 # Source the shell configuration file to apply changes (need for conda)
-source /home/tau/strivaud/.bashrc
-
+if [ -f /home/tau/strivaud/.bashrc ]; then
+    source /home/tau/strivaud/.bashrc
+fi
+if [ -f ~/.bash_profile ]; then
+    source ~/.bash_profile
+fi
 # activate the conda environment
 conda activate gromo
 
