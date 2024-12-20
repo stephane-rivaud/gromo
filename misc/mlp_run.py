@@ -293,14 +293,12 @@ def log_layers_metrics(layer_metrics: dict, step: int, prefix: str | None = None
 
 
 def main(args: argparse.Namespace):
+    start_time = time()
+
     if args.normalize_weights and args.activation.lower().strip() != "relu":
         warn(
             "Normalizing the weights is only an invariant for ReLU activation functions."
         )
-
-    print(f'before start_time')
-    start_time = time()
-    print(f'after start_time')
 
     if args.log_file_name is None:
         args.log_file_name = f"mlp_{args.dataset}_{args.activation}_model_{args.hidden_size}x{args.nb_hidden_layer}"
@@ -312,8 +310,11 @@ def main(args: argparse.Namespace):
         args.log_file_name = f"{args.log_file_prefix}_{args.log_file_name}"
 
     file_path = f"{args.log_dir}/{args.log_file_name}_{start_time:.0f}.txt"
+
     print(f"Log file: {file_path}")
+    print(f"Mlflow log dir: {args.log_dir}")
     mlflow.set_tracking_uri(f"{args.log_dir}/mlruns")
+    print(f"MLflow tracking uri: {mlflow.get_tracking_uri()}")
     # mlflow.set_tracking_uri("http://127.0.0.1:8080")
     try:
         mlflow.create_experiment(
