@@ -141,7 +141,7 @@ def create_parser() -> argparse.ArgumentParser:
     # classical training arguments
     training_group = parser.add_argument_group("training")
     training_group.add_argument(
-        "--seed", type=int, default=0, help="random seed (default: 0)"
+        "--seed", type=int, default=None, help="random seed (default: 0)"
     )
     training_group.add_argument(
         "--batch-size",
@@ -619,6 +619,11 @@ def main(args: argparse.Namespace):
 
 
 if __name__ == "__main__":
+    import random
+
     parser = create_parser()
     args = parser.parse_args()
+    # Check if the seed is None and generate a random seed if necessary
+    if args.seed is None:
+        args.seed = random.randint(0, 2 ** 32 - 1)
     main(args)
