@@ -13,7 +13,7 @@ weight_decay=0
 epoch_per_growth=10
 selection_method="none" # "none", "fo"
 
-for nb_hidden_layer in 1 2; do
+for nb_hidden_layer in 3 4; do
   for hidden_size in 8 16 32; do
     for weight_decay in 0 0.0001 0.001; do
       for epoch_per_growth in -1 1 2; do
