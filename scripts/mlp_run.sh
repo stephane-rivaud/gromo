@@ -101,7 +101,7 @@ growing_numerical_threshold=1e-5
 growing_statistical_threshold=1e-3
 growing_maximum_added_neurons=10
 growing_computation_dtype="float32"
-normalize_weights=true
+normalize_weights=false
 init_new_neurons_with_random_in_and_zero_out=false
 
 command="${command} --epochs-per-growth $epochs_per_growth --selection-method $selection_method --growing-batch-limit $growing_batch_limit --growing-part $growing_part --growing-numerical-threshold $growing_numerical_threshold --growing-statistical-threshold $growing_statistical_threshold --growing-maximum-added-neurons $growing_maximum_added_neurons --growing-computation-dtype $growing_computation_dtype"
