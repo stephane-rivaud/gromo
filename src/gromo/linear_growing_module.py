@@ -325,6 +325,7 @@ class LinearGrowingModule(GrowingModule):
             tensor_m_shape=(in_features + use_bias, out_features),
             device=device,
             name=name,
+            s_growth_is_needed=False,
         )
         self.use_bias = use_bias
         self.in_features = in_features
@@ -570,7 +571,10 @@ class LinearGrowingModule(GrowingModule):
         """
         Allow to set the tensor_s_growth but has no effect.
         """
-        return
+        raise AttributeError(
+            f"You tried to set tensor_s_growth of a LinearGrowingModule (name={self.name})."
+            "This is not allowed as s growth is the same as tensor_s."
+        )
 
     @property
     def tensor_n(self) -> torch.Tensor:
