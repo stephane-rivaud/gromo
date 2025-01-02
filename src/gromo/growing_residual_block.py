@@ -194,14 +194,18 @@ class GrowingResidualBlock(torch.nn.Module):
         """
         Initialise the computation of the block.
         """
-        self.first_layer.store_input = True
-        self.first_layer.store_pre_activity = True
-        self.second_layer.store_input = True
-        self.second_layer.store_pre_activity = True
-        self.second_layer.tensor_s.init()
-        self.second_layer.tensor_m.init()
-        self.second_layer.tensor_m_prev.init()
-        self.second_layer.cross_covariance.init()
+        # self.first_layer.store_input = True
+        # self.first_layer.store_pre_activity = True
+        # self.first_layer.tensor_s.init()
+        # self.first_layer.tensor_m.init()
+        # self.second_layer.store_input = True
+        # self.second_layer.store_pre_activity = True
+        # self.second_layer.tensor_s.init()
+        # self.second_layer.tensor_m.init()
+        # self.second_layer.tensor_m_prev.init()
+        # self.second_layer.cross_covariance.init()
+        self.first_layer.init_computation()
+        self.second_layer.init_computation()
 
     def update_computation(self, desired_activation: torch.Tensor | None = None):
         """
@@ -216,7 +220,7 @@ class GrowingResidualBlock(torch.nn.Module):
         # self.second_layer.tensor_s.update()
         # self.second_layer.tensor_m_prev.update(desired_activation=desired_activation)
         # self.second_layer.cross_covariance.update()
-        # self.first_layer.update_computation()
+        self.first_layer.update_computation()
         self.second_layer.update_computation()
 
     def reset_computation(self):
@@ -290,7 +294,7 @@ class GrowingResidualBlock(torch.nn.Module):
             number of neurons to keep
         """
         self.eigenvalues = self.eigenvalues[:keep_neurons]
-        self.first_layer.sub_select_optimal_added_parameters(keep_neurons)
+        # self.first_layer.sub_select_optimal_added_parameters(keep_neurons)
         self.second_layer.sub_select_optimal_added_parameters(keep_neurons)
 
     @property
@@ -324,6 +328,7 @@ if __name__ == "__main__":
     # Define the block
     hidden_features = 8
     block = GrowingResidualBlock(in_features, hidden_features, activation=nn.ReLU(), name="block")
+    print(block)
 
     # Define the optimizer
     optimizer = torch.optim.SGD(block.parameters(), lr=0.01, momentum=0.9, weight_decay=1e-3)
@@ -346,13 +351,14 @@ if __name__ == "__main__":
         block.update_computation()
 
     # Compute the optimal update
-    block.compute_optimal_updates()
+    keep_neurons = 3
+    block.compute_optimal_updates(maximum_added_neurons=keep_neurons)
+
+    # Sub select the optimal added parameters
+    # block.sub_select_optimal_added_parameters(3)
 
     # Apply the change
     block.apply_change()
-
-    # Sub select the optimal added parameters
-    block.sub_select_optimal_added_parameters(3)
 
     # Get the first order improvement
     print(block.first_order_improvement)
