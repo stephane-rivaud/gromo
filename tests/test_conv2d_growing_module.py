@@ -1,5 +1,5 @@
 from copy import deepcopy
-from unittest import TestCase, main
+from unittest import TestCase, main, skip
 
 import torch
 
@@ -8,6 +8,23 @@ from gromo.utils.utils import global_device
 
 
 class MyTestCase(TestCase):
+    def assertShapeEqual(
+        self, t: torch.Tensor, shape: tuple[int, ...], message: str = ""
+    ):
+        self.assertIsInstance(t, torch.Tensor)
+        self.assertEqual(
+            t.dim(),
+            len(shape),
+            f"Error: {t.dim()=} should be {len(shape)=}\n" f"{message}",
+        )
+        for i, s in enumerate(shape):
+            self.assertEqual(
+                t.size(i),
+                s,
+                f"Incorrect shape for dim {i}: got {t.size(i)} should be {s=}\n"
+                f"{message}",
+            )
+
     def setUp(self):
         self.demo_layer = torch.nn.Conv2d(
             2, 7, (3, 5), bias=False, device=global_device()
@@ -29,6 +46,26 @@ class MyTestCase(TestCase):
         self.input_x = torch.randn(5, 2, 10, 10, device=global_device())
 
         self.bias_demos = {True: self.demo_b, False: self.demo}
+
+        self.demo_couple = dict()
+        for bias in (True, False):
+            self.demo_in = Conv2dGrowingModule(
+                in_channels=2,
+                out_channels=5,
+                kernel_size=(3, 3),
+                padding=1,
+                use_bias=bias,
+                device=global_device(),
+            )
+            self.demo_out = Conv2dGrowingModule(
+                in_channels=5,
+                out_channels=7,
+                kernel_size=(3, 3),
+                use_bias=bias,
+                previous_module=self.demo_in,
+                device=global_device(),
+            )
+            self.demo_couple[bias] = (self.demo_in, self.demo_out)
 
     def test_init(self):
         # no bias
@@ -362,9 +399,125 @@ class MyTestCase(TestCase):
         for i, (t, t_th) in enumerate(zip(tensor_t.shape, size_theoretic)):
             self.assertEqual(t, t_th, f"Error for dim {i}: should be {t_th}, got {t}")
 
-    # test compute m prev update : how ?
-    # test cross covariance update : how ?
-    # test compute compute_prev_s_update update : how ?
+    def test_tensor_m_prev_update(self):
+        with self.assertRaises(ValueError):
+            # require a previous module
+            self.demo.init_computation()
+
+            y = self.demo(self.input_x)
+            loss = torch.norm(y)
+            loss.backward()
+
+            self.demo.update_input_size()
+            self.demo.tensor_m_prev.update()
+
+        for bias in (True, False):
+            with self.subTest(bias=bias):
+                self.demo_couple[bias][0].store_input = True
+                self.demo_couple[bias][1].init_computation()
+
+                y = self.demo_couple[bias][0](self.input_x)
+                y = self.demo_couple[bias][1](y)
+                loss = torch.norm(y)
+                loss.backward()
+
+                self.demo_couple[bias][1].update_input_size()
+                self.demo_couple[bias][1].tensor_m_prev.update()
+
+                self.assertEqual(
+                    self.demo_couple[bias][1].tensor_m_prev.samples,
+                    self.input_x.size(0),
+                )
+
+                s0 = self.demo_couple[bias][0].in_channels * self.demo_couple[bias][
+                    0
+                ].kernel_size[0] * self.demo_couple[bias][0].kernel_size[1] + (
+                    1 if bias else 0
+                )
+                s1 = self.demo_couple[bias][1].out_channels
+                s2 = (
+                    self.demo_couple[bias][1].kernel_size[0]
+                    * self.demo_couple[bias][1].kernel_size[1]
+                )
+
+                self.assertShapeEqual(
+                    self.demo_couple[bias][1].tensor_m_prev(),
+                    (s0, s1, s2),
+                )
+
+    def test_cross_covariance_update(self):
+        with self.assertRaises(ValueError):
+            # require a previous module
+            self.demo.init_computation()
+
+            y = self.demo(self.input_x)
+            loss = torch.norm(y)
+            loss.backward()
+
+            self.demo.update_input_size()
+            self.demo.cross_covariance.update()
+
+        for bias in (True, False):
+            with self.subTest(bias=bias):
+                demo_couple = self.demo_couple[bias]
+                demo_couple[0].store_input = True
+                demo_couple[1].init_computation()
+
+                y = demo_couple[0](self.input_x)
+                y = demo_couple[1](y)
+                loss = torch.norm(y)
+                loss.backward()
+
+                demo_couple[1].update_input_size()
+                demo_couple[1].cross_covariance.update()
+
+                self.assertEqual(
+                    demo_couple[1].cross_covariance.samples,
+                    self.input_x.size(0),
+                )
+
+                s0 = demo_couple[1].kernel_size[0] * demo_couple[1].kernel_size[1]
+                s1 = demo_couple[0].in_channels * demo_couple[0].kernel_size[
+                    0
+                ] * demo_couple[0].kernel_size[1] + (1 if bias else 0)
+                s2 = demo_couple[1].in_channels * demo_couple[1].kernel_size[
+                    0
+                ] * demo_couple[1].kernel_size[1] + (1 if bias else 0)
+
+                self.assertShapeEqual(
+                    demo_couple[1].cross_covariance(),
+                    (s0, s1, s2),
+                )
+
+    @skip("Not implemented")
+    def test_tensor_s_growth_update(self):
+        for bias in (True, False):
+            with self.subTest(bias=bias):
+                demo = self.bias_demos[bias]
+                demo.store_input = True
+                demo.tensor_s_growth.init()
+
+                y = demo(self.input_x)
+                loss = torch.norm(y)
+                loss.backward()
+
+                demo.update_input_size()  # necessary ?
+                demo.tensor_s_growth.update()
+
+                self.assertEqual(demo.tensor_s_growth.samples, self.input_x.size(0))
+
+                s = demo.in_channels * demo.kernel_size[0] * demo.kernel_size[1] + (
+                    1 if bias else 0
+                )
+
+                self.assertShapeEqual(
+                    demo.tensor_s_growth(),
+                    (s, s),
+                )
+
+    def test_compute_optimal_added_parameters(self):
+        return
+        # TODO: implement the test
 
 
 if __name__ == "__main__":
