@@ -124,7 +124,9 @@ class Conv2dGrowingModule(GrowingModule):
         )
         self.layer: torch.nn.Conv2d  # CHECK: why do we need to specify the type here?
         if self._mask_tensor_t is None:
-            self._mask_tensor_t = compute_mask_tensor_t(self.input_size, self.layer)
+            self._mask_tensor_t = compute_mask_tensor_t(self.input_size, self.layer).to(
+                self.device
+            )
         return self._mask_tensor_t
 
     # Information functions
@@ -776,7 +778,7 @@ class Conv2dGrowingModule(GrowingModule):
             alpha_bias = None
 
         if isinstance(self.previous_module, LinearGrowingModule):
-            raise NotImplementedError("TODO: implement this")
+            raise NotImplementedError("TODO: should we implement Lin -> Conv")
         elif isinstance(self.previous_module, Conv2dGrowingModule):
             alpha_weight = alpha_weight.reshape(
                 k,
@@ -784,8 +786,12 @@ class Conv2dGrowingModule(GrowingModule):
                 self.previous_module.kernel_size[0],
                 self.previous_module.kernel_size[1],
             )
+        elif isinstance(self.previous_module, Conv2dAdditionGrowingModule):
+            raise NotImplementedError("TODO: implement this: Conv Add -> Conv")
+        elif isinstance(self.previous_module, LinearAdditionGrowingModule):
+            raise NotImplementedError("TODO: should we implement Lin Add -> Conv")
         else:
-            raise NotImplementedError("?")
+            raise NotImplementedError
 
         omega = omega.reshape(
             self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1]
@@ -811,7 +817,7 @@ class Conv2dGrowingModule(GrowingModule):
                 self.previous_module,
                 LinearAdditionGrowingModule | Conv2dAdditionGrowingModule,
             ):
-                raise NotImplementedError
+                raise NotImplementedError("TODO: implement this")
             else:
                 raise NotImplementedError(
                     f"The computation of the optimal added parameters is not implemented "
@@ -819,3 +825,28 @@ class Conv2dGrowingModule(GrowingModule):
                 )
 
         return alpha_weight, alpha_bias, omega, self.eigenvalues_extension
+
+    def update_input_size(self, input_size: tuple[int, int] | None = None) -> None:
+        """
+        Update the input size of the layer. Either according to the parameter or the input currently stored.
+
+        Parameters
+        ----------
+        input_size: tuple[int, int] | None
+            new input size
+        """
+        new_size = input_size if input_size is not None else self.input.shape[-2:]
+        if self.input_size != (-1, -1) and self.input.shape[-2:] != self.input_size:
+            warn(
+                f"The input size of the layer {self.name} has changed from {self.input_size} to {new_size}."
+                f"This may lead to errors if the size of the tensor statistics "
+                f"and of the mask tensor T are not updated."
+            )
+        self.input_size = new_size
+
+    def update_computation(self) -> None:
+        """
+        Update the computation of the layer.
+        """
+        self.update_input_size()
+        super(Conv2dGrowingModule, self).update_computation()
