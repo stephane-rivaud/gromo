@@ -4,27 +4,12 @@ from unittest import TestCase, main, skip
 import torch
 
 from gromo.conv2d_growing_module import Conv2dGrowingModule
+from gromo.tools import compute_output_shape_conv
 from gromo.utils.utils import global_device
+from tests.torch_unittest import TorchTestCase
 
 
-class MyTestCase(TestCase):
-    def assertShapeEqual(
-        self, t: torch.Tensor, shape: tuple[int, ...], message: str = ""
-    ):
-        self.assertIsInstance(t, torch.Tensor)
-        self.assertEqual(
-            t.dim(),
-            len(shape),
-            f"Error: {t.dim()=} should be {len(shape)=}\n" f"{message}",
-        )
-        for i, s in enumerate(shape):
-            self.assertEqual(
-                t.size(i),
-                s,
-                f"Incorrect shape for dim {i}: got {t.size(i)} should be {s=}\n"
-                f"{message}",
-            )
-
+class TestConv2dGrowingModule(TorchTestCase):
     def setUp(self):
         self.demo_layer = torch.nn.Conv2d(
             2, 7, (3, 5), bias=False, device=global_device()
@@ -186,7 +171,8 @@ class MyTestCase(TestCase):
         )
 
     def test_tensor_s_update_without_bias(self):
-        self.demo.init_computation()
+        self.demo.store_input = True
+        self.demo.tensor_s.init()
         self.demo(self.input_x)
 
         self.demo.tensor_s.update()
@@ -207,10 +193,9 @@ class MyTestCase(TestCase):
             torch.allclose(self.demo.tensor_s(), self.demo.tensor_s().transpose(0, 1))
         )
 
-        self.demo.reset_computation()
-
     def test_tensor_s_update_with_bias(self):
-        self.demo_b.init_computation()
+        self.demo_b.store_input = True
+        self.demo_b.tensor_s.init()
         self.demo_b(self.input_x)
 
         self.demo_b.tensor_s.update()
@@ -234,10 +219,10 @@ class MyTestCase(TestCase):
             torch.allclose(self.demo_b.tensor_s(), self.demo_b.tensor_s().transpose(0, 1))
         )
 
-        self.demo.reset_computation()
-
     def test_tensor_m_update_without_bias(self):
-        self.demo.init_computation()
+        self.demo.store_input = True
+        self.demo.store_pre_activity = True
+        self.demo.tensor_m.init()
         y = self.demo(self.input_x)
         loss = torch.norm(y)
         loss.backward()
@@ -257,11 +242,12 @@ class MyTestCase(TestCase):
         self.assertEqual(self.demo.tensor_m.samples, 2 * self.input_x.size(0))
 
         f = self.demo.in_channels * self.demo.kernel_size[0] * self.demo.kernel_size[1]
-        self.assertEqual(self.demo.tensor_m().shape, (f, self.demo.out_channels))
-        self.demo.reset_computation()
+        self.assertShapeEqual(self.demo.tensor_m(), (f, self.demo.out_channels))
 
     def test_tensor_m_update_with_bias(self):
-        self.demo_b.init_computation()
+        self.demo_b.store_input = True
+        self.demo_b.store_pre_activity = True
+        self.demo_b.tensor_m.init()
         y = self.demo_b(self.input_x)
         loss = torch.norm(y)
         loss.backward()
@@ -277,8 +263,7 @@ class MyTestCase(TestCase):
             * self.demo_b.kernel_size[1]
             + 1
         )
-        self.assertEqual(self.demo_b.tensor_m().shape, (f, self.demo_b.out_channels))
-        self.demo.reset_computation()
+        self.assertShapeEqual(self.demo_b.tensor_m(), (f, self.demo_b.out_channels))
 
     def test_compute_optimal_delta_without_bias(self):
         self.demo.init_computation()
@@ -290,8 +275,8 @@ class MyTestCase(TestCase):
         self.demo.tensor_m.update()
 
         self.demo.compute_optimal_delta()
-        self.assertEqual(
-            self.demo.delta_raw.shape,
+        self.assertShapeEqual(
+            self.demo.delta_raw,
             (
                 self.demo.out_channels,
                 self.demo.in_channels
@@ -338,6 +323,12 @@ class MyTestCase(TestCase):
         self.demo_b.delete_update()
 
     def test_compute_optimal_delta_empirical(self):
+        """
+        Test the computation of delta with a simple example:
+        We get a random theta as parameter of the layer
+        We get each e_i = (0, ..., 0, 1, 0, ..., 0) as input and the loss is the norm of the output
+        There fore the optimal delta is proportional to -theta.
+        """
         self.demo.init_computation()
         input_x = torch.zeros(2 * 3 * 5, 2, 3, 5, device=global_device())
         for i in range(2 * 3 * 5):
@@ -402,66 +393,67 @@ class MyTestCase(TestCase):
     def test_tensor_m_prev_update(self):
         with self.assertRaises(ValueError):
             # require a previous module
-            self.demo.init_computation()
+            self.demo.store_pre_activity = True
+            self.demo.tensor_m_prev.init()
 
             y = self.demo(self.input_x)
             loss = torch.norm(y)
             loss.backward()
 
-            self.demo.update_input_size()
+            self.demo.update_input_size(self.input_x.shape[2:])
             self.demo.tensor_m_prev.update()
 
         for bias in (True, False):
             with self.subTest(bias=bias):
-                self.demo_couple[bias][0].store_input = True
-                self.demo_couple[bias][1].init_computation()
+                demo_couple = self.demo_couple[bias]
+                demo_couple[0].store_input = True
+                demo_couple[1].store_pre_activity = True
+                demo_couple[1].tensor_m_prev.init()
 
-                y = self.demo_couple[bias][0](self.input_x)
-                y = self.demo_couple[bias][1](y)
+                y = demo_couple[0](self.input_x)
+                y = demo_couple[1](y)
                 loss = torch.norm(y)
                 loss.backward()
 
-                self.demo_couple[bias][1].update_input_size()
-                self.demo_couple[bias][1].tensor_m_prev.update()
+                demo_couple[0].update_input_size()
+                demo_couple[1].update_input_size()
+                demo_couple[1].tensor_m_prev.update()
 
                 self.assertEqual(
-                    self.demo_couple[bias][1].tensor_m_prev.samples,
+                    demo_couple[1].tensor_m_prev.samples,
                     self.input_x.size(0),
                 )
 
-                s0 = self.demo_couple[bias][0].in_channels * self.demo_couple[bias][
+                s0 = demo_couple[0].in_channels * demo_couple[0].kernel_size[
                     0
-                ].kernel_size[0] * self.demo_couple[bias][0].kernel_size[1] + (
-                    1 if bias else 0
-                )
-                s1 = self.demo_couple[bias][1].out_channels
-                s2 = (
-                    self.demo_couple[bias][1].kernel_size[0]
-                    * self.demo_couple[bias][1].kernel_size[1]
-                )
+                ] * demo_couple[0].kernel_size[1] + (1 if bias else 0)
+                s1 = demo_couple[1].out_channels
+                s2 = demo_couple[1].kernel_size[0] * demo_couple[1].kernel_size[1]
 
                 self.assertShapeEqual(
-                    self.demo_couple[bias][1].tensor_m_prev(),
+                    demo_couple[1].tensor_m_prev(),
                     (s0, s1, s2),
                 )
 
     def test_cross_covariance_update(self):
         with self.assertRaises(ValueError):
             # require a previous module
-            self.demo.init_computation()
+            self.demo.store_input = True
+            self.demo.cross_covariance.init()
 
             y = self.demo(self.input_x)
             loss = torch.norm(y)
             loss.backward()
 
-            self.demo.update_input_size()
+            self.demo.update_input_size(self.input_x.shape[2:])
             self.demo.cross_covariance.update()
 
         for bias in (True, False):
             with self.subTest(bias=bias):
                 demo_couple = self.demo_couple[bias]
                 demo_couple[0].store_input = True
-                demo_couple[1].init_computation()
+                demo_couple[1].store_input = True
+                demo_couple[1].cross_covariance.init()
 
                 y = demo_couple[0](self.input_x)
                 y = demo_couple[1](y)
@@ -489,35 +481,96 @@ class MyTestCase(TestCase):
                     (s0, s1, s2),
                 )
 
-    @skip("Not implemented")
     def test_tensor_s_growth_update(self):
         for bias in (True, False):
             with self.subTest(bias=bias):
-                demo = self.bias_demos[bias]
-                demo.store_input = True
-                demo.tensor_s_growth.init()
+                demo_couple = self.demo_couple[bias]
+                demo_couple[0].store_input = True
+                demo_couple[1].tensor_s_growth.init()
 
-                y = demo(self.input_x)
+                y = demo_couple[0](self.input_x)
+                y = demo_couple[1](y)
                 loss = torch.norm(y)
                 loss.backward()
 
-                demo.update_input_size()  # necessary ?
-                demo.tensor_s_growth.update()
+                demo_couple[1].input_size = compute_output_shape_conv(
+                    demo_couple[0].input.shape[2:], demo_couple[0].layer
+                )
+                demo_couple[1].tensor_s_growth.update()
 
-                self.assertEqual(demo.tensor_s_growth.samples, self.input_x.size(0))
-
-                s = demo.in_channels * demo.kernel_size[0] * demo.kernel_size[1] + (
-                    1 if bias else 0
+                self.assertEqual(
+                    demo_couple[1].tensor_s_growth.samples, self.input_x.size(0)
                 )
 
+                s = demo_couple[0].in_channels * demo_couple[0].kernel_size[
+                    0
+                ] * demo_couple[0].kernel_size[1] + (1 if bias else 0)
+
                 self.assertShapeEqual(
-                    demo.tensor_s_growth(),
+                    demo_couple[1].tensor_s_growth(),
                     (s, s),
                 )
 
     def test_compute_optimal_added_parameters(self):
-        return
-        # TODO: implement the test
+        """
+        Test sub_select_optimal_added_parameters in addition to compute_optimal_added_parameters
+        """
+        for bias in (True, False):
+            with self.subTest(bias=bias):
+                demo_couple = self.demo_couple[bias]
+                demo_couple[0].store_input = True
+                demo_couple[1].init_computation()
+
+                y = demo_couple[0](self.input_x)
+                y = demo_couple[1](y)
+                loss = torch.norm(y)
+                loss.backward()
+
+                demo_couple[1].update_computation()
+
+                alpha, alpha_b, omega, eigenvalues = demo_couple[
+                    1
+                ].compute_optimal_added_parameters()
+
+                self.assertShapeEqual(
+                    alpha,
+                    (
+                        -1,
+                        demo_couple[0].in_channels,
+                        demo_couple[0].kernel_size[0],
+                        demo_couple[0].kernel_size[1],
+                    ),
+                )
+                k = alpha.size(0)
+                if bias:
+                    self.assertShapeEqual(alpha_b, (k,))
+                else:
+                    self.assertIsNone(alpha_b)
+
+                self.assertShapeEqual(
+                    omega,
+                    (
+                        demo_couple[1].out_channels,
+                        k,
+                        demo_couple[1].kernel_size[0],
+                        demo_couple[1].kernel_size[1],
+                    ),
+                )
+
+                self.assertShapeEqual(eigenvalues, (k,))
+
+                self.assertIsInstance(
+                    demo_couple[0].extended_output_layer, torch.nn.Conv2d
+                )
+                self.assertIsInstance(
+                    demo_couple[1].extended_input_layer, torch.nn.Conv2d
+                )
+
+                demo_couple[1].sub_select_optimal_added_parameters(3)
+
+                self.assertEqual(demo_couple[1].eigenvalues_extension.shape[0], 3)
+                self.assertEqual(demo_couple[1].extended_input_layer.in_channels, 3)
+                self.assertEqual(demo_couple[0].extended_output_layer.out_channels, 3)
 
 
 if __name__ == "__main__":
