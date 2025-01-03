@@ -308,8 +308,7 @@ if __name__ == "__main__":
         return total_loss / len(dataset)
 
 
-    def evaluate_with_extension(model, dataset, scaling_factor):
-        model.second_layer.scaling_factor = scaling_factor
+    def evaluate_with_extension(model, dataset):
         total_loss = 0
         with torch.no_grad():
             for x, y in dataset:
@@ -354,7 +353,8 @@ if __name__ == "__main__":
 
     # Training loss with the change
     scaling_factor = 0.5
-    loss_with_extension = evaluate_with_extension(block, dataset, scaling_factor)
+    block.second_layer.scaling_factor = scaling_factor
+    loss_with_extension = evaluate_with_extension(block, dataset)
     print(f'Training Loss with the change: {loss_with_extension}')
     print(f'First order improvement: {block.first_order_improvement / (batch_size * num_batch)}')
     print(f'Zero-th order improvement: {training_loss_after - loss_with_extension}')
