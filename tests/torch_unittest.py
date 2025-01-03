@@ -4,13 +4,15 @@ Provide unittest class for code using torch.
  - assertShapeEqual: check the shape of a torch tensor
  - assertAllClose: check that two torch tensors are equal up to a tolerance
 """
+
 from unittest import TestCase
+
 import torch
 
 
 class TorchTestCase(TestCase):
     def assertShapeEqual(
-            self, t: torch.Tensor, shape: tuple[int, ...], message: str = ""
+        self, t: torch.Tensor, shape: tuple[int, ...], message: str = ""
     ):
         """
         Check the shape of a torch tensor is equal to the expected shape
@@ -40,12 +42,13 @@ class TorchTestCase(TestCase):
                 )
 
     def assertAllClose(
-            self,
-            a: torch.Tensor,
-            b: torch.Tensor,
-            atol: float = 1e-8,
-            rtol: float = 1e-5,
-            message: str = ""):
+        self,
+        a: torch.Tensor,
+        b: torch.Tensor,
+        atol: float = 1e-8,
+        rtol: float = 1e-5,
+        message: str = "",
+    ):
         """
         Check that two torch tensors are close.
 
