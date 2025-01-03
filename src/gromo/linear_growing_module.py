@@ -564,7 +564,21 @@ class LinearGrowingModule(GrowingModule):
         """
         Supercharge tensor_s_growth to redirect to the normal tensor_s as it is the same for Linear layers.
         """
-        return self.tensor_s
+        if self.previous_module is None:
+            raise ValueError(
+                f"No previous module for {self.name}. Thus S is not defined."
+            )
+        elif isinstance(self.previous_module, LinearGrowingModule):
+            return self.previous_module.tensor_s
+        elif isinstance(self.previous_module, LinearAdditionGrowingModule):
+            raise NotImplementedError(
+                f"S growth is not implemented for module preceded by an LinearAdditionGrowingModule."
+                " (error in {self.name})"
+            )
+        else:
+            raise NotImplementedError(
+                f"S growth is not implemented yet for {type(self.previous_module)} as previous module."
+            )
 
     @tensor_s_growth.setter
     def tensor_s_growth(self, value) -> None:
@@ -968,6 +982,8 @@ class LinearGrowingModule(GrowingModule):
         tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]
             optimal added weights alpha weights, alpha bias, omega and eigenvalues lambda
         """
+        # if self.delta_raw is None:
+        #     self.compute_optimal_delta()
         try:
             matrix_n = self.tensor_n
         except AttributeError as e:
@@ -979,7 +995,7 @@ class LinearGrowingModule(GrowingModule):
             f"No previous module for {self.name}."
             "Therefore neuron addition is not possible."
         )
-        matrix_s = self.previous_module.tensor_s_growth()
+        matrix_s = self.tensor_s_growth()
 
         if matrix_n.dtype != dtype:
             matrix_n = matrix_n.to(dtype=dtype)

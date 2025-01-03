@@ -1218,7 +1218,8 @@ class GrowingModule(torch.nn.Module):
         self.store_pre_activity = True
         self.tensor_s.init()
         self.tensor_m.init()
-        self.tensor_s_growth.init()
+        if self.s_growth_is_needed:
+            self.tensor_s_growth.init()
         if self.previous_module is None:
             return
         elif isinstance(self.previous_module, GrowingModule):
@@ -1240,7 +1241,8 @@ class GrowingModule(torch.nn.Module):
         self.tensor_m.reset()
         self.tensor_m_prev.reset()
         self.cross_covariance.reset()
-        self.tensor_s_growth.reset()
+        if self.s_growth_is_needed:
+            self.tensor_s_growth.reset()
 
     def delete_update(
         self,
@@ -1342,7 +1344,8 @@ class GrowingModule(torch.nn.Module):
         """
         self.tensor_s.update()
         self.tensor_m.update()
-        self.tensor_s_growth.update()
+        if self.s_growth_is_needed:
+            self.tensor_s_growth.update()
         if self.previous_module is None:
             return
         elif isinstance(self.previous_module, GrowingModule):
