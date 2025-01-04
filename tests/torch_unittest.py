@@ -10,6 +10,38 @@ from unittest import TestCase
 import torch
 
 
+def indicator_batch(
+    tensor_shape: tuple[int, ...],
+    device: torch.device | None = None,
+    dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    """
+    Return a batch of tensors of shape tensor_shape where each tensor has a 1 at a
+    different position and 0 elsewhere. Each position is visited once.
+
+    Parameters
+    ----------
+    tensor_shape : tuple[int]
+        Shape of the tensor.
+    device : torch.device, optional
+        Device of the tensor, by default None
+    dtype : torch.dtype, optional
+        Data type of the tensor, by default torch.float32
+
+    Returns
+    -------
+    torch.Tensor
+        Batch of tensors.
+    """
+    batch_size = 1
+    for s in tensor_shape:
+        batch_size *= s
+    batch = torch.eye(batch_size, dtype=dtype, device=device)
+    batch = batch.reshape(batch_size, *tensor_shape)
+    assert torch.allclose(batch.sum(0), torch.ones(*tensor_shape, device=device))
+    return batch
+
+
 class TorchTestCase(TestCase):
     def assertShapeEqual(
         self, t: torch.Tensor, shape: tuple[int, ...], message: str = ""
