@@ -473,14 +473,13 @@ class TestLinearGrowingModule(TestCase):
         for bias in {True, False}:
             layer = LinearGrowingModule(3, 1, use_bias=bias, name="layer1")
             layer.extended_output_layer = torch.nn.Linear(3, 2, bias=bias)
-            layer.eigenvalues_extension = torch.tensor([2.0, 1.0])
 
             new_layer = torch.nn.Linear(3, 1, bias=bias)
             new_layer.weight.data = layer.extended_output_layer.weight.data[0].view(1, -1)
             if bias:
                 new_layer.bias.data = layer.extended_output_layer.bias.data[0].view(1)
 
-            layer.sub_select_optimal_added_parameters(1, sub_select_previous=False)
+            layer._sub_select_added_output_dimension(1)
 
             self.assertTrue(
                 torch.allclose(layer.extended_output_layer.weight, new_layer.weight)
@@ -489,11 +488,6 @@ class TestLinearGrowingModule(TestCase):
                 self.assertTrue(
                     torch.allclose(layer.extended_output_layer.bias, new_layer.bias)
                 )
-
-            # self.assertEqual(layer.extended_output_layer, new_layer)
-            self.assertTrue(
-                torch.allclose(layer.eigenvalues_extension, torch.tensor([2.0, 1.0]))
-            )
 
     def test_sub_select_optimal_added_parameters_in(self):
         bias = False
