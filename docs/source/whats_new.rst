@@ -28,6 +28,7 @@ Enhancements
 Bugs
 ~~~~
 
+- Fix the sub-selection of added neurons in the sequential case (:gh:`41` by `Théo Rudkiewicz`_)
 
 API changes
 ~~~~~~~~~~~
@@ -35,3 +36,4 @@ API changes
 
 .. _Sylvain Chevallier: https://github.com/sylvchev
 .. _Stella Douka: https://github.com/stelladk
+.. _Théo Rudkiewicz: https://github.com/TheoRudkiewicz
