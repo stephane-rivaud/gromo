@@ -6,7 +6,7 @@ import torch
 from gromo.conv2d_growing_module import Conv2dGrowingModule
 from gromo.tools import compute_output_shape_conv
 from gromo.utils.utils import global_device
-from tests.torch_unittest import TorchTestCase
+from tests.torch_unittest import TorchTestCase, indicator_batch
 
 
 class TestConv2dGrowingModule(TorchTestCase):
@@ -34,7 +34,7 @@ class TestConv2dGrowingModule(TorchTestCase):
 
         self.demo_couple = dict()
         for bias in (True, False):
-            self.demo_in = Conv2dGrowingModule(
+            demo_in = Conv2dGrowingModule(
                 in_channels=2,
                 out_channels=5,
                 kernel_size=(3, 3),
@@ -42,15 +42,15 @@ class TestConv2dGrowingModule(TorchTestCase):
                 use_bias=bias,
                 device=global_device(),
             )
-            self.demo_out = Conv2dGrowingModule(
+            demo_out = Conv2dGrowingModule(
                 in_channels=5,
                 out_channels=7,
                 kernel_size=(3, 3),
                 use_bias=bias,
-                previous_module=self.demo_in,
+                previous_module=demo_in,
                 device=global_device(),
             )
-            self.demo_couple[bias] = (self.demo_in, self.demo_out)
+            self.demo_couple[bias] = (demo_in, demo_out)
 
     def test_init(self):
         # no bias
@@ -330,11 +330,7 @@ class TestConv2dGrowingModule(TorchTestCase):
         There fore the optimal delta is proportional to -theta.
         """
         self.demo.init_computation()
-        input_x = torch.zeros(2 * 3 * 5, 2, 3, 5, device=global_device())
-        for i in range(2 * 3 * 5):
-            input_x[i, i // 15, (i % 15) // 5, i % 5] = 1
-        # I keep the two following assert as it, as they don't test the module but test if the test is correct
-        assert torch.allclose(input_x.sum(0), torch.ones(2, 3, 5, device=global_device()))
+        input_x = indicator_batch((2, 3, 5), device=global_device())
         y = self.demo(input_x)
         assert y.shape == (2 * 3 * 5, 7, 1, 1)
         loss = torch.norm(y)
@@ -571,6 +567,67 @@ class TestConv2dGrowingModule(TorchTestCase):
                 self.assertEqual(demo_couple[1].eigenvalues_extension.shape[0], 3)
                 self.assertEqual(demo_couple[1].extended_input_layer.in_channels, 3)
                 self.assertEqual(demo_couple[0].extended_output_layer.out_channels, 3)
+
+    def test_compute_optimal_added_parameters_empirical(self):
+        for bias in (True, False):
+            with self.subTest(bias=bias):
+                demo_couple = self.demo_couple[bias]
+                demo_couple_1 = Conv2dGrowingModule(
+                    in_channels=5,
+                    out_channels=2,
+                    kernel_size=(3, 3),
+                    padding=1,
+                    use_bias=bias,
+                    device=global_device(),
+                    previous_module=demo_couple[0],
+                )
+                demo_couple = (demo_couple[0], demo_couple_1)
+                demo_couple[0].weight.data.zero_()
+                demo_couple[1].weight.data.zero_()
+                if bias:
+                    demo_couple[0].bias.data.zero_()
+                    demo_couple[1].bias.data.zero_()
+
+                demo_couple[0].store_input = True
+                demo_couple[1].init_computation()
+
+                input_x = indicator_batch(
+                    (demo_couple[0].in_channels, 7, 11), device=global_device()
+                )
+                y = demo_couple[0](input_x)
+                y = demo_couple[1](y)
+                loss = ((y - input_x) ** 2).sum()
+                loss.backward()
+                demo_couple[1].tensor_s_growth.updated = False  # TEMP
+
+                demo_couple[1].update_computation()
+
+                demo_couple[1].compute_optimal_delta()
+                demo_couple[1].delta_raw *= 0
+
+                self.assertAllClose(
+                    -demo_couple[1].tensor_m_prev().flatten(start_dim=-2),
+                    demo_couple[1].tensor_n,
+                    message="The tensor_m_prev should be equal to the tensor_n when the delta is zero",
+                )
+
+                demo_couple[1].compute_optimal_added_parameters()
+
+                extension_network = torch.nn.Sequential(
+                    demo_couple[0].extended_output_layer,
+                    demo_couple[1].extended_input_layer,
+                )
+
+                amplitude_factor = 1e-2
+                y = extension_network(input_x)
+                new_loss = ((amplitude_factor * y - input_x) ** 2).sum().item()
+                loss = loss.item()
+                self.assertLess(
+                    new_loss,
+                    loss,
+                    msg=f"Despite the addition of new neurons the loss "
+                    f"has increased: {new_loss=} > {loss=}",
+                )
 
 
 if __name__ == "__main__":
