@@ -65,6 +65,13 @@ class TorchTestCase(TestCase):
         message: str
               message to display if the test fails
         """
+        self.assertIsInstance(a, torch.Tensor)
+        self.assertIsInstance(b, torch.Tensor)
+        self.assertEqual(
+            a.shape,
+            b.shape,
+            f"Error: tensors have different shapes {a.shape=} {b.shape=}\n" f"{message}",
+        )
         all_close = torch.allclose(a, b, atol=atol, rtol=rtol)
         max_diff = 0
         error_percentage = 0
