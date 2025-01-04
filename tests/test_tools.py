@@ -2,7 +2,11 @@ from unittest import TestCase, main
 
 import torch
 
-from gromo.tools import compute_output_shape_conv, sqrt_inverse_matrix_semi_positive
+from gromo.tools import (
+    compute_mask_tensor_t,
+    compute_output_shape_conv,
+    sqrt_inverse_matrix_semi_positive,
+)
 
 
 class TestTools(TestCase):
@@ -51,13 +55,14 @@ class TestTools(TestCase):
         Test the compute_output_shape_conv function
         with various inputs shapes and conv kernel sizes.
         """
-        for h in (2, 5, 11, 41):
-            for w in (2, 5, 11, 41):
-                for k_h in (1, 2, 3, 5, 7):
+        torch.manual_seed(0)
+        for k_h in (1, 2, 3, 5, 7):
+            for k_w in (1, 2, 3, 5, 7):
+                conv = torch.nn.Conv2d(1, 1, (k_h, k_w))
+                for h in (2, 5, 11, 41):
                     if k_h <= h:
-                        for k_w in (1, 2, 3, 5, 7):
+                        for w in (2, 5, 11, 41):
                             if k_w <= w:
-                                conv = torch.nn.Conv2d(1, 1, (k_h, k_w))
                                 out_shape = conv(
                                     torch.empty(
                                         (1, conv.in_channels, h, w),
@@ -71,6 +76,69 @@ class TestTools(TestCase):
                                     out_shape,
                                     predicted_out_shape,
                                     f"Error with {h=}, {w=}, {k_h=}, {k_w=}",
+                                )
+
+    def test_compute_mask_tensor_t_without_bias(self):
+        """
+        Test the compute_mask_tensor_t function.
+        Check that it respects its property.
+        """
+        torch.manual_seed(0)
+        for k_h in (1, 2, 3, 5, 7):
+            for k_w in (1, 2, 3, 5, 7):
+                conv = torch.nn.Conv2d(7, 13, (k_h, k_w), bias=False)
+                # TODO: add test for the case with bias activated
+                conv_kernel_flatten = conv.weight.data.flatten(start_dim=2)
+                for h in (2, 5, 11, 41):
+                    if k_h <= h:
+                        for w in (2, 5, 11, 41):
+                            if k_w <= w:
+                                mask = compute_mask_tensor_t((h, w), conv)
+                                x_input = torch.randn(3, 7, h, w)
+                                x_input_flatten = x_input.flatten(start_dim=2)
+                                y_th = conv(x_input).flatten(start_dim=2)
+                                y_via_mask = torch.einsum(
+                                    "cds, jsp, idp -> icj",
+                                    conv_kernel_flatten,
+                                    mask,
+                                    x_input_flatten,
+                                )
+                                self.assertTrue(
+                                    torch.allclose(y_th, y_via_mask, atol=1e-6),
+                                    f"Error with {h=}, {w=}, {k_h=}, {k_w=} "
+                                    f"Error: {torch.abs(y_th - y_via_mask).max().item():.2e}",
+                                )
+
+    def test_compute_mask_tensor_t_with_bias(self):
+        """
+        Test the compute_mask_tensor_t function.
+        Check that it respects its property.
+        """
+        torch.manual_seed(0)
+        for k_h in (1, 2, 3, 5, 7):
+            for k_w in (1, 2, 3, 5, 7):
+                conv = torch.nn.Conv2d(7, 13, (k_h, k_w), bias=True)
+                conv_kernel_flatten = conv.weight.data.flatten(start_dim=2)
+                for h in (2, 5, 11, 41):
+                    if k_h <= h:
+                        for w in (2, 5, 11, 41):
+                            if k_w <= w:
+                                mask = compute_mask_tensor_t((h, w), conv)
+                                x_input = torch.randn(3, 7, h, w)
+                                x_input_flatten = x_input.flatten(start_dim=2)
+                                y_th = conv(x_input).flatten(start_dim=2)
+                                y_via_mask = torch.einsum(
+                                    "cds, jsp, idp -> icj",
+                                    conv_kernel_flatten,
+                                    mask,
+                                    x_input_flatten,
+                                )
+                                assert conv.bias is not None, "Bias should be activated"
+                                y_via_mask += conv.bias.data.view(1, -1, 1)
+                                self.assertTrue(
+                                    torch.allclose(y_th, y_via_mask, atol=1e-6),
+                                    f"Error with {h=}, {w=}, {k_h=}, {k_w=} "
+                                    f"Error: {torch.abs(y_th - y_via_mask).max().item():.2e}",
                                 )
 
 
