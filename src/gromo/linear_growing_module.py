@@ -816,13 +816,35 @@ class LinearGrowingModule(GrowingModule):
             name=self.tensor_m.name,
         )
 
+    def _sub_select_added_output_dimension(self, keep_neurons: int) -> None:
+        """
+        Select the first `keep_neurons` neurons of the optimal added output dimension.
+
+        Parameters
+        ----------
+        keep_neurons: int
+            number of neurons to keep
+        """
+        assert (
+            self.extended_output_layer is not None
+        ), f"The layer should have an extended output layer to sub-select the output dimension."
+        self.extended_output_layer = self.layer_of_tensor(
+            self.extended_output_layer.weight[:keep_neurons],
+            bias=(
+                self.extended_output_layer.bias[:keep_neurons]
+                if self.extended_output_layer.bias is not None
+                else None
+            ),
+        )
+
     def sub_select_optimal_added_parameters(
         self,
         keep_neurons: int,
         sub_select_previous: bool = True,
     ) -> None:
         """
-        Select the first keep_neurons neurons of the optimal added parameters.
+        Select the first keep_neurons neurons of the optimal added parameters
+        linked to this layer.
 
         Parameters
         ----------
@@ -836,7 +858,8 @@ class LinearGrowingModule(GrowingModule):
         ), "The layer should have an extended input xor output layer."
         if self.extended_input_layer is not None:
             self.extended_input_layer = self.layer_of_tensor(
-                self.extended_input_layer.weight[:, :keep_neurons]
+                self.extended_input_layer.weight[:, :keep_neurons],
+                bias=self.extended_input_layer.bias,
             )
             assert self.eigenvalues_extension is not None, (
                 f"The eigenvalues of the extension should be computed before "
@@ -844,18 +867,9 @@ class LinearGrowingModule(GrowingModule):
             )
             self.eigenvalues_extension = self.eigenvalues_extension[:keep_neurons]
 
-        if self.extended_output_layer is not None:
-            self.extended_output_layer = self.layer_of_tensor(
-                self.extended_output_layer.weight[:keep_neurons],
-                bias=(
-                    self.extended_output_layer.bias[:keep_neurons]
-                    if self.extended_output_layer.bias is not None
-                    else None
-                ),
-            )
         if sub_select_previous:
             if isinstance(self.previous_module, LinearGrowingModule):
-                self.previous_module.sub_select_optimal_added_parameters(keep_neurons)
+                self.previous_module._sub_select_added_output_dimension(keep_neurons)
             elif isinstance(self.previous_module, LinearAdditionGrowingModule):
                 raise NotImplementedError
             else:

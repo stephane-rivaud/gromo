@@ -983,13 +983,25 @@ class GrowingModule(torch.nn.Module):
         if delta_biases is not None:
             self.layer.bias.data += delta_biases
 
+    def _sub_select_added_output_dimension(self, keep_neurons: int) -> None:
+        """
+        Select the first `keep_neurons` neurons of the optimal added output dimension.
+
+        Parameters
+        ----------
+        keep_neurons: int
+            number of neurons to keep
+        """
+        raise NotImplementedError
+
     def sub_select_optimal_added_parameters(
         self,
         keep_neurons: int,
         sub_select_previous: bool = True,
     ) -> None:
         """
-        Select the first keep_neurons neurons of the optimal added parameters.
+        Select the first keep_neurons neurons of the optimal added parameters
+        linked to this layer.
 
         Parameters
         ----------

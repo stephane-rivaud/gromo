@@ -29,6 +29,7 @@ Enhancements
 Bugs
 ~~~~
 
+- Fix the sub-selection of added neurons in the sequential case (:gh:`41` by `Théo Rudkiewicz`_)
 
 API changes
 ~~~~~~~~~~~
