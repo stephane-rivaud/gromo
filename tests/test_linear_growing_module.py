@@ -680,10 +680,10 @@ class TestLinearGrowingModule(TorchTestCase):
                 )
 
                 # those tests are not working yet
-                # demo_layers[1].sub_select_optimal_added_parameters(2)
-                # self.assertEqual(demo_layers[1].eigenvalues_extension.shape[0], 2)
-                # self.assertEqual(demo_layers[1].extended_input_layer.in_features, 2)
-                # self.assertEqual(demo_layers[0].extended_output_layer.out_features, 2)
+                demo_layers[1].sub_select_optimal_added_parameters(2)
+                self.assertEqual(demo_layers[1].eigenvalues_extension.shape[0], 2)
+                self.assertEqual(demo_layers[1].extended_input_layer.in_features, 2)
+                self.assertEqual(demo_layers[0].extended_output_layer.out_features, 2)
 
 
 if __name__ == "__main__":
