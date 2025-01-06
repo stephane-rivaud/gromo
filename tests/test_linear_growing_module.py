@@ -702,6 +702,13 @@ class TestLinearGrowingModule(TorchTestCase):
                 s = demo_layers[0].in_features + demo_layers[0].use_bias
                 self.assertShapeEqual(demo_layers[1].tensor_s_growth(), (s, s))
 
+    def test_tensor_s_growth_errors(self):
+        with self.assertRaises(AttributeError):
+            self.demo_layers[True][1].tensor_s_growth = 1
+
+        with self.assertRaises(ValueError):
+            _ = self.demo_layers[True][0].tensor_s_growth
+
 
 if __name__ == "__main__":
     main()
