@@ -486,22 +486,20 @@ class TestLinearGrowingModule(TorchTestCase):
         for bias in {True, False}:
             layer = LinearGrowingModule(3, 1, use_bias=bias, name="layer1")
             layer.extended_output_layer = torch.nn.Linear(3, 2, bias=bias)
-            layer.eigenvalues_extension = torch.tensor([2.0, 1.0])
 
             new_layer = torch.nn.Linear(3, 1, bias=bias)
             new_layer.weight.data = layer.extended_output_layer.weight.data[0].view(1, -1)
             if bias:
                 new_layer.bias.data = layer.extended_output_layer.bias.data[0].view(1)
 
-            layer.sub_select_optimal_added_parameters(1, sub_select_previous=False)
+            layer._sub_select_added_output_dimension(1)
+
+            self.assertAllClose(layer.extended_output_layer.weight, new_layer.weight)
 
             self.assertAllClose(layer.extended_output_layer.weight, new_layer.weight)
 
             if bias:
                 self.assertAllClose(layer.extended_output_layer.bias, new_layer.bias)
-
-            # self.assertEqual(layer.extended_output_layer, new_layer)
-            self.assertAllClose(layer.eigenvalues_extension, torch.tensor([2.0, 1.0]))
 
     def test_sub_select_optimal_added_parameters_in(self):
         bias = False
@@ -682,10 +680,10 @@ class TestLinearGrowingModule(TorchTestCase):
                 )
 
                 # those tests are not working yet
-                # demo_layers[1].sub_select_optimal_added_parameters(2)
-                # self.assertEqual(demo_layers[1].eigenvalues_extension.shape[0], 2)
-                # self.assertEqual(demo_layers[1].extended_input_layer.in_features, 2)
-                # self.assertEqual(demo_layers[0].extended_output_layer.out_features, 2)
+                demo_layers[1].sub_select_optimal_added_parameters(2)
+                self.assertEqual(demo_layers[1].eigenvalues_extension.shape[0], 2)
+                self.assertEqual(demo_layers[1].extended_input_layer.in_features, 2)
+                self.assertEqual(demo_layers[0].extended_output_layer.out_features, 2)
 
 
 if __name__ == "__main__":
