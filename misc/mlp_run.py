@@ -104,7 +104,7 @@ def create_parser() -> argparse.ArgumentParser:
         choices=activation_functions.keys(),
     )
     architecture_group.add_argument(
-        "--no-bias", action="store_false", default=True, help="disables bias"
+        "--no-bias", action="store_true", default=False, help="disables bias"
     )
 
     # dataset arguments
@@ -627,4 +627,5 @@ if __name__ == "__main__":
     # Check if the seed is None and generate a random seed if necessary
     if args.seed is None:
         args.seed = random.randint(0, 2 ** 32 - 1)
+    print(args)
     main(args)
