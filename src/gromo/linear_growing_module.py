@@ -996,8 +996,6 @@ class LinearGrowingModule(GrowingModule):
         tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]
             optimal added weights alpha weights, alpha bias, omega and eigenvalues lambda
         """
-        # if self.delta_raw is None:
-        #     self.compute_optimal_delta()
         try:
             matrix_n = self.tensor_n
         except AttributeError as e:
