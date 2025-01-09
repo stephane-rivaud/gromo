@@ -430,6 +430,7 @@ class GrowingModule(torch.nn.Module):
         self.optimal_delta_layer: torch.nn.Module | None = None
         self.scaling_factor: torch.Tensor = torch.zeros(1, device=self.device)
         self.scaling_factor.requires_grad = True
+        self._scaling_factor_next_module = torch.zeros(1, device=self.device)
 
         self.extended_input_layer: torch.nn.Module | None = None
         self.extended_output_layer: torch.nn.Module | None = None
@@ -568,6 +569,18 @@ class GrowingModule(torch.nn.Module):
                 ), "The scaling factor must be a scalar."
                 self.__dict__[key].data[0] = value
                 # FIXME: should we not recreate the tensor? (problem with the gradient)
+            if self.previous_module is None:
+                pass
+            elif isinstance(self.previous_module, GrowingModule):
+                self.previous_module._scaling_factor_next_module.data[0] = (
+                    self.scaling_factor.item()
+                )
+            elif isinstance(self.previous_module, AdditionGrowingModule):
+                raise NotImplementedError
+            else:
+                raise TypeError(
+                    f"Previous module must be a GrowingModule or AdditionGrowingModule, got {type(self.previous_module)}"
+                )
         elif key == "weight":
             self.layer.weight = value
         elif key == "bias":
@@ -656,7 +669,9 @@ class GrowingModule(torch.nn.Module):
                 )
 
         if self.extended_output_layer:
-            supplementary_pre_activity = sqrt_factor * self.extended_output_layer(x)
+            supplementary_pre_activity = (
+                self._scaling_factor_next_module * self.extended_output_layer(x)
+            )
             supplementary_activity = self.post_layer_function(supplementary_pre_activity)
         else:
             supplementary_activity = None
