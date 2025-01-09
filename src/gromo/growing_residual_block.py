@@ -320,7 +320,7 @@ if __name__ == "__main__":
 
     # Define the dataset
     batch_size = 100
-    num_batch = 100
+    num_batch = 10
     in_features = 10
     dataset = [(torch.randn(batch_size, in_features), torch.randn(batch_size, in_features)) for _ in range(num_batch)]
 
@@ -333,7 +333,7 @@ if __name__ == "__main__":
     optimizer = torch.optim.SGD(block.parameters(), lr=0.01 / num_batch, momentum=0.9, weight_decay=1e-3)
 
     # Regular training
-    for epoch in range(100):
+    for epoch in range(39):
         training_loss = train(block, dataset, optimizer)
         print(f'Epoch {epoch}, Training Loss: {training_loss}')
 
@@ -354,15 +354,15 @@ if __name__ == "__main__":
     delta, delta_bias = tuple(param.clone() for param in block.second_layer.optimal_delta_layer.parameters())
     alpha, alpha_bias = tuple(param.clone() for param in block.first_layer.extended_output_layer.parameters())
     omega = block.second_layer.extended_input_layer.weight.clone()
-    print(f'Weights: {weight}, {bias}')
-    print(f'Delta: {delta}, {delta_bias}')
-    print(f'Alpha: {alpha}, {alpha_bias}')
-    print(f'Omega: {omega}')
+    # print(f'Weights: {weight.shape}, {bias.shape}')
+    # print(f'Delta: {delta.shape}, {delta_bias.shape}')
+    # print(f'Alpha: {alpha.shape}, {alpha_bias.shape}')
+    # print(f'Omega: {omega.shape}')
+    print(f'Eigenvalues: {block.eigenvalues}')
 
-    print(block.eigenvalues)
 
     # Training loss with the change
-    scaling_factor = 0.5
+    scaling_factor = 1.0
     block.second_layer.scaling_factor = scaling_factor
     loss_with_extension = evaluate_with_extension(block, dataset)
     print(f'Training Loss with the change: {loss_with_extension}')
@@ -370,50 +370,53 @@ if __name__ == "__main__":
     print(f'Zero-th order improvement: {training_loss_after - loss_with_extension}')
 
     # Apply the change
-    print('Apply the change')
+    # print(f'First layer weight shape: {block.first_layer.weight.shape}')
+    # print(f'First layer extended output shape: {block.first_layer.extended_output_layer.weight.shape}')
+    # print(f'Second layer weight shape: {block.second_layer.weight.shape}')
+    # print(f'Second layer extended input shape: {block.second_layer.extended_input_layer.weight.shape}')
     block.apply_change()
+    # print(f'First layer weight shape: {block.first_layer.weight.shape}')
+    # print(f'Second layer weight shape: {block.second_layer.weight.shape}')
 
     # Assert the two values are "close enough" within the tolerance
-    # tolerance = 1e-6  # Adjust this value based on the required precision
-    # linear_factor = scaling_factor**2 * torch.sign(torch.tensor(scaling_factor))
-    # assert torch.allclose(
-    #     weight - linear_factor * delta,
-    #     block.second_layer.weight[:, :weight.shape[1]],
-    #     atol=tolerance,
-    #     ), (
-    #     f"Weight ({weight}) and updated weight ({block.second_layer.weight}) "
-    #     f"are not close enough. "
-    #     f"(Absolute difference: {torch.abs(weight - block.second_layer.weight)})"
-    # )
-    # assert torch.allclose(
-    #     bias - linear_factor * delta_bias,
-    #     block.second_layer.bias,
-    #     atol=tolerance,
-    #     ), (
-    #     f"Bias ({bias}) and updated bias ({block.second_layer.bias}) "
-    #     f"are not close enough. "
-    #     f"(Absolute difference: {torch.abs(bias - block.second_layer.bias)}) "
-    # )
-    #
-    # assert torch.allclose(
-    #     scaling_factor * alpha,
-    #     block.first_layer.weight[:, -alpha.shape[1]:],
-    #     atol=tolerance,
-    #     ), (
-    #     f"Alpha ({alpha}) and updated alpha ({block.first_layer.weight[:, -alpha.shape[1]:]}) "
-    #     f"are not close enough. "
-    #     f"(Absolute difference: {torch.abs(alpha - block.first_layer.weight[:, -alpha.shape[1]:])}) "
-    # )
-    #
-    # assert torch.allclose(
-    #     omega,
-    #     block.second_layer.weight[:, -omega.shape[1]:],
-    #     atol=tolerance,
-    #     ), (
-    #     f"Omega ({omega}) and updated omega ({block.second_layer.weight}) "
-    #     f"are not close enough. "
-    #     f"(Absolute difference: {torch.abs(omega - block.second_layer.weight)}) "
-    # )
+    tolerance = 1e-6  # Adjust this value based on the required precision
+    linear_factor = scaling_factor**2 * torch.sign(torch.tensor(scaling_factor))
+    assert torch.allclose(
+        weight - linear_factor * delta,
+        block.second_layer.weight[:, :weight.shape[1]],
+        atol=tolerance,
+        ), (
+        f"Weight ({weight}) and updated weight ({block.second_layer.weight}) "
+        f"are not close enough. "
+        f"(Absolute difference: {torch.abs(weight - block.second_layer.weight)})"
+    )
+    assert torch.allclose(
+        bias - linear_factor * delta_bias,
+        block.second_layer.bias,
+        atol=tolerance,
+        ), (
+        f"Bias ({bias}) and updated bias ({block.second_layer.bias}) "
+        f"are not close enough. "
+        f"(Absolute difference: {torch.abs(bias - block.second_layer.bias)}) "
+    )
+    assert torch.allclose(
+        alpha * scaling_factor,
+        block.first_layer.weight[-alpha.shape[0]:, :],
+        atol=tolerance,
+        ), (
+        f"Alpha ({alpha}) and updated alpha ({block.first_layer.weight[-alpha.shape[0]:, :]}) "
+        f"are not close enough. "
+        f"(Absolute difference: {torch.abs(alpha - block.first_layer.weight[-alpha.shape[0]:, :])}) "
+    )
+    assert torch.allclose(
+        omega * scaling_factor,
+        block.second_layer.weight[:, -omega.shape[1]:],
+        atol=tolerance,
+        ), (
+        f"Omega ({omega}) and updated omega ({block.second_layer.weight[:, -omega.shape[1]:]}) "
+        f"are not close enough. "
+        f"(Absolute difference: {torch.abs(omega - block.second_layer.weight[:, -omega.shape[1]:])}) "
+    )
 
     # Delete the update
     print('Delete the update')
