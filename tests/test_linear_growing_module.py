@@ -257,26 +257,32 @@ class TestLinearGrowingModule(TorchTestCase):
                 layer.bias.data.copy_(l0.bias.data)
             layer.extended_output_layer = l_ext
 
-            for gamma in (0.0, 1.0, 5.0):
+            for gamma, gamma_next in zip((0.0, 1.0, 5.0), (0.0, 1.5, 5.5)):
                 layer.scaling_factor = gamma
+                layer._scaling_factor_next_module[0] = gamma_next
                 x = torch.randn((10, 5), device=global_device())
-                assert torch.allclose(layer(x), l0(x))
+                self.assertAllClose(layer(x), l0(x))
 
                 y1, y2 = layer.extended_forward(x)
 
-                assert torch.allclose(y1, l0(x) - gamma**2 * l_delta(x))
-                assert torch.allclose(y2, gamma * l_ext(x))
+                self.assertAllClose(y1, l0(x) - gamma**2 * l_delta(x))
+                self.assertAllClose(y2, gamma_next * l_ext(x))
 
             layer.scaling_factor = gamma
+            layer._scaling_factor_next_module[0] = gamma_next
             layer.apply_change(apply_previous=False)
             x = torch.randn((10, 5), device=global_device())
+            y = layer(x)
+            self.assertAllClose(y, l0(x) - gamma**2 * l_delta(x))
+
+            layer._apply_output_changes()
             y = layer(x)
             y1 = y[:, :1]
             y2 = y[:, 1:]
             self.assertAllClose(y1, l0(x) - gamma**2 * l_delta(x))
             self.assertAllClose(
                 y2,
-                gamma * l_ext(x),
+                gamma_next * l_ext(x),
                 atol=1e-7,
                 message=f"Error in applying change: {(y2 - gamma * l_ext(x)).abs().max():.2e}",
             )
@@ -437,15 +443,20 @@ class TestLinearGrowingModule(TorchTestCase):
             layer.extended_output_layer = l_ext
 
             gamma = 5.0
+            gamma_next = 5.5
             layer.scaling_factor = gamma
             layer.apply_change(apply_previous=False)
+            self.assertAllClose(layer.weight.data, l0.weight.data)
+
+            layer._scaling_factor_next_module[0] = gamma_next
+            layer._apply_output_changes()
 
             x = torch.randn((10, 5), device=global_device())
             y = layer(x)
             y1 = y[:, :1]
             y2 = y[:, 1:]
             self.assertAllClose(y1, l0(x))
-            self.assertAllClose(y2, gamma * l_ext(x))
+            self.assertAllClose(y2, gamma_next * l_ext(x))
 
     def test_apply_change_in_extension(self):
         torch.manual_seed(0)
