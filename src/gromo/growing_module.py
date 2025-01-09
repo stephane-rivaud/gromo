@@ -430,6 +430,8 @@ class GrowingModule(torch.nn.Module):
         self.optimal_delta_layer: torch.nn.Module | None = None
         self.scaling_factor: torch.Tensor = torch.zeros(1, device=self.device)
         self.scaling_factor.requires_grad = True
+        # to avoid having to link to the next module we get a copy of the scaling factor
+        # of the next module to use it in the extended_forward
         self._scaling_factor_next_module = torch.zeros(1, device=self.device)
 
         self.extended_input_layer: torch.nn.Module | None = None
@@ -627,7 +629,8 @@ class GrowingModule(torch.nn.Module):
         self, x: torch.Tensor, x_ext: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """
-        Forward pass of the module with layer extension and layer update.
+        Forward pass of the module with layer extension and layer update scaled
+        according to the scaling factor.
         WARNING: does not store the input and pre-activity tensors.
         WARNING: the scaling factor is squared for the optimal delta and
         linear for the extension. (Instead of linear for the optimal delta and
@@ -971,7 +974,8 @@ class GrowingModule(torch.nn.Module):
         self, scaling_factor: float | torch.Tensor | None = None
     ) -> None:
         """
-        Apply the output changes to the layer with the given scaling factor.
+        Extend the layer output with the current layer output extension,
+        with the scaling factor of the next module if no scaling factor is provided.
 
         Parameters
         ----------
@@ -1005,6 +1009,10 @@ class GrowingModule(torch.nn.Module):
         """
         Apply the optimal delta and extend the layer with current
         optimal delta and layer extension with the current scaling factor.
+        This means that the layer input is extended with the current layer output
+        extension and the previous layer output is extended with the previous layer
+        output extension both scaled by the current scaling factor.
+        This also means that the layer output is not extended.
 
         Parameters
         ----------
