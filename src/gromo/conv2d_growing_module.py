@@ -285,7 +285,9 @@ class Conv2dGrowingModule(GrowingModule):
         self, desired_activation: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, int]:
         """
-        Compute the update of the tensor M_{-2} := B[-2]^T dA . # TODO: correct this formula
+        Compute the update of the tensor M_{-2} := B[-2] <x> dA.
+        Precisely: M_{-2}(bca) = Bt[-2](ixab) dA(icx)
+        where Bt[-2] is the masked unfolded input of the previous layer.
 
         Parameters
         ----------
@@ -330,7 +332,10 @@ class Conv2dGrowingModule(GrowingModule):
 
     def compute_cross_covariance_update(self) -> tuple[torch.Tensor, int]:
         """
-        Compute the update of the tensor P := B[-2]^T B[-1] .# TODO: correct this formula
+        Compute the update of the tensor P := B[-2] <x> B[-1].
+        Precisely: P(abe) = Bt[-2](ixab) Bc[-1](iex)
+        where Bt[-2] is the masked unfolded input of the previous layer
+        and Bc[-1] is the unfolded input of the current layer.
 
         Returns
         -------
