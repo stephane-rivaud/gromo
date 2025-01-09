@@ -99,15 +99,6 @@ class Conv2dGrowingModule(GrowingModule):
         self.kernel_size = self.layer.kernel_size
 
         # TODO: update S_growth shape in layer_in_extension
-        self.tensor_s_growth = TensorStatistic(
-            shape=(
-                in_channels * kernel_size[0] * kernel_size[1],
-                in_channels * kernel_size[0] * kernel_size[1],
-            ),
-            update_function=self.compute_s_growth_update,
-            device=self.device,
-            name=f"S_growth({name})",
-        )
         self.input_size: tuple[int, int] = input_size
         self._mask_tensor_t: torch.Tensor | None = None
         self.use_bias = use_bias

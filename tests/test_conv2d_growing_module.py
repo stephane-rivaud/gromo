@@ -516,6 +516,7 @@ class TestConv2dGrowingModule(TorchTestCase):
                 demo_couple = self.demo_couple[bias]
                 demo_couple[0].store_input = True
                 demo_couple[1].init_computation()
+                demo_couple[1].tensor_s_growth.init()
 
                 y = demo_couple[0](self.input_x)
                 y = demo_couple[1](y)
@@ -523,6 +524,7 @@ class TestConv2dGrowingModule(TorchTestCase):
                 loss.backward()
 
                 demo_couple[1].update_computation()
+                demo_couple[1].tensor_s_growth.update()
 
                 alpha, alpha_b, omega, eigenvalues = demo_couple[
                     1
@@ -590,6 +592,7 @@ class TestConv2dGrowingModule(TorchTestCase):
 
                 demo_couple[0].store_input = True
                 demo_couple[1].init_computation()
+                demo_couple[1].tensor_s_growth.init()
 
                 input_x = indicator_batch(
                     (demo_couple[0].in_channels, 7, 11), device=global_device()
@@ -598,9 +601,9 @@ class TestConv2dGrowingModule(TorchTestCase):
                 y = demo_couple[1](y)
                 loss = ((y - input_x) ** 2).sum()
                 loss.backward()
-                demo_couple[1].tensor_s_growth.updated = False  # TEMP
 
                 demo_couple[1].update_computation()
+                demo_couple[1].tensor_s_growth.update()
 
                 demo_couple[1].compute_optimal_delta()
                 demo_couple[1].delta_raw *= 0
