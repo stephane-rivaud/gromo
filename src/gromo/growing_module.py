@@ -967,10 +967,40 @@ class GrowingModule(torch.nn.Module):
         """
         raise NotImplementedError
 
+    def _apply_output_changes(
+        self, scaling_factor: float | torch.Tensor | None = None
+    ) -> None:
+        """
+        Apply the output changes to the layer with the given scaling factor.
+
+        Parameters
+        ----------
+        scaling_factor: float | torch.Tensor
+            scaling factor to apply to the optimal delta
+        """
+        if scaling_factor is None:
+            scaling_factor = self._scaling_factor_next_module
+        else:
+            if not torch.isclose(scaling_factor, self._scaling_factor_next_module):
+                warnings.warn(
+                    f"Scaling factor {scaling_factor} is different from the one "
+                    f"used during the extended_forward {self._scaling_factor_next_module}."
+                )
+        self.layer_out_extension(
+            weight=scaling_factor * self.extended_output_layer.weight,
+            bias=(
+                scaling_factor * self.extended_output_layer.bias
+                if self.extended_output_layer.bias is not None
+                else None
+            ),
+        )
+
     def apply_change(
         self,
         scaling_factor: float | torch.Tensor | None = None,
         apply_previous: bool = True,
+        apply_delta: bool = True,
+        apply_extension: bool = True,
     ) -> None:
         """
         Apply the optimal delta and extend the layer with current
@@ -983,6 +1013,10 @@ class GrowingModule(torch.nn.Module):
              if None use the current scaling factor
         apply_previous: bool
             if True apply the change to the previous layer
+        apply_delta: bool
+            if True apply the optimal delta to the layer
+        apply_extension: bool
+            if True apply the extension to the layer
         """
         # print(f"==================== Applying change to {self.name} ====================")
         if scaling_factor is not None:
@@ -990,7 +1024,7 @@ class GrowingModule(torch.nn.Module):
             # this type problem is due to the use of the setter to change the scaling factor
         linear_factor = self.scaling_factor**2 * torch.sign(self.scaling_factor)
         sqrt_factor = self.scaling_factor
-        if self.optimal_delta_layer is not None:
+        if apply_delta and self.optimal_delta_layer is not None:
             self.parameter_step(
                 delta_weights=-linear_factor * self.optimal_delta_layer.weight.data,
                 delta_biases=(
@@ -999,45 +1033,35 @@ class GrowingModule(torch.nn.Module):
                     else None
                 ),
             )
-        if self.extended_input_layer:
-            # if abs(sqrt_factor * self.extended_input_layer.weight).max() < 1e-15:
-            #     print(f"Warning: the input extension of {self.name} is null.")
-            #     print(f"{self.extended_input_layer.weight=}")
-            #     print(f"{sqrt_factor=}")
-            assert self.extended_input_layer.bias is None or torch.allclose(
-                self.extended_input_layer.bias,
-                torch.zeros_like(self.extended_input_layer.bias),
-            ), "The bias of the input extension must be null."
-            self.layer_in_extension(weight=sqrt_factor * self.extended_input_layer.weight)
-        if self.extended_output_layer:
-            if abs(sqrt_factor * self.extended_output_layer.weight).max() < 1e-15:
-                print(f"Warning: the output extension of {self.name} is null.")
-                print(f"{self.extended_output_layer.weight=}")
-                print(f"{self.extended_output_layer.bias=}")
-                print(f"{sqrt_factor=}")
-            self.layer_out_extension(
-                weight=sqrt_factor * self.extended_output_layer.weight,
-                bias=(
-                    sqrt_factor * self.extended_output_layer.bias
-                    if self.extended_output_layer.bias is not None
-                    else None
-                ),
-            )
-        if apply_previous and self.previous_module is not None:
-            if isinstance(self.previous_module, GrowingModule):
-                self.previous_module.apply_change(
-                    apply_previous=False, scaling_factor=self.scaling_factor
+        if apply_extension:
+            if self.extended_input_layer:
+                assert self.extended_input_layer.bias is None or torch.allclose(
+                    self.extended_input_layer.bias,
+                    torch.zeros_like(self.extended_input_layer.bias),
+                ), "The bias of the input extension must be null."
+                if self.scaling_factor == 0:
+                    warnings.warn(
+                        "The scaling factor is null. The input extension will have no effect."
+                    )
+                self.layer_in_extension(
+                    weight=sqrt_factor * self.extended_input_layer.weight
                 )
-            elif isinstance(self.previous_module, AdditionGrowingModule):
-                raise NotImplementedError  # TODO
-            else:
-                raise NotImplementedError
-        # print("====================================")
-        # Update the size of the previous and next modules
-        if isinstance(self.previous_module, AdditionGrowingModule):
-            self.previous_module.update_size()
-        if isinstance(self.next_module, AdditionGrowingModule):
-            self.next_module.update_size()
+
+            if apply_previous and self.previous_module is not None:
+                if isinstance(self.previous_module, GrowingModule):
+                    self.previous_module._apply_output_changes(
+                        scaling_factor=self.scaling_factor
+                    )
+                elif isinstance(self.previous_module, AdditionGrowingModule):
+                    raise NotImplementedError  # TODO
+                else:
+                    raise NotImplementedError
+
+            # Update the size of the previous and next modules
+            if isinstance(self.previous_module, AdditionGrowingModule):
+                self.previous_module.update_size()
+            if isinstance(self.next_module, AdditionGrowingModule):
+                self.next_module.update_size()
 
     # Optimal update computation
     def compute_optimal_delta(
@@ -1196,6 +1220,22 @@ class GrowingModule(torch.nn.Module):
         else:
             raise NotImplementedError
 
+    def update_computation(self) -> None:
+        """
+        Update the computation of the optimal added parameters.
+        """
+        self.tensor_s.update()
+        self.tensor_m.update()
+        if self.previous_module is None:
+            return
+        elif isinstance(self.previous_module, GrowingModule):
+            self.tensor_m_prev.update()
+            self.cross_covariance.update()
+        elif isinstance(self.previous_module, AdditionGrowingModule):
+            raise NotImplementedError  # TODO
+        else:
+            raise NotImplementedError
+
     def reset_computation(self) -> None:
         """
         Reset the computation of the optimal added parameters.
@@ -1300,22 +1340,6 @@ class GrowingModule(torch.nn.Module):
                     "module is needed.",
                     UserWarning,
                 )
-
-    def update_computation(self) -> None:
-        """
-        Update the computation of the optimal added parameters.
-        """
-        self.tensor_s.update()
-        self.tensor_m.update()
-        if self.previous_module is None:
-            return
-        elif isinstance(self.previous_module, GrowingModule):
-            self.tensor_m_prev.update()
-            self.cross_covariance.update()
-        elif isinstance(self.previous_module, AdditionGrowingModule):
-            raise NotImplementedError  # TODO
-        else:
-            raise NotImplementedError
 
 
 if __name__ == "__main__":
