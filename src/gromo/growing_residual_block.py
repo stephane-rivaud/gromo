@@ -305,7 +305,7 @@ if __name__ == "__main__":
             total_loss += loss
             loss.backward()
             model.update_computation()
-        return total_loss / len(dataset)
+        return total_loss
 
 
     def evaluate_with_extension(model, dataset):
@@ -320,20 +320,20 @@ if __name__ == "__main__":
 
     # Define the dataset
     batch_size = 100
-    num_batch = 10
+    num_batch = 100
     in_features = 10
     dataset = [(torch.randn(batch_size, in_features), torch.randn(batch_size, in_features)) for _ in range(num_batch)]
 
     # Define the block
-    hidden_features = 2
+    hidden_features = 5
     block = GrowingResidualBlock(in_features, hidden_features, activation=nn.ReLU(), name="block")
     print(block)
 
     # Define the optimizer
-    optimizer = torch.optim.SGD(block.parameters(), lr=0.01 / num_batch, momentum=0.9, weight_decay=1e-3)
+    optimizer = torch.optim.SGD(block.parameters(), lr=0.01, momentum=0.9, weight_decay=1e-3)
 
     # Regular training
-    for epoch in range(39):
+    for epoch in range(300):
         training_loss = train(block, dataset, optimizer)
         print(f'Epoch {epoch}, Training Loss: {training_loss}')
 
@@ -342,7 +342,7 @@ if __name__ == "__main__":
     print(f'Training Loss after training: {training_loss_after}')
 
     # Gathering growing statistics
-    statistics_loss = compute_statistics(block, dataset)
+    statistics_loss = compute_statistics(block, dataset) / (num_batch * batch_size)
     print(f'Training Loss after gathering statistics: {statistics_loss}')
 
     # Compute the optimal update
@@ -354,29 +354,19 @@ if __name__ == "__main__":
     delta, delta_bias = tuple(param.clone() for param in block.second_layer.optimal_delta_layer.parameters())
     alpha, alpha_bias = tuple(param.clone() for param in block.first_layer.extended_output_layer.parameters())
     omega = block.second_layer.extended_input_layer.weight.clone()
-    # print(f'Weights: {weight.shape}, {bias.shape}')
-    # print(f'Delta: {delta.shape}, {delta_bias.shape}')
-    # print(f'Alpha: {alpha.shape}, {alpha_bias.shape}')
-    # print(f'Omega: {omega.shape}')
     print(f'Eigenvalues: {block.eigenvalues}')
 
 
     # Training loss with the change
-    scaling_factor = 1.0
+    scaling_factor = 0.5
     block.second_layer.scaling_factor = scaling_factor
     loss_with_extension = evaluate_with_extension(block, dataset)
     print(f'Training Loss with the change: {loss_with_extension}')
-    print(f'First order improvement: {block.first_order_improvement / (batch_size * num_batch)}')
+    print(f'First order improvement: {block.first_order_improvement}')
     print(f'Zero-th order improvement: {training_loss_after - loss_with_extension}')
 
     # Apply the change
-    # print(f'First layer weight shape: {block.first_layer.weight.shape}')
-    # print(f'First layer extended output shape: {block.first_layer.extended_output_layer.weight.shape}')
-    # print(f'Second layer weight shape: {block.second_layer.weight.shape}')
-    # print(f'Second layer extended input shape: {block.second_layer.extended_input_layer.weight.shape}')
     block.apply_change()
-    # print(f'First layer weight shape: {block.first_layer.weight.shape}')
-    # print(f'Second layer weight shape: {block.second_layer.weight.shape}')
 
     # Assert the two values are "close enough" within the tolerance
     tolerance = 1e-6  # Adjust this value based on the required precision
@@ -409,6 +399,15 @@ if __name__ == "__main__":
         f"(Absolute difference: {torch.abs(alpha - block.first_layer.weight[-alpha.shape[0]:, :])}) "
     )
     assert torch.allclose(
+        alpha_bias * scaling_factor,
+        block.first_layer.bias[-alpha_bias.shape[0]:],
+        atol=tolerance,
+        ), (
+        f"Alpha bias ({alpha_bias}) and updated alpha bias ({block.first_layer.bias[-alpha_bias.shape[0]:]}) "
+        f"are not close enough. "
+        f"(Absolute difference: {torch.abs(alpha_bias - block.first_layer.bias[-alpha_bias.shape[0]:])}) "
+    )
+    assert torch.allclose(
         omega * scaling_factor,
         block.second_layer.weight[:, -omega.shape[1]:],
         atol=tolerance,
@@ -427,15 +426,10 @@ if __name__ == "__main__":
     training_loss_after_change = evaluate(block, dataset)
     print(f'Training Loss after the change: {training_loss_after_change}')
     print(f'Zero-th order improvement: {training_loss_after - training_loss_after_change}')
-
     print(block)
 
-    # assert loss_with_extension == training_loss_after_change
-
-    # Tolerance for floating-point comparisons
-    tolerance = 1e-6  # Adjust this value based on the required precision
-
     # Assert the two values are "close enough" within the tolerance
+    tolerance = 1e-6  # Adjust this value based on the required precision
     assert torch.isclose(
         loss_with_extension,
         training_loss_after_change,

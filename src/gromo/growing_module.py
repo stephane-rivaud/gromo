@@ -430,6 +430,7 @@ class GrowingModule(torch.nn.Module):
         self.optimal_delta_layer: torch.nn.Module | None = None
         self.scaling_factor: torch.Tensor = torch.zeros(1, device=self.device)
         self.scaling_factor.requires_grad = True
+        self._scaling_factor_next_module: torch.Tensor = torch.zeros(1, device=self.device)
 
         self.extended_input_layer: torch.nn.Module | None = None
         self.extended_output_layer: torch.nn.Module | None = None
@@ -562,6 +563,8 @@ class GrowingModule(torch.nn.Module):
             if isinstance(value, torch.Tensor):
                 assert value.shape == (1,), "The scaling factor must be a scalar."
                 torch.nn.Module.__setattr__(self, key, value)
+                if isinstance(self.previous_module, GrowingModule):
+                    self.previous_module._scaling_factor_next_module = value
             else:
                 assert isinstance(
                     value, (int, float)
@@ -656,7 +659,7 @@ class GrowingModule(torch.nn.Module):
                 )
 
         if self.extended_output_layer:
-            supplementary_pre_activity = sqrt_factor * self.extended_output_layer(x)
+            supplementary_pre_activity = self._scaling_factor_next_module * self.extended_output_layer(x)
             supplementary_activity = self.post_layer_function(supplementary_pre_activity)
         else:
             supplementary_activity = None

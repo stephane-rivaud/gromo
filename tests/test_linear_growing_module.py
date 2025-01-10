@@ -258,7 +258,7 @@ class TestLinearGrowingModule(TorchTestCase):
             layer.extended_output_layer = l_ext
 
             for gamma in (0.0, 1.0, 5.0):
-                layer.scaling_factor = gamma
+                layer._scaling_factor_next_module = gamma
                 x = torch.randn((10, 5), device=global_device())
                 assert torch.allclose(layer(x), l0(x))
 
