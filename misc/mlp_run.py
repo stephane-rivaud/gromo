@@ -517,6 +517,7 @@ def main(args: argparse.Namespace):
                     batch_limit=args.growing_batch_limit,
                     device=device,
                 )
+                print('Initial train accuracy:', initial_train_accuracy)
                 logs["train_loss"] = initial_train_loss
                 logs["train_accuracy"] = initial_train_accuracy
 
