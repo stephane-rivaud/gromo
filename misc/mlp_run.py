@@ -544,6 +544,7 @@ def main(args: argparse.Namespace):
                 model.apply_update()
                 # train_loss = loss_history[-1]
                 train_loss = initial_train_loss
+                train_accuracy = initial_train_accuracy
 
                 if args.normalize_weights:
                     model.normalise()
