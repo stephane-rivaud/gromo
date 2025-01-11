@@ -11,15 +11,21 @@ weight_decay=$3
 epochs_per_growth=$4
 selection_method=$5
 
-# Source the shell configuration file to apply changes (need for conda)
-if [ -f /home/tau/strivaud/.bashrc ]; then
-    source /home/tau/strivaud/.bashrc
-fi
-if [ -f /home/strivaud/.bash_profile ]; then
-    source /home/tau/strivaud/.bash_profile
-fi
-# activate the conda environment
-conda activate gromo
+echo "nb_hidden_layer: $nb_hidden_layer"
+echo "hidden_size: $hidden_size"
+echo "weight_decay: $weight_decay"
+echo "epochs_per_growth: $epochs_per_growth"
+echo "selection_method: $selection_method"
+
+## Source the shell configuration file to apply changes (need for conda)
+#if [ -f /home/tau/strivaud/.bashrc ]; then
+#    source /home/tau/strivaud/.bashrc
+#fi
+#if [ -f /home/strivaud/.bash_profile ]; then
+#    source /home/tau/strivaud/.bash_profile
+#fi
+## activate the conda environment
+#conda activate gromo
 
 command="python -u misc/mlp_run.py"
 

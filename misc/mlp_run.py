@@ -468,6 +468,7 @@ def main(args: argparse.Namespace):
                     batch_limit=args.growing_batch_limit,
                     device=device,
                 )
+                print('Initial train accuracy:', initial_train_accuracy)
                 logs["train_loss"] = initial_train_loss
                 logs["train_accuracy"] = initial_train_accuracy
                 model.compute_optimal_update(
@@ -571,6 +572,7 @@ def main(args: argparse.Namespace):
                 logs["train_accuracy"] = train_accuracy[-1]
 
                 train_loss = train_loss[-1]
+                train_accuracy = train_accuracy[-1]
 
             val_loss, val_accuracy = evaluate_model(
                 model=model,
