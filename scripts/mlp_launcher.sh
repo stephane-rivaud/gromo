@@ -12,7 +12,7 @@ setup_environment() {
 # Function to execute the batch jobs
 run_jobs() {
   local nb_hidden_layer=1
-  local weight_decay=0.0
+  local weight_decay=0.1
   local selection_method='none'
 
   for hidden_size in "${hidden_size_list[@]}"; do
