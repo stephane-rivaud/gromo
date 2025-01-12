@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Constants for growth parameters
-growth_hidden_sizes=(1 2 4 8 16 32 64)
-growth_epochs=(-1 0 1 2 4 6)
+hidden_size_list=(1)
+epoch_per_growth_list=(-1 0 1 2)
 
 # Function to create the slurm directory
 setup_environment() {
@@ -15,8 +15,8 @@ run_jobs() {
   local weight_decay=0
   local selection_method='none'
 
-  for hidden_size in "${growth_hidden_sizes[@]}"; do
-    for epoch_per_growth in "${growth_epochs[@]}"; do
+  for hidden_size in "${hidden_size_list[@]}"; do
+    for epoch_per_growth in "${epoch_per_growth_list[@]}"; do
       local command="scripts/mlp_run.sh $nb_hidden_layer $hidden_size $weight_decay $epoch_per_growth $selection_method"
       echo $command
       sbatch --gres=gpu:1 --time=01:45:00 $command
