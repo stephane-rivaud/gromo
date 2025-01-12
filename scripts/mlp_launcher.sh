@@ -2,7 +2,7 @@
 
 # Constants for growth parameters
 hidden_size_list=(1)
-epoch_per_growth_list=(-1 0 1 2)
+epoch_per_growth_list=(4 8 16)
 
 # Function to create the slurm directory
 setup_environment() {
