@@ -631,7 +631,11 @@ def main(args: argparse.Namespace):
 
 
 if __name__ == "__main__":
+    import os
     import random
+
+    # Check if the CUDA_VISIBLE_DEVICES environment variable is set
+    print(f"Visible GPUs: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
 
     parser = create_parser()
     args = parser.parse_args()

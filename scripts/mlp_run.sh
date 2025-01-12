@@ -132,6 +132,9 @@ line_search_batch_limit=-1
 
 command="${command} --line-search-alpha $line_search_alpha --line-search-beta $line_search_beta --line-search-max-iter $line_search_max_iter --line-search-epsilon $line_search_epsilon --line-search-batch-limit $line_search_batch_limit"
 
+# Set the GPU to use
+export CUDA_VISIBLE_DEVICES=0
+
 # Execute the command
 echo "Executing command: $command"
 eval "$command"
