@@ -489,6 +489,8 @@ def main(args: argparse.Namespace):
 
                 if args.selection_method == "none":
                     last_updated_layer = (last_updated_layer + 1) % len(model.layers)
+                    if last_updated_layer == 0:
+                        last_updated_layer = 1
                     model.select_update(layer_index=last_updated_layer)
                 elif args.selection_method == "fo":
                     last_updated_layer = model.select_best_update()

@@ -27,7 +27,6 @@ class GrowingMLP(nn.Module):
         self.input_shape = input_shape
         self.output_shape = output_shape
 
-        # self.layers: list[GrowingModule] = []
         self.layers = nn.ModuleList()
         self.layers.append(
             LinearGrowingModule(
