@@ -60,6 +60,13 @@ def create_parser() -> argparse.ArgumentParser:
         default=None,
         help="prefix to add to the log file name (default: None)",
     )
+    # add experiment name
+    general_group.add_argument(
+        "--experiment-name",
+        type=str,
+        default=None,
+        help="name of the experiment (default: None)",
+    )
     general_group.add_argument(
         "--tags",
         type=str,
@@ -315,7 +322,6 @@ def main(args: argparse.Namespace):
     print(f"Mlflow log dir: {args.log_dir}")
     mlflow.set_tracking_uri(f"{args.log_dir}/mlruns")
     print(f"MLflow tracking uri: {mlflow.get_tracking_uri()}")
-    # mlflow.set_tracking_uri("http://127.0.0.1:8080")
     try:
         mlflow.create_experiment(
             name=f"{args.dataset}",
@@ -324,7 +330,7 @@ def main(args: argparse.Namespace):
     except mlflow.exceptions.MlflowException:
         pass
 
-    mlflow.set_experiment(f"{args.dataset}")
+    mlflow.set_experiment(f"{args.experiment_name}")
     with mlflow.start_run(run_name=args.log_file_name, log_system_metrics=args.log_system_metrics):
         if args.tags is not None:
             mlflow.set_tags({"tags": args.tags})
@@ -630,5 +636,7 @@ if __name__ == "__main__":
     # Check if the seed is None and generate a random seed if necessary
     if args.seed is None:
         args.seed = random.randint(0, 2 ** 32 - 1)
+    if args.experiment_name is None:
+        args.experiment_name = f"{args.dataset}"
     print(args)
     main(args)

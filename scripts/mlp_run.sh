@@ -18,15 +18,16 @@ echo "epochs_per_growth: $epochs_per_growth"
 echo "selection_method: $selection_method"
 
 ## Source the shell configuration file to apply changes (need for conda)
-#if [ -f /home/tau/strivaud/.bashrc ]; then
-#    source /home/tau/strivaud/.bashrc
-#fi
-#if [ -f /home/strivaud/.bash_profile ]; then
-#    source /home/tau/strivaud/.bash_profile
-#fi
-## activate the conda environment
-#conda activate gromo
+if [ -f /home/tau/strivaud/.bashrc ]; then
+    source /home/tau/strivaud/.bashrc
+fi
+if [ -f /home/strivaud/.bash_profile ]; then
+    source /home/tau/strivaud/.bash_profile
+fi
+# activate the conda environment
+conda activate gromo
 
+# Command to execute
 command="python -u misc/mlp_run.py"
 
 # General arguments
@@ -35,6 +36,7 @@ log_dir_suffix=""
 log_file_name=""
 log_file_prefix=""
 tags="mlp-run"
+experiment_name="MLP - $nb_hidden_layer hidden layers"
 nb_step=100
 no_cuda=false
 training_threshold=""
@@ -52,6 +54,9 @@ if [ -n "$log_file_name" ]; then
 fi
 if [ -n "$log_file_prefix" ]; then
     command="${command} --log-file-prefix $log_file_prefix"
+fi
+if [ -n "$experiment_name" ]; then
+    command="${command} --experiment-name $experiment_name"
 fi
 if [ -n "$tags" ]; then
     command="${command} --tags $tags"
