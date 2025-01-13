@@ -294,9 +294,10 @@ def preprocess_and_check_args(args: argparse.Namespace) -> argparse.Namespace:
 
     # Growing arguments
     if args.normalize_weights and args.activation.lower().strip() != "relu":
-        warn(
-            "Normalizing the weights is only an invariant for ReLU activation functions."
-        )
+        warn("Normalizing the weights is only an invariant for ReLU activation functions.")
+
+    if args.init_new_neurons_with_random_in_and_zero_out:
+        args.selection_method = "none"
 
     return args
 
@@ -336,32 +337,38 @@ def log_layers_metrics(layer_metrics: dict, step: int, prefix: str | None = None
 def main(args: argparse.Namespace):
     start_time = time()
 
+    # create the log file (manual logging)
     file_path = f"{args.log_dir}/{args.log_file_name}_{start_time:.0f}.txt"
     print(f"Log file: {file_path}")
-    print(f"Mlflow log dir: {args.log_dir}")
+
+    # create the MLflow experiment
     mlflow.set_tracking_uri(f"{args.log_dir}/mlruns")
     print(f"MLflow tracking uri: {mlflow.get_tracking_uri()}")
     try:
         mlflow.create_experiment(
-            name=f"{args.dataset}",
+            name=f"{args.experiment_name}",
             tags={"tags": args.tags} if args.tags is not None else None,
         )
     except mlflow.exceptions.MlflowException:
         warn(f"Experiment {args.dataset} already exists.")
 
+    # set the experiment and run
     mlflow.set_experiment(f"{args.experiment_name}")
     with mlflow.start_run(run_name=args.log_file_name, log_system_metrics=args.log_system_metrics):
+        # log the arguments
         if args.tags is not None:
             mlflow.set_tags({"tags": args.tags})
         with open(file_path, "w") as f:
             f.write(str(args) + "\n")
         mlflow.log_params(vars(args))
 
+        # set the device
         if args.no_cuda:
             set_device(torch.device("cpu"))
         device: torch.device = global_device()
         print(f'Using device: {device}')
 
+        # load the dataset and create the dataloaders
         if args.dataset == "sin":
             input_shape = 1
             train_dataloader = SinDataloader(
@@ -374,20 +381,21 @@ def main(args: argparse.Namespace):
             top_1_accuracy: nn.Module | None = None
             args.nb_class = 1
         else:
-            train_dataset, val_dataset, _ = get_dataset(
+            # train_dataset, val_dataset, _ = get_dataset(
+            train_dataset, _, val_dataset = get_dataset(
                 dataset_name=args.dataset,
                 dataset_path=args.dataset_path,
                 nb_class=args.nb_class,
-                split_train_val=args.split_train_val,
+                # split_train_val=args.split_train_val,
+                split_train_val=0.0,
                 data_augmentation=args.data_augmentation,
                 seed=args.seed,
             )
             input_shape = train_dataset[0][0].shape[0]
 
-            pin_memory = device != torch.device("cpu")
+            # pin_memory = device != torch.device("cpu")
+            pin_memory = False
             num_workers = 4 if pin_memory else 0
-            # num_workers = 0
-            # pin_memory = False
 
             train_dataloader = torch.utils.data.DataLoader(
                 train_dataset,
@@ -412,6 +420,7 @@ def main(args: argparse.Namespace):
             loss_function_mean = torch.nn.CrossEntropyLoss(reduction="mean")
             top_1_accuracy: nn.Module = Accuracy(k=1)
 
+        # create the model
         model = GrowingMLP(
             input_shape=input_shape,
             output_shape=args.nb_class,
@@ -422,18 +431,17 @@ def main(args: argparse.Namespace):
             seed=args.seed,
             device=device,
         )
-        print(f"Model before training: {model}")
-        print(f"Number of parameters: {model.number_of_parameters()}")
+        print(f"Model before training:\n{model}")
+        print(f"Number of parameters: {model.number_of_parameters(): ,}")
 
+        # set the dtype for growing computations
         growing_dtype = torch.float32
         if args.growing_computation_dtype == "float64":
             growing_dtype = torch.float64
         elif args.growing_computation_dtype != "float32":
             raise ValueError(f"Unknown growing dtype: {args.growing_computation_dtype}")
 
-        if args.init_new_neurons_with_random_in_and_zero_out:
-            args.selection_method = "none"
-
+        # Initial train and validation scores
         train_loss, train_accuracy = evaluate_model(
             model=model,
             loss_function=loss_function,
@@ -450,6 +458,11 @@ def main(args: argparse.Namespace):
             device=device,
         )
 
+        print(
+            f"Initialization: loss {val_loss: .4f} ({train_loss: .4f})"
+            f" -- accuracy {val_accuracy: .4f} ({train_accuracy: .4f})"
+        )
+
         logs = {
             "train_loss": train_loss,
             "train_accuracy": train_accuracy,
@@ -461,9 +474,6 @@ def main(args: argparse.Namespace):
         }
         if device.type == "cuda":
             logs["device_model"] = torch.cuda.get_device_name(device)
-            print(f"Device model: {logs['device_model']}")
-            device_index = torch.cuda.current_device()
-            print(f"Device index: {device_index}")
 
         with open(file_path, "a") as f:
             f.write(str(logs))
@@ -479,11 +489,11 @@ def main(args: argparse.Namespace):
                 try:
                     mlflow.log_metric(key, value, step=0)
                 except TypeError:
-                    # print(f"Cannot log {key} with value {value}")
-                    pass
+                    warn(f"Cannot log {key} with value {value}")
+                    # pass
 
+        # Training
         logs = dict()
-
         last_updated_layer = -1
         cycle_index = 0
         for step in range(1, args.nb_step + 1):
@@ -493,6 +503,7 @@ def main(args: argparse.Namespace):
                 logs["epoch_type"] = "growth"
                 cycle_index = -1
 
+                # compute the growth statistics
                 initial_train_loss, initial_train_accuracy = compute_statistics(
                     growing_model=model,
                     dataloader=train_dataloader,
@@ -501,9 +512,10 @@ def main(args: argparse.Namespace):
                     batch_limit=args.growing_batch_limit,
                     device=device,
                 )
-                print('Initial train accuracy:', initial_train_accuracy)
                 logs["train_loss"] = initial_train_loss
                 logs["train_accuracy"] = initial_train_accuracy
+
+                # compute the optimal updates
                 model.compute_optimal_update(
                     part=args.growing_part,
                     numerical_threshold=args.growing_numerical_threshold,
@@ -511,9 +523,9 @@ def main(args: argparse.Namespace):
                     maximum_added_neurons=args.growing_maximum_added_neurons,
                     dtype=growing_dtype,
                 )
-
                 logs["updates_information"] = model.update_information()
 
+                # select the update to be applied
                 if args.selection_method == "none":
                     last_updated_layer = (last_updated_layer + 1) % len(model.layers)
                     if last_updated_layer == 0:
@@ -524,9 +536,6 @@ def main(args: argparse.Namespace):
                 else:
                     raise NotImplementedError("Growing the model is not implemented yet")
 
-                # debug
-                print(f"Updating layer: {last_updated_layer}")
-
                 logs["selected_update"] = last_updated_layer
 
                 if model.currently_updated_layer.eigenvalues_extension is not None:
@@ -535,6 +544,7 @@ def main(args: argparse.Namespace):
                     )
                 else:
                     logs["added_neurons"] = 0
+
                 if not args.init_new_neurons_with_random_in_and_zero_out:
                     gamma, estimated_loss, gamma_history, loss_history = line_search(
                         model=model,
@@ -578,7 +588,7 @@ def main(args: argparse.Namespace):
 
                 model.amplitude_factor = gamma**0.5
                 model.apply_update()
-                # train_loss = loss_history[-1]
+
                 train_loss = initial_train_loss
                 train_accuracy = initial_train_accuracy
 
@@ -623,7 +633,7 @@ def main(args: argparse.Namespace):
             logs["layers_statistics"] = model.weights_statistics()
             logs["number_of_parameters"] = model.number_of_parameters()
 
-            print(f"Epoch [{step}/{args.nb_step}]: loss {val_loss: .4f} ({train_loss: .4f}) -- accuracy {val_accuracy: .4f} ({train_accuracy: .4f})")
+            print(f"Epoch [{step}/{args.nb_step}]: loss {val_loss: .4f} ({train_loss: .4f}) -- accuracy {val_accuracy: .4f} ({train_accuracy: .4f})  [{logs['epoch_type']}]")
 
             with open(file_path, "a") as f:
                 f.write(str(logs))
@@ -652,20 +662,19 @@ def main(args: argparse.Namespace):
                 print(f"Training threshold reached at step {step}")
                 break
 
-    print(f"Total duration: {time() - start_time}")
-    print(f"Model after training: {model}")
-    print(f"Number of parameters: {model.number_of_parameters()}")
+    print(f"Total duration: {time() - start_time: .2f} seconds")
+    print(f"Model after training:\n{model}")
+    print(f"Number of parameters: {model.number_of_parameters(): ,}")
 
 
 if __name__ == "__main__":
     import os
     import random
 
-    # Check if the CUDA_VISIBLE_DEVICES environment variable is set
-    print(f"Visible GPUs: {os.environ.get('CUDA_VISIBLE_DEVICES')}\n")
-
     # check cuda
     if torch.cuda.is_available():
+        # Check if the CUDA_VISIBLE_DEVICES environment variable is set
+        print(f"Visible GPUs: {os.environ.get('CUDA_VISIBLE_DEVICES')}\n")
         print(f"Number of GPUs: {torch.cuda.device_count()}")
         print(f"Device index: {torch.cuda.current_device()}")
         print(f"Device name: {torch.cuda.get_device_name()}")

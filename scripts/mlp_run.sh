@@ -96,7 +96,7 @@ fi
 
 # Classical training arguments
 #seed=0
-batch_size=64
+batch_size=256
 optimizer="sgd"
 lr=0.01
 #weight_decay=0

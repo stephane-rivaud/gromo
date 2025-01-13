@@ -64,6 +64,14 @@ def get_dataset(
             ),
             transforms.Lambda(lambda x: x.view(-1)),
         ],
+        "cifar100": [
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=(0.4914, 0.4822, 0.4465), std=(0.2470, 0.2435, 0.2616)
+            ),
+            transforms.Lambda(lambda x: x.view(-1)),
+        ],
+
     }
     augmentation_transforms = []
     if data_augmentation:
