@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Constants for growth parameters
-hidden_size_list=(512)
+hidden_size_list=(1024)
 epoch_per_growth_list=(-1)
 
 # Function to create the slurm directory
@@ -11,7 +11,7 @@ setup_environment() {
 
 # Function to execute the batch jobs
 run_jobs() {
-  local nb_hidden_layer=5
+  local nb_hidden_layer=10
   local weight_decay=0.0
   local selection_method='none'
 
