@@ -11,7 +11,7 @@ setup_environment() {
 
 # Function to execute the batch jobs
 run_jobs() {
-  local nb_hidden_layer=20
+  local nb_hidden_layer=1
   local weight_decay=0.0
   local selection_method='none'
 
