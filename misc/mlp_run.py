@@ -400,7 +400,7 @@ def main(args: argparse.Namespace):
             input_shape = train_dataset[0][0].shape[0]
 
             pin_memory = device != torch.device("cpu")
-            num_workers = args.num_worker if pin_memory else 0
+            num_workers = args.num_workers if pin_memory else 0
 
             train_dataloader = torch.utils.data.DataLoader(
                 train_dataset,
