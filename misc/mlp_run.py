@@ -386,6 +386,7 @@ def main(args: argparse.Namespace):
 
             pin_memory = device != torch.device("cpu")
             num_workers = 4 if pin_memory else 0
+            num_workers = 0
 
             train_dataloader = torch.utils.data.DataLoader(
                 train_dataset,
@@ -665,11 +666,8 @@ if __name__ == "__main__":
     # check cuda
     if torch.cuda.is_available():
         print(f"Number of GPUs: {torch.cuda.device_count()}")
-        print(f"Current device: {torch.cuda.current_device()}")
-        print(f"Device name: {torch.cuda.get_device_name()}")
         print(f"Device index: {torch.cuda.current_device()}")
-        print(f"Device type: {torch.cuda.get_device_capability()}")
-        print(f"Device memory: {torch.cuda.get_device_properties(0)}")
+        print(f"Device name: {torch.cuda.get_device_name()}")
     else:
         print("CUDA is not available")
 
