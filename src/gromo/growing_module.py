@@ -623,7 +623,8 @@ class GrowingModule(torch.nn.Module):
                     self.scaling_factor.item()
                 )
             elif isinstance(self.previous_module, AdditionGrowingModule):
-                raise NotImplementedError
+                pass
+                # raise NotImplementedError
             else:
                 raise TypeError(
                     f"Previous module must be a GrowingModule or AdditionGrowingModule, got {type(self.previous_module)}"
@@ -1045,7 +1046,12 @@ class GrowingModule(torch.nn.Module):
         if scaling_factor is None:
             scaling_factor = self._scaling_factor_next_module
         else:
-            if not torch.isclose(scaling_factor, self._scaling_factor_next_module):
+            if isinstance(scaling_factor, (int, float, np.number)):
+                scaling_factor = torch.tensor(scaling_factor, device=self.device)
+            if not (
+                abs(scaling_factor.item() - self._scaling_factor_next_module.item())
+                < 1e-4
+            ):
                 warnings.warn(
                     f"Scaling factor {scaling_factor} is different from the one "
                     f"used during the extended_forward {self._scaling_factor_next_module}."

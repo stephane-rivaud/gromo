@@ -620,7 +620,7 @@ class GraphGrowingNetwork(torch.nn.Module):
         # Apply final changes
         for prev_edge_module in node_module.previous_modules:
             prev_edge_module.scaling_factor = factor
-            prev_edge_module.apply_change(apply_previous=False)
+            prev_edge_module._apply_output_changes(factor)
             # Delete activities
             prev_edge_module.delete_update(include_previous=False)
 
