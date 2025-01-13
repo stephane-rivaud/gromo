@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from tqdm.notebook import tqdm
+from time import time
 
 from gromo.growing_mlp import GrowingMLP
 from gromo.utils.utils import global_device
@@ -156,6 +157,25 @@ def extended_evaluate_model(
     return total_loss.item() / nb_sample
 
 
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        if val != np.nan and val != np.inf:
+            self.val = val
+            self.sum += val * n
+            self.count += n
+            self.avg = self.sum / self.count
+
+
 def train(
     model: nn.Module,
     train_dataloader: torch.utils.data.DataLoader,
@@ -181,6 +201,8 @@ def train(
     epoch_accuracy_train = []
     epoch_loss_val = []
     epoch_accuracy_val = []
+    epoch_time_meter = AverageMeter()
+    data_time_meter = AverageMeter()
 
     iterator = range(nb_epoch)
     if show:
@@ -190,9 +212,11 @@ def train(
         this_epoch_loss_train = torch.tensor(0.0, device=device)
         this_epoch_accuracy_train = torch.tensor(0.0, device=device)
         nb_examples = 0
+        start_time = time()
         for x, y in train_dataloader:
             x = x.to(global_device())
             y = y.to(global_device())
+            data_time = time() - start_time
             optimizer.zero_grad()
             y_pred = model(x)
             loss = loss_function(y_pred, y)
@@ -205,6 +229,11 @@ def train(
             if aux_loss_function:
                 this_epoch_accuracy_train += aux_loss_function(y_pred, y)
             nb_examples += y.shape[0]
+            epoch_time = time() - start_time
+            epoch_time_meter.update(epoch_time)
+            data_time_meter.update(data_time)
+            start_time = time()
+        print(f"Epoch {epoch}:\tepoch_time {epoch_time_meter.avg:.5f}s -- data time {data_time_meter.avg:.5f}s")
 
         this_epoch_accuracy_train /= nb_examples
         this_epoch_loss_train /= nb_examples
