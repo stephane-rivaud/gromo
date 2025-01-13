@@ -98,7 +98,7 @@ fi
 #seed=0
 batch_size=256
 optimizer="sgd"
-lr=0.01
+lr=0.05
 #weight_decay=0
 
 command="${command} --batch-size $batch_size --optimizer $optimizer --lr $lr --weight-decay $weight_decay"
