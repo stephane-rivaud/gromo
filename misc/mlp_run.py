@@ -341,6 +341,7 @@ def main(args: argparse.Namespace):
         if args.no_cuda:
             set_device(torch.device("cpu"))
         device: torch.device = global_device()
+        print(f'Using device: {device}')
 
         if args.dataset == "sin":
             input_shape = 1
@@ -444,8 +445,8 @@ def main(args: argparse.Namespace):
 
         for key, value in logs.items():
             if key == "device" or key == "device_model":
-                continue
-                # mlflow.log_param(key, str(value))
+                # continue
+                mlflow.log_param(key, str(value))
             elif isinstance(value, dict):
                 log_layers_metrics(value, step=0, prefix=key)
             else:
