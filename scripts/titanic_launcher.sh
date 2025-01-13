@@ -13,14 +13,15 @@ setup_environment() {
 # Function to execute the batch jobs
 run_jobs() {
   local nb_hidden_layer=1
-  local weight_decay=0.0
   local selection_method='none'
 
-  for hidden_size in "${hidden_size_list[@]}"; do
-    for epoch_per_growth in "${epoch_per_growth_list[@]}"; do
-      local command="scripts/mlp_run.sh $nb_hidden_layer $hidden_size $weight_decay $epoch_per_growth $selection_method"
-      echo $command
-      sbatch --gres=gpu:1 --time=01:45:00 $command
+  for weight_decay in "${weight_decay_list[@]}"; do
+    for hidden_size in "${hidden_size_list[@]}"; do
+      for epoch_per_growth in "${epoch_per_growth_list[@]}"; do
+        local command="scripts/mlp_run.sh $nb_hidden_layer $hidden_size $weight_decay $epoch_per_growth $selection_method"
+        echo $command
+        sbatch --gres=gpu:1 --time=01:45:00 $command
+      done
     done
   done
 }
