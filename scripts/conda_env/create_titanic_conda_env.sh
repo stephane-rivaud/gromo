@@ -13,9 +13,9 @@ conda create -n gromo python=3.12 -y
 conda activate gromo
 
 # Install dependencies
-#pip install torch==2.5.0 torchvision==0.20.0 --index-url https://download.pytorch.org/whl/cu118
+pip install torch==2.5.0 torchvision==0.20.0 --index-url https://download.pytorch.org/whl/cu118
 pip install -e .
 pip install mlflow tqdm
 
 # Test the PyTorch installation and the GPU
-sbatch --partition tau scripts/test_conda_env.sh
+sbatch scripts/conda_env/test_conda_env.sh

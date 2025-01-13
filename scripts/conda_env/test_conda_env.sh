@@ -13,4 +13,4 @@ source /home/tau/strivaud/.bashrc
 conda activate gromo
 
 # Test the PyTorch installation and the GPU
-python scripts/test_conda_env.py | tee logs/test_conda_env.log
+python scripts/conda_env/test_conda_env.py | tee logs/test_conda_env.log
