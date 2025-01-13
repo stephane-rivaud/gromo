@@ -438,6 +438,9 @@ def main(args: argparse.Namespace):
         }
         if device.type == "cuda":
             logs["device_model"] = torch.cuda.get_device_name(device)
+            print(f"Device model: {logs['device_model']}")
+            current_device = torch.cuda.current_device()
+            print(f"Current device: {current_device}")
 
         with open(file_path, "a") as f:
             f.write(str(logs))
