@@ -174,7 +174,7 @@ class AdditionGrowingModule(torch.nn.Module):
             self.input = x
             self.input.retain_grad()
 
-        if (self.post_addition_function) and (x is not None):
+        if self.post_addition_function and (x is not None):
             y = self.post_addition_function(x)
         else:
             y = x
@@ -202,11 +202,11 @@ class AdditionGrowingModule(torch.nn.Module):
             projected gradient of the goal with respect to the activity of the next layer
             dLoss/dA - dW B[-1]
         """
-        V_proj = self.pre_activity.grad.clone().detach()
+        v_proj = self.pre_activity.grad.clone().detach()
         for module in self.previous_modules:
-            V_proj -= module.optimal_delta_layer(module.input)
+            v_proj -= module.optimal_delta_layer(module.input)
 
-        return V_proj
+        return v_proj
 
     def compute_s_update(self) -> tuple[torch.Tensor, int]:
         """
@@ -278,7 +278,6 @@ class AdditionGrowingModule(torch.nn.Module):
         """
         self.optimal_delta_layer = None
         self.extended_input_layer = None
-        self.scaling_factor = 0.0
         self.parameter_update_decrease = None
         self.eigenvalues_extension = None
         self.activity = None
@@ -355,6 +354,34 @@ class AdditionGrowingModule(torch.nn.Module):
             sum of next out_features
         """
         return np.sum([module.out_features for module in self.next_modules])
+
+    def update_scaling_factor(self, scaling_factor: torch.Tensor | float) -> None:
+        """
+        Update the scaling factor of all next modules and
+        the _next_module_scaling_factor of the previous modules.
+        Does only work if previous and next modules are GrowingModule.
+
+        Parameters
+        ----------
+        scaling_factor: torch.Tensor | float
+            scaling factor to apply to the optimal delta
+        """
+        if isinstance(scaling_factor, torch.Tensor):
+            scaling_factor = scaling_factor.item()
+        for module in self.previous_modules:
+            if isinstance(module, GrowingModule):
+                module._scaling_factor_next_module.data[0] = scaling_factor
+            else:
+                raise TypeError(
+                    f"Previous module must be a GrowingModule, got {type(module)}"
+                )
+        for module in self.next_modules:
+            if isinstance(module, GrowingModule):
+                module.__dict__["scaling_factor"].data[0] = scaling_factor
+            else:
+                raise TypeError(
+                    f"Next module must be a GrowingModule, got {type(module)}"
+                )
 
 
 class GrowingModule(torch.nn.Module):
@@ -624,6 +651,7 @@ class GrowingModule(torch.nn.Module):
                 )
             elif isinstance(self.previous_module, AdditionGrowingModule):
                 pass
+                # self.previous_module.update_scaling_factor(self.scaling_factor)
                 # raise NotImplementedError
             else:
                 raise TypeError(
