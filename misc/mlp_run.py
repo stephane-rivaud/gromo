@@ -632,6 +632,8 @@ def main(args: argparse.Namespace):
             logs["step_duration"] = time() - step_start_time
             logs["layers_statistics"] = model.weights_statistics()
             logs["number_of_parameters"] = model.number_of_parameters()
+            if device.type == "cuda":
+                logs["GPU utilization"] = torch.cuda.utilization(device)
 
             print(f"Epoch [{step}/{args.nb_step}]: loss {val_loss: .4f} ({train_loss: .4f}) -- accuracy {val_accuracy: .4f} ({train_accuracy: .4f})  [{logs['epoch_type']}]")
 
