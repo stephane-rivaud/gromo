@@ -7,6 +7,7 @@ from gromo.linear_growing_module import LinearAdditionGrowingModule, LinearGrowi
 from gromo.tensor_statistic import TensorStatistic
 from gromo.utils.utils import global_device
 from tests.torch_unittest import TorchTestCase
+from tests.unittest_tools import unittest_parametrize
 
 
 def theoretical_s_1(n, c):
@@ -287,57 +288,55 @@ class TestLinearGrowingModule(TorchTestCase):
                 message=f"Error in applying change: {(y2 - gamma * l_ext(x)).abs().max():.2e}",
             )
 
-    def test_extended_forward_in(self):
+    @unittest_parametrize(({"bias": True}, {"bias": False}))
+    def test_extended_forward_in(self, bias):
         torch.manual_seed(0)
-        for bias in {True, False}:
-            l0 = torch.nn.Linear(3, 1, bias=bias, device=global_device())
-            l_ext = torch.nn.Linear(5, 1, bias=bias, device=global_device())
-            if bias:
-                l_ext.bias.data.fill_(0)
-            l_delta = torch.nn.Linear(3, 1, bias=bias, device=global_device())
-            layer = LinearGrowingModule(
-                3, 1, use_bias=bias, name="layer1", device=global_device()
-            )
-            layer.weight.data.copy_(l0.weight.data)
-            layer.optimal_delta_layer = l_delta
+        l0 = torch.nn.Linear(3, 1, bias=bias, device=global_device())
+        l_ext = torch.nn.Linear(5, 1, bias=bias, device=global_device())
+        if bias:
+            l_ext.bias.data.fill_(0)
+        l_delta = torch.nn.Linear(3, 1, bias=bias, device=global_device())
+        layer = LinearGrowingModule(
+            3, 1, use_bias=bias, name="layer1", device=global_device()
+        )
+        layer.weight.data.copy_(l0.weight.data)
+        layer.optimal_delta_layer = l_delta
 
-            if bias:
-                layer.bias.data.copy_(l0.bias.data)
-            layer.extended_input_layer = l_ext
+        if bias:
+            layer.bias.data.copy_(l0.bias.data)
+        layer.extended_input_layer = l_ext
 
-            for gamma in (0.0, 1.0, 5.0):
-                layer.zero_grad()
-                layer.scaling_factor = gamma
-                x = torch.randn((10, 3), device=global_device())
-                x_ext = torch.randn((10, 5), device=global_device())
-                assert torch.allclose(layer(x), l0(x))
-
-                y, none = layer.extended_forward(x, x_ext)
-                self.assertIsNone(none)
-
-                assert torch.allclose(
-                    y, l0(x) - gamma**2 * l_delta(x) + gamma * l_ext(x_ext)
-                )
-
-                torch.norm(y).backward()
-
-                self.assertIsNotNone(layer.scaling_factor.grad)
-
+        for gamma in (0.0, 1.0, 5.0):
+            layer.zero_grad()
             layer.scaling_factor = gamma
-            layer.apply_change(apply_previous=False)
-            x_cat = torch.randn((10, 8), device=global_device())
+            x = torch.randn((10, 3), device=global_device())
+            x_ext = torch.randn((10, 5), device=global_device())
+            assert torch.allclose(layer(x), l0(x))
 
-            y = layer(x_cat)
-            x = x_cat[:, :3]
-            x_ext = x_cat[:, 3:]
-            self.assertAllClose(
-                y,
-                l0(x) - gamma**2 * l_delta(x) + gamma * l_ext(x_ext),
-                message=(
-                    f"Error in applying change: "
-                    f"{(y - l0(x) - gamma**2 * l_delta(x) + gamma * l_ext(x_ext)).abs().max():.2e}"
-                ),
-            )
+            y, none = layer.extended_forward(x, x_ext)
+            self.assertIsNone(none)
+
+            assert torch.allclose(y, l0(x) - gamma**2 * l_delta(x) + gamma * l_ext(x_ext))
+
+            torch.norm(y).backward()
+
+            self.assertIsNotNone(layer.scaling_factor.grad)
+
+        layer.scaling_factor = gamma
+        layer.apply_change(apply_previous=False)
+        x_cat = torch.randn((10, 8), device=global_device())
+
+        y = layer(x_cat)
+        x = x_cat[:, :3]
+        x_ext = x_cat[:, 3:]
+        self.assertAllClose(
+            y,
+            l0(x) - gamma**2 * l_delta(x) + gamma * l_ext(x_ext),
+            message=(
+                f"Error in applying change: "
+                f"{(y - l0(x) - gamma**2 * l_delta(x) + gamma * l_ext(x_ext)).abs().max():.2e}"
+            ),
+        )
 
     def test_number_of_parameters(self):
         for in_layer in (1, 3):
@@ -719,6 +718,53 @@ class TestLinearGrowingModule(TorchTestCase):
 
         with self.assertRaises(ValueError):
             _ = self.demo_layers[True][0].tensor_s_growth
+
+
+class TestLinearAdditionGrowingModule(TorchTestCase):
+    def setUp(self):
+        torch.manual_seed(0)
+        self.demo_modules = dict()
+        for bias in (True, False):
+            demo_addition = LinearAdditionGrowingModule(
+                in_features=3, name="addition", device=global_device()
+            )
+            demo_addition_prev = LinearGrowingModule(
+                5, 3, use_bias=bias, name="addition_prev", device=global_device()
+            )
+            demo_addition_next = LinearGrowingModule(
+                3,
+                7,
+                use_bias=bias,
+                name="addition_next",
+                device=global_device(),
+                previous_module=demo_addition,
+            )
+            demo_addition.set_previous_modules([demo_addition_prev])
+            demo_addition.set_next_modules([demo_addition_next])
+            self.demo_modules[bias] = (
+                demo_addition,
+                demo_addition_prev,
+                demo_addition_next,
+            )
+        self.input_x = torch.randn((11, 5), device=global_device())
+
+    @unittest_parametrize(({"bias": True}, {"bias": False}))
+    def test_init(self, bias):
+        self.assertIsInstance(self.demo_modules[bias][0], LinearAdditionGrowingModule)
+
+    @unittest_parametrize(({"bias": True}, {"bias": False}))
+    def test_input_storage(self, bias):
+        demo_layers = self.demo_modules[bias]
+        demo_layers[2].store_input = True
+        self.assertEqual(demo_layers[0].store_activity, 1)
+        self.assertTrue(not demo_layers[2]._internal_store_input)
+        self.assertIsNone(demo_layers[2].input)
+
+        y = demo_layers[1](self.input_x)
+        y = demo_layers[0](y)
+        y = demo_layers[2](y)
+
+        self.assertIsInstance(demo_layers[2].input, torch.Tensor)
 
 
 if __name__ == "__main__":
