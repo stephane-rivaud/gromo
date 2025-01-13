@@ -374,6 +374,7 @@ def main(args: argparse.Namespace):
                 shuffle=True,
                 pin_memory=pin_memory,
                 num_workers=num_workers,
+                persistent_workers=True,
             )
             val_dataloader = torch.utils.data.DataLoader(
                 val_dataset,
@@ -381,6 +382,7 @@ def main(args: argparse.Namespace):
                 shuffle=False,
                 pin_memory=pin_memory,
                 num_workers=num_workers,
+                persistent_workers=True,
             )
 
             del train_dataset, val_dataset
