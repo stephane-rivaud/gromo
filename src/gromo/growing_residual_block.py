@@ -320,7 +320,7 @@ if __name__ == "__main__":
 
     # Define the dataset
     batch_size = 100
-    num_batch = 100
+    num_batch = 10
     in_features = 10
     dataset = [(torch.randn(batch_size, in_features), torch.randn(batch_size, in_features)) for _ in range(num_batch)]
 
