@@ -201,7 +201,7 @@ def train(
     epoch_accuracy_train = []
     epoch_loss_val = []
     epoch_accuracy_val = []
-    epoch_time_meter = AverageMeter()
+    batch_time_meter = AverageMeter()
     data_time_meter = AverageMeter()
 
     iterator = range(nb_epoch)
@@ -230,10 +230,10 @@ def train(
                 this_epoch_accuracy_train += aux_loss_function(y_pred, y)
             nb_examples += y.shape[0]
             epoch_time = time() - start_time
-            epoch_time_meter.update(epoch_time)
+            batch_time_meter.update(epoch_time)
             data_time_meter.update(data_time)
             start_time = time()
-        print(f"Epoch {epoch}:\tepoch_time {epoch_time_meter.avg:.5f}s -- data time {data_time_meter.avg:.5f}s")
+        print(f"Epoch {epoch}:\tbatch time {batch_time_meter.avg:.5f}s -- data time {data_time_meter.avg:.5f}s")
 
         this_epoch_accuracy_train /= nb_examples
         this_epoch_loss_train /= nb_examples
