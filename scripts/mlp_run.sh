@@ -43,7 +43,7 @@ nb_step=100
 no_cuda=false
 training_threshold=""
 log_system_metrics=true
-num_workers=4
+num_workers=2
 
 command="${command} --nb-step $nb_step"
 if [ -n "$log_dir" ]; then
