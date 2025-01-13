@@ -10,6 +10,7 @@ hidden_size=$2
 weight_decay=$3
 epochs_per_growth=$4
 selection_method=$5
+num_workers=$6
 
 echo TMPDIR: $TMPDIR
 echo "nb_hidden_layer: $nb_hidden_layer"
@@ -42,6 +43,7 @@ nb_step=10
 no_cuda=false
 training_threshold=""
 log_system_metrics=true
+num_workers=4
 
 command="${command} --nb-step $nb_step"
 if [ -n "$log_dir" ]; then
@@ -70,6 +72,9 @@ if [ -n "$training_threshold" ]; then
 fi
 if [ "$log_system_metrics" = true ]; then
     command="${command} --log-system-metrics"
+fi
+if [ -n "$num_workers" ]; then
+    command="${command} --num-workers $num_workers"
 fi
 
 # Dataset arguments

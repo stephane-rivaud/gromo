@@ -91,6 +91,12 @@ def create_parser() -> argparse.ArgumentParser:
         default=False,
         help="log system metrics (default: False)",
     )
+    general_group.add_argument(
+        "--num-workers",
+        type=int,
+        default=0,
+        help="number of workers for the dataloader (default: 4)",
+    )
 
     # model arguments
     architecture_group = parser.add_argument_group("architecture")
@@ -393,9 +399,8 @@ def main(args: argparse.Namespace):
             )
             input_shape = train_dataset[0][0].shape[0]
 
-            # pin_memory = device != torch.device("cpu")
-            pin_memory = False
-            num_workers = 4 if pin_memory else 0
+            pin_memory = device != torch.device("cpu")
+            num_workers = args.num_worker if pin_memory else 0
 
             train_dataloader = torch.utils.data.DataLoader(
                 train_dataset,
