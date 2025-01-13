@@ -233,7 +233,9 @@ def train(
             nb_examples += y.shape[0]
             batch_time_meter.update(time() - start_time)
             start_time = time()
-        print(f"Epoch {epoch}:\tbatch time {batch_time_meter.avg:.5f}s -- data time {data_time_meter.avg:.5f}s")
+        print(f"Epoch {epoch}:\tbatch time {batch_time_meter.avg:.5f}s"
+              f" -- data time {data_time_meter.avg:.5f}s"
+              f" -- transfer time {transfer_time_meter.avg:.5f}s")
 
         this_epoch_accuracy_train /= nb_examples
         this_epoch_loss_train /= nb_examples
