@@ -11,6 +11,7 @@ weight_decay=$3
 epochs_per_growth=$4
 selection_method=$5
 
+echo TMPDIR: $TMPDIR
 echo "nb_hidden_layer: $nb_hidden_layer"
 echo "hidden_size: $hidden_size"
 echo "weight_decay: $weight_decay"
