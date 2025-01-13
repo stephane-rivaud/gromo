@@ -203,6 +203,7 @@ def train(
     epoch_accuracy_val = []
     batch_time_meter = AverageMeter()
     data_time_meter = AverageMeter()
+    transfer_time_meter = AverageMeter()
 
     iterator = range(nb_epoch)
     if show:
@@ -214,9 +215,10 @@ def train(
         nb_examples = 0
         start_time = time()
         for x, y in train_dataloader:
+            data_time_meter.update(time() - start_time)
             x = x.to(global_device())
             y = y.to(global_device())
-            data_time = time() - start_time
+            transfer_time_meter.update(time() - start_time)
             optimizer.zero_grad()
             y_pred = model(x)
             loss = loss_function(y_pred, y)
@@ -229,9 +231,7 @@ def train(
             if aux_loss_function:
                 this_epoch_accuracy_train += aux_loss_function(y_pred, y)
             nb_examples += y.shape[0]
-            epoch_time = time() - start_time
-            batch_time_meter.update(epoch_time)
-            data_time_meter.update(data_time)
+            batch_time_meter.update(time() - start_time)
             start_time = time()
         print(f"Epoch {epoch}:\tbatch time {batch_time_meter.avg:.5f}s -- data time {data_time_meter.avg:.5f}s")
 
