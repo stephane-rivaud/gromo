@@ -18,4 +18,4 @@ pip install -e .
 pip install mlflow tqdm
 
 # Test the PyTorch installation and the GPU
-sbatch scripts/test_conda_env.sh
+sbatch --partition tau scripts/test_conda_env.sh
