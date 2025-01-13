@@ -386,7 +386,8 @@ def main(args: argparse.Namespace):
 
             pin_memory = device != torch.device("cpu")
             num_workers = 4 if pin_memory else 0
-            num_workers = 0
+            # num_workers = 0
+            pin_memory = False
 
             train_dataloader = torch.utils.data.DataLoader(
                 train_dataset,
