@@ -274,6 +274,40 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def preprocess_and_check_args(args: argparse.Namespace) -> argparse.Namespace:
+    # Check if the seed is None and generate a random seed if necessary
+    if args.seed is None:
+        args.seed = random.randint(0, 2 ** 32 - 1)
+
+    # Logging arguments
+    if args.log_file_name is None:
+        args.log_file_name = f"mlp_{args.dataset}_{args.activation}_model_{args.hidden_size}x{args.nb_hidden_layer}"
+
+    if args.log_dir_suffix is not None:
+        args.log_dir = f"{args.log_dir}/{args.log_dir_suffix}"
+
+    if args.log_file_prefix is not None:
+        args.log_file_name = f"{args.log_file_prefix}_{args.log_file_name}"
+
+    if args.experiment_name is None:
+        args.experiment_name = f"{args.dataset}"
+
+    # Growing arguments
+    if args.normalize_weights and args.activation.lower().strip() != "relu":
+        warn(
+            "Normalizing the weights is only an invariant for ReLU activation functions."
+        )
+
+    return args
+
+
+def display_args(args: argparse.Namespace) -> None:
+    print("Arguments:")
+    for key, value in vars(args).items():
+        print(f"    {key}: {value}")
+    print()
+
+
 def log_layers_metrics(layer_metrics: dict, step: int, prefix: str | None = None) -> None:
     """
     Log the metrics of the layers
@@ -302,22 +336,7 @@ def log_layers_metrics(layer_metrics: dict, step: int, prefix: str | None = None
 def main(args: argparse.Namespace):
     start_time = time()
 
-    if args.normalize_weights and args.activation.lower().strip() != "relu":
-        warn(
-            "Normalizing the weights is only an invariant for ReLU activation functions."
-        )
-
-    if args.log_file_name is None:
-        args.log_file_name = f"mlp_{args.dataset}_{args.activation}_model_{args.hidden_size}x{args.nb_hidden_layer}"
-
-    if args.log_dir_suffix is not None:
-        args.log_dir = f"{args.log_dir}/{args.log_dir_suffix}"
-
-    if args.log_file_prefix is not None:
-        args.log_file_name = f"{args.log_file_prefix}_{args.log_file_name}"
-
     file_path = f"{args.log_dir}/{args.log_file_name}_{start_time:.0f}.txt"
-
     print(f"Log file: {file_path}")
     print(f"Mlflow log dir: {args.log_dir}")
     mlflow.set_tracking_uri(f"{args.log_dir}/mlruns")
@@ -328,7 +347,7 @@ def main(args: argparse.Namespace):
             tags={"tags": args.tags} if args.tags is not None else None,
         )
     except mlflow.exceptions.MlflowException:
-        pass
+        warn(f"Experiment {args.dataset} already exists.")
 
     mlflow.set_experiment(f"{args.experiment_name}")
     with mlflow.start_run(run_name=args.log_file_name, log_system_metrics=args.log_system_metrics):
@@ -374,7 +393,7 @@ def main(args: argparse.Namespace):
                 shuffle=True,
                 pin_memory=pin_memory,
                 num_workers=num_workers,
-                persistent_workers=True,
+                persistent_workers=num_workers > 0,
             )
             val_dataloader = torch.utils.data.DataLoader(
                 val_dataset,
@@ -382,7 +401,7 @@ def main(args: argparse.Namespace):
                 shuffle=False,
                 pin_memory=pin_memory,
                 num_workers=num_workers,
-                persistent_workers=True,
+                persistent_workers=num_workers > 0,
             )
 
             del train_dataset, val_dataset
@@ -441,8 +460,8 @@ def main(args: argparse.Namespace):
         if device.type == "cuda":
             logs["device_model"] = torch.cuda.get_device_name(device)
             print(f"Device model: {logs['device_model']}")
-            current_device = torch.cuda.current_device()
-            print(f"Current device: {current_device}")
+            device_index = torch.cuda.current_device()
+            print(f"Device index: {device_index}")
 
         with open(file_path, "a") as f:
             f.write(str(logs))
@@ -641,14 +660,21 @@ if __name__ == "__main__":
     import random
 
     # Check if the CUDA_VISIBLE_DEVICES environment variable is set
-    print(f"Visible GPUs: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
+    print(f"Visible GPUs: {os.environ.get('CUDA_VISIBLE_DEVICES')}\n")
+
+    # check cuda
+    if torch.cuda.is_available():
+        print(f"Number of GPUs: {torch.cuda.device_count()}")
+        print(f"Current device: {torch.cuda.current_device()}")
+        print(f"Device name: {torch.cuda.get_device_name()}")
+        print(f"Device index: {torch.cuda.current_device()}")
+        print(f"Device type: {torch.cuda.get_device_capability()}")
+        print(f"Device memory: {torch.cuda.get_device_properties(0)}")
+    else:
+        print("CUDA is not available")
 
     parser = create_parser()
     args = parser.parse_args()
-    # Check if the seed is None and generate a random seed if necessary
-    if args.seed is None:
-        args.seed = random.randint(0, 2 ** 32 - 1)
-    if args.experiment_name is None:
-        args.experiment_name = f"{args.dataset}"
-    print(args)
+    args = preprocess_and_check_args(args)
+    display_args(args)
     main(args)
