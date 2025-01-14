@@ -798,6 +798,67 @@ class TestLinearAdditionGrowingModule(TorchTestCase):
         self.assertEqual(demo_layers["prev"].scaling_factor.item(), 0.0)
         self.assertEqual(demo_layers["next"].scaling_factor.item(), 0.5)
 
+    def test_update_scaling_factor_incorrect_input_module(self):
+        demo_layers = self.demo_modules[True]
+        demo_layers["add"].previous_modules = [demo_layers["prev"], torch.nn.Linear(7, 3)]
+        with self.assertRaises(TypeError):
+            demo_layers["add"].update_scaling_factor(scaling_factor=0.5)
+
+    def test_update_scaling_factor_incorrect_output_module(self):
+        demo_layers = self.demo_modules[True]
+        demo_layers["add"].set_next_modules([demo_layers["next"], torch.nn.Linear(3, 7)])
+        with self.assertRaises(TypeError):
+            demo_layers["add"].update_scaling_factor(scaling_factor=0.5)
+
+    @unittest_parametrize(({"bias": True}, {"bias": False}))
+    def test_set_previous_next_modules(self, bias):
+        demo_layers = self.demo_modules[bias]
+        new_input_layer = LinearGrowingModule(
+            2,
+            3,
+            use_bias=bias,
+            name="new_prev",
+            device=global_device(),
+            next_module=demo_layers["add"],
+        )
+        new_output_layer = LinearGrowingModule(
+            3,
+            2,
+            use_bias=bias,
+            name="new_next",
+            device=global_device(),
+            previous_module=demo_layers["add"],
+        )
+
+        self.assertEqual(
+            demo_layers["add"].sum_in_features(), demo_layers["prev"].in_features
+        )
+        self.assertEqual(
+            demo_layers["add"].sum_in_features(with_bias=True),
+            demo_layers["prev"].in_features + bias,
+        )
+        self.assertEqual(
+            demo_layers["add"].sum_out_features(), demo_layers["next"].out_features
+        )
+
+        demo_layers["add"].set_previous_modules([demo_layers["prev"], new_input_layer])
+        demo_layers["add"].set_next_modules([demo_layers["next"], new_output_layer])
+
+        self.assertEqual(
+            demo_layers["add"].sum_in_features(),
+            demo_layers["prev"].in_features + new_input_layer.in_features,
+        )
+
+        self.assertEqual(
+            demo_layers["add"].sum_in_features(with_bias=True),
+            demo_layers["prev"].in_features + bias + new_input_layer.in_features + bias,
+        )
+
+        self.assertEqual(
+            demo_layers["add"].sum_out_features(),
+            demo_layers["next"].out_features + new_output_layer.out_features,
+        )
+
 
 if __name__ == "__main__":
     main()
