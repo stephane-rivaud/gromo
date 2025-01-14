@@ -650,8 +650,7 @@ class GrowingModule(torch.nn.Module):
                     self.scaling_factor.item()
                 )
             elif isinstance(self.previous_module, AdditionGrowingModule):
-                pass
-                # self.previous_module.update_scaling_factor(self.scaling_factor)
+                self.previous_module.update_scaling_factor(self.scaling_factor)
                 # raise NotImplementedError
             else:
                 raise TypeError(
