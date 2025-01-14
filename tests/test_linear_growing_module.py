@@ -729,7 +729,12 @@ class TestLinearAdditionGrowingModule(TorchTestCase):
                 in_features=3, name="addition", device=global_device()
             )
             demo_addition_prev = LinearGrowingModule(
-                5, 3, use_bias=bias, name="addition_prev", device=global_device()
+                5,
+                3,
+                use_bias=bias,
+                name="addition_prev",
+                device=global_device(),
+                next_module=demo_addition,
             )
             demo_addition_next = LinearGrowingModule(
                 3,
@@ -741,30 +746,57 @@ class TestLinearAdditionGrowingModule(TorchTestCase):
             )
             demo_addition.set_previous_modules([demo_addition_prev])
             demo_addition.set_next_modules([demo_addition_next])
-            self.demo_modules[bias] = (
-                demo_addition,
-                demo_addition_prev,
-                demo_addition_next,
-            )
+            self.demo_modules[bias] = {
+                "add": demo_addition,
+                "prev": demo_addition_prev,
+                "next": demo_addition_next,
+                "seq": torch.nn.Sequential(
+                    demo_addition_prev, demo_addition, demo_addition_next
+                ),
+            }
         self.input_x = torch.randn((11, 5), device=global_device())
 
     @unittest_parametrize(({"bias": True}, {"bias": False}))
     def test_init(self, bias):
-        self.assertIsInstance(self.demo_modules[bias][0], LinearAdditionGrowingModule)
+        self.assertIsInstance(self.demo_modules[bias]["add"], LinearAdditionGrowingModule)
 
     @unittest_parametrize(({"bias": True}, {"bias": False}))
     def test_input_storage(self, bias):
         demo_layers = self.demo_modules[bias]
-        demo_layers[2].store_input = True
-        self.assertEqual(demo_layers[0].store_activity, 1)
-        self.assertTrue(not demo_layers[2]._internal_store_input)
-        self.assertIsNone(demo_layers[2].input)
+        demo_layers["next"].store_input = True
+        self.assertEqual(demo_layers["add"].store_activity, 1)
+        self.assertTrue(not demo_layers["next"]._internal_store_input)
+        self.assertIsNone(demo_layers["next"].input)
 
-        y = demo_layers[1](self.input_x)
-        y = demo_layers[0](y)
-        y = demo_layers[2](y)
+        _ = demo_layers["seq"](self.input_x)
 
-        self.assertIsInstance(demo_layers[2].input, torch.Tensor)
+        self.assertShapeEqual(
+            demo_layers["next"].input,
+            (self.input_x.size(0), demo_layers["next"].in_features),
+        )
+
+    @unittest_parametrize(({"bias": True}, {"bias": False}))
+    def test_activity_storage(self, bias):
+        demo_layers = self.demo_modules[bias]
+        demo_layers["prev"].store_pre_activity = True
+        self.assertEqual(demo_layers["add"].store_input, 1)
+        self.assertTrue(not demo_layers["prev"]._internal_store_pre_activity)
+        self.assertIsNone(demo_layers["prev"].pre_activity)
+
+        _ = demo_layers["seq"](self.input_x)
+
+        self.assertShapeEqual(
+            demo_layers["prev"].pre_activity,
+            (self.input_x.size(0), demo_layers["prev"].out_features),
+        )
+
+    def test_update_scaling_factor(self):
+        demo_layers = self.demo_modules[True]
+
+        demo_layers["add"].update_scaling_factor(scaling_factor=0.5)
+        self.assertEqual(demo_layers["prev"]._scaling_factor_next_module.item(), 0.5)
+        self.assertEqual(demo_layers["prev"].scaling_factor.item(), 0.0)
+        self.assertEqual(demo_layers["next"].scaling_factor.item(), 0.5)
 
 
 if __name__ == "__main__":
