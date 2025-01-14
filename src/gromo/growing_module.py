@@ -650,8 +650,8 @@ class GrowingModule(torch.nn.Module):
                     self.scaling_factor.item()
                 )
             elif isinstance(self.previous_module, AdditionGrowingModule):
-                self.previous_module.update_scaling_factor(self.scaling_factor)
-                # raise NotImplementedError
+                # self.previous_module.update_scaling_factor(self.scaling_factor)
+                pass
             else:
                 raise TypeError(
                     f"Previous module must be a GrowingModule or AdditionGrowingModule, got {type(self.previous_module)}"
