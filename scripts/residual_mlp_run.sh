@@ -30,7 +30,7 @@ fi
 conda activate gromo
 
 # Command to execute
-command="python -u misc/mlp_run.py"
+command="python -u misc/residual_mlp_run.py"
 
 # General arguments
 log_dir="logs/residual_mlp_run"

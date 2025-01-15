@@ -1,8 +1,10 @@
 #!/bin/bash
 
 # Constants for growth parameters
-num_block_list=(1 2 3 4 5)
-hidden_size_list=(1 4 16 64 256 1024)
+num_block_list=(1)
+#num_block_list=(1 2 3 4 5)
+hidden_size_list=(1)
+#hidden_size_list=(1 4 16 64 256 1024)
 epoch_per_growth_list=(-1)
 weight_decay_list=(0.0)
 
@@ -20,7 +22,7 @@ run_jobs() {
     for num_blocks in "${num_block_list[@]}"; do
     for hidden_size in "${hidden_size_list[@]}"; do
       for epoch_per_growth in "${epoch_per_growth_list[@]}"; do
-        local command="scripts/mlp_run.sh $num_blocks $hidden_size $weight_decay $epoch_per_growth $selection_method"
+        local command="scripts/residual_mlp_run.sh $num_blocks $hidden_size $weight_decay $epoch_per_growth $selection_method"
         echo $command
         sbatch --gres=gpu:1 --time=01:45:00 $command
       done
