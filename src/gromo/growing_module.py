@@ -1143,6 +1143,10 @@ class GrowingModule(torch.nn.Module):
             optimal extension for the previous layer (weights and biases)
         """
         self.compute_optimal_delta(dtype=dtype)
+        assert self.parameter_update_decrease is not None, (
+            "The first order improvement is not computed. "
+            "Use compute_optimal_delta before."
+        )
         if zero_delta:
             if self.optimal_delta_layer is not None:
                 self.optimal_delta_layer.weight.data.zero_()
@@ -1178,6 +1182,7 @@ class GrowingModule(torch.nn.Module):
         elif isinstance(self.previous_module, GrowingModule):
             self.tensor_m_prev.init()
             self.cross_covariance.init()
+            self.previous_module.tensor_s.init()
             self.previous_module.store_input = True
         elif isinstance(self.previous_module, AdditionGrowingModule):
             raise NotImplementedError  # TODO
@@ -1280,6 +1285,7 @@ class GrowingModule(torch.nn.Module):
         if self.previous_module is None:
             return
         elif isinstance(self.previous_module, GrowingModule):
+            self.previous_module.tensor_s.update()
             self.tensor_m_prev.update()
             self.cross_covariance.update()
         elif isinstance(self.previous_module, AdditionGrowingModule):

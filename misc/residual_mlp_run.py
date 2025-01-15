@@ -2,12 +2,13 @@ import argparse
 from os.path import split
 from time import time
 from warnings import warn
+import logging
 
 import mlflow
 import torch
 from auxilliary_functions import *
 
-from gromo.growing_mlp import GrowingMLP
+from gromo.growing_residual_mlp import GrowingResidualMLP
 from gromo.utils.datasets import get_dataset
 from gromo.utils.utils import global_device, set_device
 
@@ -33,63 +34,18 @@ selection_methods = [
 
 
 def create_parser() -> argparse.ArgumentParser:
+    """
+    Create the parser for the command line arguments
+    Returns:
+        parser: argparse.ArgumentParser
+            parser for the command line arguments
+    """
     parser = argparse.ArgumentParser(description="MLP training")
+
     # general arguments
     general_group = parser.add_argument_group("general")
     general_group.add_argument(
-        "--log-dir",
-        type=str,
-        default="misc/logs",
-        help="directory to save logs (default: logs)",
-    )
-    general_group.add_argument(
-        "--log-dir-suffix",
-        type=str,
-        default=None,
-        help="suffix to add to the log directory (default: None)",
-    )
-    general_group.add_argument(
-        "--log-file-name",
-        type=str,
-        default=None,
-        help="name of the log file (default: log)",
-    )
-    general_group.add_argument(
-        "--log-file-prefix",
-        type=str,
-        default=None,
-        help="prefix to add to the log file name (default: None)",
-    )
-    # add experiment name
-    general_group.add_argument(
-        "--experiment-name",
-        type=str,
-        default=None,
-        help="name of the experiment (default: None)",
-    )
-    general_group.add_argument(
-        "--tags",
-        type=str,
-        default=None,
-        help="tags to add to the experiment (default: None)",
-    )
-    general_group.add_argument(
-        "--nb-step", type=int, default=10, help="number of cycles (default: 10)"
-    )
-    general_group.add_argument(
         "--no-cuda", action="store_true", default=False, help="disables CUDA training"
-    )
-    general_group.add_argument(
-        "--training-threshold",
-        type=float,
-        default=None,
-        help="training is stopped when the loss is below this threshold (default: None)",
-    )
-    general_group.add_argument(
-        "--log-system-metrics",
-        action="store_true",
-        default=False,
-        help="log system metrics (default: False)",
     )
     general_group.add_argument(
         "--num-workers",
@@ -101,7 +57,7 @@ def create_parser() -> argparse.ArgumentParser:
     # model arguments
     architecture_group = parser.add_argument_group("architecture")
     architecture_group.add_argument(
-        "--nb-hidden-layer",
+        "--num-blocks",
         type=int,
         default=1,
         help="number of hidden layers (default: 1)",
@@ -157,6 +113,9 @@ def create_parser() -> argparse.ArgumentParser:
         "--seed", type=int, default=None, help="random seed (default: 0)"
     )
     training_group.add_argument(
+        "--nb-step", type=int, default=10, help="number of cycles (default: 10)"
+    )
+    training_group.add_argument(
         "--batch-size",
         type=int,
         default=64,
@@ -177,6 +136,13 @@ def create_parser() -> argparse.ArgumentParser:
         default=0,
         help="weight decay (default: 0)",
     )
+    training_group.add_argument(
+        "--training-threshold",
+        type=float,
+        default=None,
+        help="training is stopped when the loss is below this threshold (default: None)",
+    )
+
 
     # growing training arguments
     growing_group = parser.add_argument_group("growing")
@@ -277,23 +243,62 @@ def create_parser() -> argparse.ArgumentParser:
         default=-1,
         help="maximum number of batches to use (default: -1)",
     )
+
+    # logging arguments
+    logging_group = parser.add_argument_group("logging")
+    logging_group.add_argument(
+        "--log-dir",
+        type=str,
+        default="misc/logs",
+        help="directory to save logs (default: logs)",
+    )
+    logging_group.add_argument(
+        "--log-file-name",
+        type=str,
+        default=None,
+        help="name of the log file (default: None)",
+    )
+    logging_group.add_argument(
+        "--experiment-name",
+        type=str,
+        default=None,
+        help="name of the experiment (default: None)",
+    )
+    logging_group.add_argument(
+        "--tags",
+        type=str,
+        default=None,
+        help="tags to add to the experiment (default: None)",
+    )
+    logging_group.add_argument(
+        "--log-system-metrics",
+        action="store_true",
+        default=False,
+        help="log system metrics (default: False)",
+    )
+
     return parser
 
 
 def preprocess_and_check_args(args: argparse.Namespace) -> argparse.Namespace:
+    """
+    Preprocess and check the arguments
+    Args:
+        args: argparse.Namespace
+            command line arguments
+
+    Returns:
+        args: argparse.Namespace
+            processed arguments
+
+    """
     # Check if the seed is None and generate a random seed if necessary
     if args.seed is None:
         args.seed = random.randint(0, 2 ** 32 - 1)
 
     # Logging arguments
     if args.log_file_name is None:
-        args.log_file_name = f"mlp_{args.dataset}_{args.activation}_model_{args.hidden_size}x{args.nb_hidden_layer}"
-
-    if args.log_dir_suffix is not None:
-        args.log_dir = f"{args.log_dir}/{args.log_dir_suffix}"
-
-    if args.log_file_prefix is not None:
-        args.log_file_name = f"{args.log_file_prefix}_{args.log_file_name}"
+        args.log_file_name = f"residual_mlp_{args.dataset}_{args.activation}_model_{args.hidden_size}x{args.num_blocks}"
 
     if args.experiment_name is None:
         args.experiment_name = f"{args.dataset}"
@@ -305,13 +310,22 @@ def preprocess_and_check_args(args: argparse.Namespace) -> argparse.Namespace:
     if args.init_new_neurons_with_random_in_and_zero_out:
         args.selection_method = "none"
 
+    if args.num_blocks < 1:
+        raise ValueError("The number of hidden layers must be greater than 0.")
+
     return args
 
 
 def display_args(args: argparse.Namespace) -> None:
+    """
+    Display the arguments
+    Args:
+        args: argparse.Namespace
+            command line arguments
+    """
     print("Arguments:")
     for key, value in vars(args).items():
-        print(f"    {key}: {value}")
+        print(f"\t{key}: {value}")
     print()
 
 
@@ -341,22 +355,41 @@ def log_layers_metrics(layer_metrics: dict, step: int, prefix: str | None = None
 
 
 def main(args: argparse.Namespace):
+    """
+    Main function
+    Args:
+        args: argparse.Namespace
+            command line arguments
+    """
     start_time = time()
 
-    # create the log file (manual logging)
+    # configure the logger
     file_path = f"{args.log_dir}/{args.log_file_name}_{start_time:.0f}.txt"
-    print(f"Log file: {file_path}")
+    logging.basicConfig(
+        filename=f"{args.log_dir}/{args.log_file_name}_{start_time:.0f}.log",
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+    )
+    logger = logging.getLogger()
 
-    # create the MLflow experiment
+    # Add console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    logger.addHandler(console_handler)
+
+    logger.info(f"Log file: {args.log_dir}/{args.log_file_name}_{start_time:.0f}.txt")
+
+    # configure MLflow experiment
     mlflow.set_tracking_uri(f"{args.log_dir}/mlruns")
-    print(f"MLflow tracking uri: {mlflow.get_tracking_uri()}")
+    logger.info(f"MLflow tracking uri: {mlflow.get_tracking_uri()}")
     try:
         mlflow.create_experiment(
             name=f"{args.experiment_name}",
             tags={"tags": args.tags} if args.tags is not None else None,
         )
     except mlflow.exceptions.MlflowException:
-        warn(f"Experiment {args.dataset} already exists.")
+        logger.warning(f"Experiment {args.dataset} already exists.")
 
     # set the experiment and run
     mlflow.set_experiment(f"{args.experiment_name}")
@@ -364,15 +397,14 @@ def main(args: argparse.Namespace):
         # log the arguments
         if args.tags is not None:
             mlflow.set_tags({"tags": args.tags})
-        with open(file_path, "w") as f:
-            f.write(str(args) + "\n")
+        logger.info(str(args))
         mlflow.log_params(vars(args))
 
         # set the device
         if args.no_cuda:
             set_device(torch.device("cpu"))
         device: torch.device = global_device()
-        print(f'Using device: {device}')
+        logger.info(f'Using device: {device}')
 
         # load the dataset and create the dataloaders
         if args.dataset == "sin":
@@ -426,18 +458,16 @@ def main(args: argparse.Namespace):
             top_1_accuracy: nn.Module = Accuracy(k=1)
 
         # create the model
-        model = GrowingMLP(
-            input_shape=input_shape,
-            output_shape=args.nb_class,
-            hidden_shape=args.hidden_size,
-            number_hidden_layers=args.nb_hidden_layer,
-            activation=activation_functions[args.activation.lower().strip()],
-            bias=not args.no_bias,
-            seed=args.seed,
-            device=device,
+        model = GrowingResidualMLP(
+            in_features=input_shape,
+            hidden_features=args.hidden_size,
+            out_features=args.nb_class,
+            num_blocks=args.num_blocks,
+            activation=activation_functions[args.activation],
         )
-        print(f"Model before training:\n{model}")
-        print(f"Number of parameters: {model.number_of_parameters(): ,}")
+
+        logger.info(f"Model before training:\n{model}")
+        logger.info(f"Number of parameters: {model.number_of_parameters(): ,}")
 
         # set the dtype for growing computations
         growing_dtype = torch.float32
@@ -463,7 +493,7 @@ def main(args: argparse.Namespace):
             device=device,
         )
 
-        print(
+        logger.info(
             f"Initialization: loss {val_loss: .4f} ({train_loss: .4f})"
             f" -- accuracy {val_accuracy: .4f} ({train_accuracy: .4f})"
         )
@@ -480,9 +510,9 @@ def main(args: argparse.Namespace):
         if device.type == "cuda":
             logs["device_model"] = torch.cuda.get_device_name(device)
 
-        with open(file_path, "a") as f:
-            f.write(str(logs))
-            f.write("\n")
+        # with open(file_path, "a") as f:
+        #     f.write(str(logs))
+        #     f.write("\n")
 
         for key, value in logs.items():
             if key == "device" or key == "device_model":
@@ -494,12 +524,12 @@ def main(args: argparse.Namespace):
                 try:
                     mlflow.log_metric(key, value, step=0)
                 except TypeError:
-                    warn(f"Cannot log {key} with value {value}")
+                    logger.warning(f"Cannot log {key} with value {value}")
                     # pass
 
         # Training
         logs = dict()
-        last_updated_layer = -1
+        last_updated_block = -1
         cycle_index = 0
         for step in range(1, args.nb_step + 1):
             step_start_time = time()
@@ -532,20 +562,18 @@ def main(args: argparse.Namespace):
 
                 # select the update to be applied
                 if args.selection_method == "none":
-                    last_updated_layer = (last_updated_layer + 1) % len(model.layers)
-                    if last_updated_layer == 0:
-                        last_updated_layer = 1
-                    model.select_update(layer_index=last_updated_layer)
+                    last_updated_block = (last_updated_block + 1) % len(model.blocks)
+                    model.select_update(block_index=last_updated_block)
                 elif args.selection_method == "fo":
-                    last_updated_layer = model.select_best_update()
+                    last_updated_block = model.select_best_update()
                 else:
                     raise NotImplementedError("Growing the model is not implemented yet")
 
-                logs["selected_update"] = last_updated_layer
+                logs["selected_update"] = last_updated_block
 
-                if model.currently_updated_layer.eigenvalues_extension is not None:
+                if model.currently_updated_block.eigenvalues_extension is not None:
                     logs["added_neurons"] = (
-                        model.currently_updated_layer.eigenvalues_extension.size(0)
+                        model.currently_updated_block.eigenvalues_extension.size(0)
                     )
                 else:
                     logs["added_neurons"] = 0
@@ -558,9 +586,9 @@ def main(args: argparse.Namespace):
                         loss_function=loss_function,
                         batch_limit=args.line_search_batch_limit,
                         initial_loss=initial_train_loss,
-                        first_order_improvement=model.updates_values[
-                            model.currently_updated_layer_index
-                        ],
+                        first_order_improvement=model.blocks[
+                            model.currently_updated_block_index
+                        ].first_order_improvement,
                         alpha=args.line_search_alpha,
                         beta=args.line_search_beta,
                         max_iter=args.line_search_max_iter,
@@ -575,18 +603,18 @@ def main(args: argparse.Namespace):
                 # optionally reset the weights of the new neurons
                 if (
                     args.init_new_neurons_with_random_in_and_zero_out
-                    and model.currently_updated_layer_index - 1 >= 0
+                    and model.currently_updated_block_index - 1 >= 0
                 ):
                     # set the new neurons to have random fan-in weights and zero fan-out weights
                     model[
-                        model.currently_updated_layer_index - 1
+                        model.currently_updated_block_index - 1
                     ].extended_output_layer.reset_parameters()
                     model[
-                        model.currently_updated_layer_index
+                        model.currently_updated_block_index
                     ].extended_input_layer.weight.data.zero_()
-                    # torch.nn.init.zeros_(model[model.currently_updated_layer_index].layer)
+                    # torch.nn.init.zeros_(model[model.currently_updated_block_index].layer)
                 if args.init_new_neurons_with_random_in_and_zero_out:
-                    model[model.currently_updated_layer_index].optimal_delta_layer = None
+                    model[model.currently_updated_block_index].optimal_delta_layer = None
 
                 logs["gamma"] = gamma
                 logs["gamma_history"] = gamma_history
@@ -594,7 +622,7 @@ def main(args: argparse.Namespace):
                 logs["number_of_line_search_iterations"] = len(gamma_history) - 1
 
                 model.amplitude_factor = gamma**0.5
-                model.apply_update()
+                model.apply_change()
 
                 train_loss = initial_train_loss
                 train_accuracy = initial_train_accuracy
@@ -642,11 +670,11 @@ def main(args: argparse.Namespace):
             if device.type == "cuda":
                 logs["GPU utilization"] = torch.cuda.utilization(device)
 
-            print(f"Epoch [{step}/{args.nb_step}]: loss {val_loss: .4f} ({train_loss: .4f}) -- accuracy {val_accuracy: .4f} ({train_accuracy: .4f})  [{logs['epoch_type']}]")
+            logger.info(f"Epoch [{step}/{args.nb_step}]: loss {val_loss: .4f} ({train_loss: .4f}) -- accuracy {val_accuracy: .4f} ({train_accuracy: .4f})  [{logs['epoch_type']}]")
 
-            with open(file_path, "a") as f:
-                f.write(str(logs))
-                f.write("\n")
+            # with open(file_path, "a") as f:
+            #     f.write(str(logs))
+            #     f.write("\n")
 
             for key, value in logs.items():
                 if key == "epoch_type":
@@ -668,12 +696,12 @@ def main(args: argparse.Namespace):
                 args.training_threshold is not None
                 and train_loss < args.training_threshold
             ):
-                print(f"Training threshold reached at step {step}")
+                logger.info(f"Training threshold reached at step {step}")
                 break
 
-    print(f"Total duration: {time() - start_time: .2f} seconds")
-    print(f"Model after training:\n{model}")
-    print(f"Number of parameters: {model.number_of_parameters(): ,}")
+    logger.info(f"Total duration: {time() - start_time: .2f} seconds")
+    logger.info(f"Model after training:\n{model}")
+    logger.info(f"Number of parameters: {model.number_of_parameters(): ,}")
 
 
 if __name__ == "__main__":
@@ -691,6 +719,7 @@ if __name__ == "__main__":
         print("CUDA is not available")
 
     parser = create_parser()
+    parser.print_help(); print()
     args = parser.parse_args()
     args = preprocess_and_check_args(args)
     display_args(args)
