@@ -1,4 +1,5 @@
 import argparse
+import sys
 from os.path import split
 from time import time
 from warnings import warn
@@ -364,7 +365,7 @@ def main(args: argparse.Namespace):
     start_time = time()
 
     # configure the logger
-    file_path = f"{args.log_dir}/{args.log_file_name}_{start_time:.0f}.txt"
+    # file_path = f"{args.log_dir}/{args.log_file_name}_{start_time:.0f}.txt"
     logging.basicConfig(
         filename=f"{args.log_dir}/{args.log_file_name}_{start_time:.0f}.log",
         level=logging.INFO,
@@ -373,7 +374,7 @@ def main(args: argparse.Namespace):
     logger = logging.getLogger()
 
     # Add console handler
-    console_handler = logging.StreamHandler()
+    console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
     logger.addHandler(console_handler)
