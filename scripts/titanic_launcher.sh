@@ -15,7 +15,6 @@ setup_environment() {
 
 # Function to execute the batch jobs
 run_jobs() {
-  local num_block_list=1
   local selection_method='none'
 
   for weight_decay in "${weight_decay_list[@]}"; do
