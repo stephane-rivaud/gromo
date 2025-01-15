@@ -720,7 +720,6 @@ if __name__ == "__main__":
         print("CUDA is not available")
 
     parser = create_parser()
-    parser.print_help(); print()
     args = parser.parse_args()
     args = preprocess_and_check_args(args)
     display_args(args)
