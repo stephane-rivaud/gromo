@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Constants for growth parameters
-num_blocks=(1 2 3 4 5)
+num_block_list=(1 2 3 4 5)
 hidden_size_list=(1 4 16 64 256 1024)
 epoch_per_growth_list=(-1)
 weight_decay_list=(0.0)
@@ -13,10 +13,11 @@ setup_environment() {
 
 # Function to execute the batch jobs
 run_jobs() {
-  local num_blocks=1
+  local num_block_list=1
   local selection_method='none'
 
   for weight_decay in "${weight_decay_list[@]}"; do
+    for num_blocks in "${num_block_list[@]}"; do
     for hidden_size in "${hidden_size_list[@]}"; do
       for epoch_per_growth in "${epoch_per_growth_list[@]}"; do
         local command="scripts/mlp_run.sh $num_blocks $hidden_size $weight_decay $epoch_per_growth $selection_method"
