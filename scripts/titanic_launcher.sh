@@ -1,8 +1,9 @@
 #!/bin/bash
 
 # Constants for growth parameters
-hidden_size_list=(1)
-epoch_per_growth_list=(1)
+num_blocks=(1 2 3 4 5)
+hidden_size_list=(1 4 16 64 256 1024)
+epoch_per_growth_list=(-1)
 weight_decay_list=(0.0)
 
 # Function to create the slurm directory
