@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 
 from gromo.linear_growing_module import LinearAdditionGrowingModule, LinearGrowingModule
+from gromo.utils.utils import global_device
 
 all_layer_types = {
     "linear": {"layer": LinearGrowingModule, "addition": LinearAdditionGrowingModule},
@@ -32,10 +33,7 @@ class GrowingResidualMLP(torch.nn.Module):
         self.layer_type = layer_type
 
         # embedding
-        self.embedding = nn.Linear(
-            in_features,
-            hidden_features,
-        )
+        self.embedding = nn.Linear(in_features, hidden_features, device=global_device())
 
         # blocks
         self.blocks = torch.nn.ModuleList(
@@ -52,10 +50,7 @@ class GrowingResidualMLP(torch.nn.Module):
         )
 
         # final projection
-        self.projection = nn.Linear(
-            hidden_features,
-            out_features,
-        )
+        self.projection = nn.Linear(hidden_features, out_features, device=global_device())
 
         # current updated block
         self.currently_updated_block: GrowingResidualBlock | None = None
