@@ -17,6 +17,7 @@ class GrowingResidualMLP(torch.nn.Module):
     def __init__(
             self,
             in_features: int,
+            num_features: int,
             hidden_features: int,
             out_features: int,
             num_blocks: int,
@@ -26,6 +27,7 @@ class GrowingResidualMLP(torch.nn.Module):
 
         super(GrowingResidualMLP, self).__init__()
         self.in_features = in_features
+        self.num_features = num_features
         self.hidden_features = hidden_features
         self.out_features = out_features
         self.num_blocks = num_blocks
@@ -33,13 +35,13 @@ class GrowingResidualMLP(torch.nn.Module):
         self.layer_type = layer_type
 
         # embedding
-        self.embedding = nn.Linear(in_features, hidden_features, device=global_device())
+        self.embedding = nn.Linear(in_features, num_features, device=global_device())
 
         # blocks
         self.blocks = torch.nn.ModuleList(
             [
                 GrowingResidualBlock(
-                    hidden_features,
+                    num_features,
                     hidden_features,
                     layer_type=layer_type,
                     activation=activation,
@@ -50,7 +52,7 @@ class GrowingResidualMLP(torch.nn.Module):
         )
 
         # final projection
-        self.projection = nn.Linear(hidden_features, out_features, device=global_device())
+        self.projection = nn.Linear(num_features, out_features, device=global_device())
 
         # current updated block
         self.currently_updated_block: GrowingResidualBlock | None = None
@@ -310,9 +312,9 @@ class GrowingResidualBlock(torch.nn.Module):
         torch.Tensor
             output tensor
         """
-        x = self.activation(x)
         if self.hidden_features > 0:
-            y, y_ext = self.first_layer.extended_forward(x)
+            y = self.activation(x)
+            y, y_ext = self.first_layer.extended_forward(y)
             y, _ = self.second_layer.extended_forward(y, y_ext)
             assert (
                     _ is None
@@ -335,9 +337,9 @@ class GrowingResidualBlock(torch.nn.Module):
         torch.Tensor
             output tensor
         """
-        x = self.activation(x)
         if self.hidden_features > 0:
-            y = self.first_layer(x)
+            y = self.activation(x)
+            y = self.first_layer(y)
             y = self.second_layer(y)
             x = y + x
         return x

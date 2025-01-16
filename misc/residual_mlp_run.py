@@ -64,7 +64,12 @@ def create_parser() -> argparse.ArgumentParser:
         help="number of hidden layers (default: 1)",
     )
     architecture_group.add_argument(
-        "--hidden-size", type=int, default=10, help="hidden size (default: 10)"
+        "--num-features",
+        type=int,
+        default=64,
+    )
+    architecture_group.add_argument(
+        "--hidden-size", type=int, default=8, help="hidden size (default: 10)"
     )
     architecture_group.add_argument(
         "--activation",
@@ -461,6 +466,7 @@ def main(args: argparse.Namespace):
         # create the model
         model = GrowingResidualMLP(
             in_features=input_shape,
+            num_features=args.num_features,
             hidden_features=args.hidden_size,
             out_features=args.nb_class,
             num_blocks=args.num_blocks,

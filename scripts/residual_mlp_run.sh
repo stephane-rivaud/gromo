@@ -6,14 +6,15 @@
 
 # script parameters
 num_blocks=$1
-hidden_size=$2
-weight_decay=$3
-epochs_per_growth=$4
-selection_method=$5
-num_workers=$6
+num_features=$2
+hidden_size=$3
+weight_decay=$4
+epochs_per_growth=$5
+selection_method=$6
 
 echo TMPDIR: $TMPDIR
 echo "num_blocks: $num_blocks"
+echo "num_features: $num_features"
 echo "hidden_size: $hidden_size"
 echo "weight_decay: $weight_decay"
 echo "epochs_per_growth: $epochs_per_growth"
@@ -68,7 +69,7 @@ if [ -n "$training_threshold" ]; then
 fi
 
 if [ -n "$num_workers" ]; then
-    command="${command} --num-workers $num_workers"
+    command="${command} --num-workers 4"
 fi
 
 # Dataset arguments
@@ -85,11 +86,12 @@ fi
 
 # Model arguments
 #num_blocks=4
-#hidden_size=10
+#num_features=256
+#hidden_size=16
 activation="selu"
 bias=true
 
-command="${command} --num-blocks $num_blocks --hidden-size $hidden_size --activation $activation"
+command="${command} --num-blocks $num_blocks --num_features $num_features --hidden-size $hidden_size --activation $activation"
 if [ "$bias" = false ]; then
     command="${command} --no-bias"
 fi
@@ -97,7 +99,7 @@ fi
 # Classical training arguments
 #seed=0
 command="${command} --nb-step $nb_step"
-batch_size=64
+batch_size=128
 optimizer="sgd"
 lr=0.05
 #weight_decay=0
