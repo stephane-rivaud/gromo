@@ -1113,11 +1113,11 @@ class GrowingModule(torch.nn.Module):
             scaling factor to apply to the optimal delta,
              if None use the current scaling factor
         apply_previous: bool
-            if True apply the change to the previous layer
+            if True apply the change to the previous layer, by default True
         apply_delta: bool
-            if True apply the optimal delta to the layer
+            if True apply the optimal delta to the layer, by default True
         apply_extension: bool
-            if True apply the extension to the layer
+            if True apply the extension to the layer, by default True
         """
         # print(f"==================== Applying change to {self.name} ====================")
         if scaling_factor is not None:
