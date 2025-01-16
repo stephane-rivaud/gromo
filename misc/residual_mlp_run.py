@@ -622,7 +622,7 @@ def main(args: argparse.Namespace):
                 logs["loss_history"] = loss_history
                 logs["number_of_line_search_iterations"] = len(gamma_history) - 1
 
-                model.blocks[model.currently_updated_block_index].scaling_factor = gamma
+                model.blocks[model.currently_updated_block_index].scaling_factor = gamma**0.5
                 model.apply_change()
 
                 train_loss = initial_train_loss
