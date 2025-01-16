@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # Constants for growth parameters
-num_block_list=(1 2 4 6)
-num_features=(256 512 1024)
-hidden_size_list=(32 64 128)
-epoch_per_growth_list=(-1 8 4)
-weight_decay_list=(0.0 0.01)
+#num_block_list=(1 2 4 6)
+#num_features=(256 512 1024)
+#hidden_size_list=(32 64 128)
+#epoch_per_growth_list=(-1 8 4)
+#weight_decay_list=(0.0 0.01)
 
 num_block_list=(10)
 num_features=(1024)
