@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Constants for growth parameters
-num_block_list=(1)
-hidden_size_list=(1)
+num_block_list=(3)
+hidden_size_list=(1024)
 epoch_per_growth_list=(1)
 weight_decay_list=(0.0)
 
