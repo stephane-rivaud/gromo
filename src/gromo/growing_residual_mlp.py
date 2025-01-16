@@ -241,6 +241,7 @@ class GrowingResidualBlock(torch.nn.Module):
         super(GrowingResidualBlock, self).__init__()
         self.name = name
 
+        self.norm = nn.LayerNorm(in_out_features, elementwise_affine=False, device=global_device())
         self.activation: torch.nn.Module = activation
         self.first_layer = all_layer_types[layer_type]["layer"](
             in_out_features,
@@ -312,7 +313,9 @@ class GrowingResidualBlock(torch.nn.Module):
         torch.Tensor
             output tensor
         """
+
         if self.hidden_features > 0:
+            x = self.norm(x)
             y = self.activation(x)
             y, y_ext = self.first_layer.extended_forward(y)
             y, _ = self.second_layer.extended_forward(y, y_ext)
@@ -338,6 +341,7 @@ class GrowingResidualBlock(torch.nn.Module):
             output tensor
         """
         if self.hidden_features > 0:
+            x = self.norm(x)
             y = self.activation(x)
             y = self.first_layer(y)
             y = self.second_layer(y)
