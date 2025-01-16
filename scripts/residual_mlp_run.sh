@@ -91,7 +91,7 @@ fi
 activation="selu"
 bias=true
 
-command="${command} --num-blocks $num_blocks --num_features $num_features --hidden-size $hidden_size --activation $activation"
+command="${command} --num-blocks $num_blocks --num-features $num_features --hidden-size $hidden_size --activation $activation"
 if [ "$bias" = false ]; then
     command="${command} --no-bias"
 fi
