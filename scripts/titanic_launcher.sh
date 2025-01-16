@@ -1,17 +1,17 @@
 #!/bin/bash
 
 # Constants for growth parameters
-#num_block_list=(1 2 4 6)
-#num_features=(256 512 1024)
-#hidden_size_list=(32 64 128)
-#epoch_per_growth_list=(-1 8 4)
-#weight_decay_list=(0.0 0.001)
+num_block_list=(1 2 4 6)
+num_features=(256 512 1024)
+hidden_size_list=(32 64 128)
+epoch_per_growth_list=(-1 8 4)
+weight_decay_list=(0.0 0.0005)
 
-num_block_list=(6)
-num_features=(1024)
-hidden_size_list=(256)
-epoch_per_growth_list=(-1)
-weight_decay_list=(0.0005)
+#num_block_list=(6)
+#num_features=(1024)
+#hidden_size_list=(256)
+#epoch_per_growth_list=(-1)
+#weight_decay_list=(0.0005)
 
 # Function to create the slurm directory
 setup_environment() {
