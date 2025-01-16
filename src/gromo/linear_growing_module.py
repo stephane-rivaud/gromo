@@ -920,6 +920,7 @@ class LinearGrowingModule(GrowingModule):
         tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | float]
             optimal delta for the weights, the biases if needed and the first order decrease
         """
+        print(self)
         tensor_s = self.tensor_s()
         tensor_m = self.tensor_m()
 
