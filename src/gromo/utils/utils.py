@@ -9,13 +9,13 @@ import torch.nn as nn
 from pyvis.network import Network
 from torch.types import _int
 
-if torch.cuda.is_available():
-    __global_device = torch.device("cuda")
-elif torch.backends.mps.is_available():
-    __global_device = torch.device("mps")
-else:
-    __global_device = torch.device("cpu")
-# __global_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# if torch.cuda.is_available():
+#     __global_device = torch.device("cuda")
+# elif torch.backends.mps.is_available():
+#     __global_device = torch.device("mps")
+# else:
+#     __global_device = torch.device("cpu")
+__global_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def set_device(device: str | torch.device) -> None:
