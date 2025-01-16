@@ -128,13 +128,13 @@ class TestGraphGrowingNetwork(unittest.TestCase):
 
         self.assertEqual(self.net.dag.nodes[node]["size"], self.net.neurons * 2)
         self.assertEqual(
-            self.net.dag.get_edge_module("start", node).in_features, self.in_features
+            self.net.dag.get_edge_module("start", node).num_features, self.in_features
         )
         self.assertEqual(
             self.net.dag.get_edge_module("start", node).out_features, self.net.neurons * 2
         )
         self.assertEqual(
-            self.net.dag.get_edge_module(node, "end").in_features, self.net.neurons * 2
+            self.net.dag.get_edge_module(node, "end").num_features, self.net.neurons * 2
         )
         self.assertEqual(
             self.net.dag.get_edge_module(node, "end").out_features, self.out_features
@@ -182,7 +182,7 @@ class TestGraphGrowingNetwork(unittest.TestCase):
         self.assertEqual(self.net.dag.out_degree(prev_node), 2)
         self.assertEqual(self.net.dag.in_degree(next_node), 2)
         self.assertEqual(
-            self.net.dag.get_edge_module(prev_node, next_node).in_features,
+            self.net.dag.get_edge_module(prev_node, next_node).num_features,
             self.in_features,
         )
         self.assertEqual(

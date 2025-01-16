@@ -55,12 +55,12 @@ if __name__ == "__main__":
     # Define the dataset
     batch_size = 100
     num_batch = 10
-    in_features = 10
-    dataset = [(torch.randn(batch_size, in_features), torch.randn(batch_size, in_features)) for _ in range(num_batch)]
+    num_features = 10
+    dataset = [(torch.randn(batch_size, num_features), torch.randn(batch_size, num_features)) for _ in range(num_batch)]
 
     # Define the model
     hidden_features = 5
-    block = GrowingResidualBlock(in_features, hidden_features, activation=nn.ReLU(), name="block")
+    block = GrowingResidualBlock(num_features, hidden_features, activation=nn.ReLU(), name="block")
     print(block)
 
     # Define the losses
@@ -80,7 +80,7 @@ if __name__ == "__main__":
     print(f'Training Loss after training: {training_loss_after}')
 
     # Gathering growing statistics
-    statistics_loss = compute_statistics(block, dataset, loss_fn_sum) / (batch_size * in_features)
+    statistics_loss = compute_statistics(block, dataset, loss_fn_sum) / (batch_size * num_features)
     print(f'Training Loss after gathering statistics: {statistics_loss}')
 
     # Compute the optimal update
@@ -92,11 +92,6 @@ if __name__ == "__main__":
     block.second_layer.scaling_factor = scaling_factor
     loss_with_extension = evaluate_with_extension(block, dataset, loss_fn_mean)
     print(f'Training Loss with the change: {loss_with_extension}')
-
-    # debug: print all members of the block
-    for members in dir(block):
-        print(members)
-        assert hasattr(block, members), f"block does not have member {members}"
 
     print(f'First order improvement: {block.first_order_improvement}')
     print(f'Zero-th order improvement: {training_loss_after - loss_with_extension}')

@@ -120,7 +120,9 @@ class GrowingMLPBlock(nn.Module):
             output tensor
         """
         y, y_ext = self.first_layer.extended_forward(x)
-        y, y_ext = self.dropout(y), self.dropout(y_ext)
+        y = self.dropout(y)
+        if y_ext is not None:
+            y_ext = self.dropout(y_ext)
         y, _ = self.second_layer.extended_forward(y, y_ext)
 
         assert (
@@ -720,3 +722,43 @@ class GrowingMLPMixer(nn.Module):
         for i, mixer in enumerate(self.mixers):
             layer_information[i] = mixer.update_information()
         return layer_information
+
+    def select_best_update(self):
+        token_mixers_first_order_improvement = torch.tensor([
+            mixer.token_mixer.first_order_improvement for mixer in self.mixers
+        ])
+        channel_mixers_first_order_improvement = torch.tensor([
+            mixer.channel_mixer.first_order_improvement for mixer in self.mixers
+        ])
+        best_token_mixer_index = torch.argmax(token_mixers_first_order_improvement)
+        best_channel_mixer_index = torch.argmax(channel_mixers_first_order_improvement)
+
+        best_token_mixer_improvement = token_mixers_first_order_improvement[best_token_mixer_index]
+        best_channel_mixer_improvement = channel_mixers_first_order_improvement[best_channel_mixer_index]
+        token_or_channels = "token" if best_token_mixer_improvement > best_channel_mixer_improvement else "channel"
+
+        for i, mixer in enumerate(self.mixers):
+            if token_or_channels == "token":
+                if i != best_token_mixer_index:
+                    mixer.delete_update()
+                else:
+                    self.currently_updated_block = mixer.token_mixer
+            else:
+                if i != best_channel_mixer_index:
+                    mixer.delete_update()
+                else:
+                    self.currently_updated_block = mixer.channel_mixer
+
+    @property
+    def first_order_improvement(self) -> torch.Tensor:
+        """
+        Get the first order improvement of the block.
+
+        Returns
+        -------
+        torch.Tensor
+            first order improvement
+        """
+        return self.currently_updated_block.first_order_improvement
+
+

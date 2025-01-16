@@ -358,7 +358,7 @@ class TestLinearGrowingModule(TorchTestCase):
         layer.layer_in_extension(torch.tensor([[10]], dtype=torch.float32))
         self.assertEqual(layer.number_of_parameters(), 4)
         self.assertEqual(layer.in_features, 4)
-        self.assertEqual(layer.layer.in_features, 4)
+        self.assertEqual(layer.layer.num_features, 4)
         x = torch.tensor([[1, 2, 3, 4]], dtype=torch.float32)
         y = layer(x)
         self.assertAllClose(y, torch.tensor([[46.0]]))
@@ -682,7 +682,7 @@ class TestLinearGrowingModule(TorchTestCase):
                 # those tests are not working yet
                 demo_layers[1].sub_select_optimal_added_parameters(2)
                 self.assertEqual(demo_layers[1].eigenvalues_extension.shape[0], 2)
-                self.assertEqual(demo_layers[1].extended_input_layer.in_features, 2)
+                self.assertEqual(demo_layers[1].extended_input_layer.num_features, 2)
                 self.assertEqual(demo_layers[0].extended_output_layer.out_features, 2)
 
 

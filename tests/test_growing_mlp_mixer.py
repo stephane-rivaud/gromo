@@ -57,19 +57,21 @@ if __name__ == "__main__":
     num_batch = 10
     image_size = 32
     in_channels = 3
-    num_classes = 10
+    num_features = 8
+    num_classes = 2
     dataset = [
-        (torch.randn(batch_size, in_channels, image_size, image_size), torch.randint(0, num_classes, (batch_size,)))
+        (
+            torch.randn(batch_size, in_channels, image_size, image_size),
+            torch.randn(batch_size, num_classes)
+        )
         for _ in range(num_batch)
     ]
 
     # Define the model
-    patch_size = 2
-    num_features = 2
-    hidden_features = 1
-    num_layers = 1
-    num_classes = 10
-    dropout = 0.5
+    patch_size = 4
+    hidden_features = 4
+    num_layers = 2
+    dropout = 0.0
     model = GrowingMLPMixer(
         image_size=image_size,
         patch_size=patch_size,
@@ -83,14 +85,14 @@ if __name__ == "__main__":
     print(model)
 
     # Define the losses
-    loss_fn_mean = nn.CrossEntropyLoss(reduction='mean')
-    loss_fn_sum = nn.CrossEntropyLoss(reduction='sum')
+    loss_fn_mean = nn.MSELoss(reduction='mean')
+    loss_fn_sum = nn.MSELoss(reduction='sum')
 
     # Define the optimizer
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9, weight_decay=1e-3)
 
     # Regular training
-    for epoch in range(10):
+    for epoch in range(15):
         training_loss = train(model, dataset, loss_fn_mean, optimizer)
         print(f'Epoch {epoch}, Training Loss: {training_loss}')
 
@@ -99,7 +101,7 @@ if __name__ == "__main__":
     print(f'Training Loss after training: {training_loss_after}')
 
     # Gathering growing statistics
-    statistics_loss = compute_statistics(model, dataset, loss_fn_sum) / batch_size
+    statistics_loss = compute_statistics(model, dataset, loss_fn_sum) / (batch_size * num_features)
     print(f'Training Loss after gathering statistics: {statistics_loss}')
 
     # Compute the optimal update
@@ -110,8 +112,8 @@ if __name__ == "__main__":
     model.select_best_update()
 
     # Training loss with the change
-    scaling_factor = 0.01
-    model.blocks[model.currently_updated_block_index].scaling_factor = scaling_factor
+    scaling_factor = 0.1
+    model.currently_updated_block.scaling_factor = scaling_factor
     loss_with_extension = evaluate_with_extension(model, dataset, loss_fn_mean)
     print(f'Training Loss with the change: {loss_with_extension}')
     print(f'First order improvement: {model.first_order_improvement}')

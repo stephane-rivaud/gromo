@@ -574,7 +574,7 @@ class GraphGrowingNetwork(torch.nn.Module):
         i = 0
         for i_edge, prev_edge_module in enumerate(node_module.previous_modules):
             # Output extension for alpha weights
-            in_features = prev_edge_module.in_features
+            in_features = prev_edge_module.num_features
             prev_edge_module.scaling_factor = 1
             prev_edge_module.extended_output_layer = prev_edge_module.layer_of_tensor(
                 weight=alpha[:, i : i + in_features],

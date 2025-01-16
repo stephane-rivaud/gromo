@@ -45,9 +45,9 @@ def safe_forward(self, input: torch.Tensor) -> torch.Tensor:
         F.linear forward function output
     """
     assert (
-        input.shape[1] == self.in_features
-    ), f"Input shape {input.shape} must match the input feature size. Expected: {self.in_features}, Found: {input.shape[1]}"
-    if self.in_features == 0:
+        input.shape[1] == self.num_features
+    ), f"Input shape {input.shape} must match the input feature size. Expected: {self.num_features}, Found: {input.shape[1]}"
+    if self.num_features == 0:
         return torch.zeros(
             input.shape[0], self.out_features, device=global_device(), requires_grad=True
         )

@@ -209,7 +209,7 @@ class GrowingResidualBlock(torch.nn.Module):
 
     def __init__(
             self,
-            in_out_features: int,
+            num_features: int,
             hidden_features: int = 0,
             layer_type: str = "linear",
             activation: torch.nn.Module | None = None,
@@ -221,7 +221,7 @@ class GrowingResidualBlock(torch.nn.Module):
 
         Parameters
         ----------
-        in_out_features: int
+        num_features: int
             number of input and output features, in cas of convolutional layer, the number of channels
         hidden_features: int
             number of hidden features, if zero the block is the zero function
@@ -241,10 +241,10 @@ class GrowingResidualBlock(torch.nn.Module):
         super(GrowingResidualBlock, self).__init__()
         self.name = name
 
-        self.norm = nn.LayerNorm(in_out_features, elementwise_affine=False, device=global_device())
+        self.norm = nn.LayerNorm(num_features, elementwise_affine=False, device=global_device())
         self.activation: torch.nn.Module = activation
         self.first_layer = all_layer_types[layer_type]["layer"](
-            in_out_features,
+            num_features,
             hidden_features,
             post_layer_function=activation,
             name=f"first_layer",
@@ -252,7 +252,7 @@ class GrowingResidualBlock(torch.nn.Module):
         )
         self.second_layer = all_layer_types[layer_type]["layer"](
             hidden_features,
-            in_out_features,
+            num_features,
             post_layer_function=torch.nn.Identity(),
             previous_module=self.first_layer,
             name=f"second_layer",
@@ -507,7 +507,7 @@ class GrowingResidualBlock(torch.nn.Module):
             }
             if layer.bias is not None:
                 statistics[i]["bias"] = self.tensor_statistics(layer.bias)
-            statistics[i]["input_shape"] = layer.in_features
+            statistics[i]["input_shape"] = layer.num_features
             statistics[i]["output_shape"] = layer.out_features
         return statistics
 
