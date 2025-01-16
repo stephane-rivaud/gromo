@@ -33,10 +33,10 @@ conda activate gromo
 command="python -u misc/residual_mlp_run.py"
 
 # General arguments
-log_dir="logs/residual_mlp_run"
+log_dir="logs/res_mlp_run"
 log_file_name=""
-tags="residual-mlp-run"
-experiment_name="Residual-MLP-${num_blocks}_blocks"
+tags="res-mlp-run"
+experiment_name="Res-MLP-${num_blocks}_blocks"
 nb_step=100
 no_cuda=false
 training_threshold=""
