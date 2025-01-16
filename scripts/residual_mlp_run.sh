@@ -34,6 +34,7 @@ command="python -u misc/residual_mlp_run.py"
 
 # General arguments
 log_dir="logs/res_mlp_run"
+mkdir -p $log_dir
 log_file_name=""
 tags="res-mlp-run"
 experiment_name="Res-MLP-${num_blocks}_blocks"
