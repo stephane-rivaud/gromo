@@ -32,11 +32,9 @@ class GrowingResidualMLP(torch.nn.Module):
         self.layer_type = layer_type
 
         # embedding
-        self.embedding = LinearGrowingModule(
+        self.embedding = nn.Linear(
             in_features,
             hidden_features,
-            post_layer_function=nn.Identity(),
-            name="embedding",
         )
 
         # blocks
@@ -54,11 +52,9 @@ class GrowingResidualMLP(torch.nn.Module):
         )
 
         # final projection
-        self.projection = LinearGrowingModule(
+        self.projection = nn.Linear(
             hidden_features,
             out_features,
-            post_layer_function=nn.Identity(),
-            name="projection",
         )
 
         # current updated block
@@ -82,7 +78,6 @@ class GrowingResidualMLP(torch.nn.Module):
     def init_computation(self):
         for block in self.blocks:
             block.init_computation()
-
 
     def update_computation(self):
         for block in self.blocks:
@@ -158,10 +153,10 @@ class GrowingResidualMLP(torch.nn.Module):
             block.apply_change()
 
     def number_of_parameters(self):
-        num_param = self.embedding.number_of_parameters()
+        num_param = sum(p.numel() for p in self.embedding.parameters())
         for block in self.blocks:
             num_param += block.number_of_parameters()
-        num_param += self.projection.number_of_parameters()
+        num_param += sum(p.numel() for p in self.projection.parameters())
         return num_param
         # return sum(p.numel() for p in self.parameters())
 
@@ -254,7 +249,7 @@ class GrowingResidualBlock(torch.nn.Module):
             in_out_features,
             hidden_features,
             post_layer_function=activation,
-            name=f"{name}_first_layer",
+            name=f"first_layer",
             **kwargs_layer,
         )
         self.second_layer = all_layer_types[layer_type]["layer"](
@@ -262,7 +257,7 @@ class GrowingResidualBlock(torch.nn.Module):
             in_out_features,
             post_layer_function=torch.nn.Identity(),
             previous_module=self.first_layer,
-            name=f"{name}_second_layer",
+            name=f"second_layer",
             **kwargs_layer,
         )
 
@@ -436,7 +431,7 @@ class GrowingResidualBlock(torch.nn.Module):
         ], f"{part=} should be in ['all', 'parameter', 'neuron']"
 
         if part == "parameter":
-            _, _, self.parameter_update_decrease = self.second_layer.compute_optimal_delta(dtype=dtype)
+            _, _, _ = self.second_layer.compute_optimal_delta(dtype=dtype)
             # _, _, _ = self.second_layer.compute_optimal_delta(dtype=dtype)
         elif part == "neuron":
             _, _ = self.second_layer.compute_optimal_updates(

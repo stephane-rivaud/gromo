@@ -331,6 +331,7 @@ def compute_statistics(
         n_batch += 1
         if 0 <= batch_limit <= n_batch:
             break
+        # print(f"num samples: {nb_sample} vs {growing_model.blocks[0].second_layer.tensor_s.samples}")
     return total_loss.item() / nb_sample, total_aux_loss.item() / nb_sample
 
 
