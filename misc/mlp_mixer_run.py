@@ -9,7 +9,7 @@ import mlflow
 import torch
 from auxilliary_functions import *
 
-from gromo.growing_residual_mlp import GrowingResidualMLP
+from gromo.growing_mlp_mixer import GrowingMLPMixer
 from gromo.utils.datasets import get_dataset
 from gromo.utils.utils import global_device, set_device
 
@@ -55,33 +55,6 @@ def create_parser() -> argparse.ArgumentParser:
         help="number of workers for the dataloader (default: 4)",
     )
 
-    # model arguments
-    architecture_group = parser.add_argument_group("architecture")
-    architecture_group.add_argument(
-        "--num-blocks",
-        type=int,
-        default=1,
-        help="number of hidden layers (default: 1)",
-    )
-    architecture_group.add_argument(
-        "--num-features",
-        type=int,
-        default=64,
-    )
-    architecture_group.add_argument(
-        "--hidden-size", type=int, default=8, help="hidden size (default: 10)"
-    )
-    architecture_group.add_argument(
-        "--activation",
-        type=str,
-        default="selu",
-        help="activation function (default: selu)",
-        choices=activation_functions.keys(),
-    )
-    architecture_group.add_argument(
-        "--no-bias", action="store_true", default=False, help="disables bias"
-    )
-
     # dataset arguments
     dataset_group = parser.add_argument_group("dataset")
     dataset_group.add_argument(
@@ -111,6 +84,32 @@ def create_parser() -> argparse.ArgumentParser:
         nargs="+",
         default=None,
         help="data augmentation to use (default: None)",
+    )
+
+    # model arguments
+    architecture_group = parser.add_argument_group("architecture")
+    architecture_group.add_argument(
+        "--patch-size",
+        type=int,
+        default=4,
+        help="patch size (default: 4)",
+    )
+    architecture_group.add_argument(
+        "--num-blocks",
+        type=int,
+        default=1,
+        help="number of hidden layers (default: 1)",
+    )
+    architecture_group.add_argument(
+        "--num-features",
+        type=int,
+        default=64,
+    )
+    architecture_group.add_argument(
+        "--hidden-size", type=int, default=8, help="hidden size (default: 10)"
+    )
+    architecture_group.add_argument(
+        "--no-bias", action="store_true", default=False, help="disables bias"
     )
 
     # classical training arguments
@@ -304,7 +303,7 @@ def preprocess_and_check_args(args: argparse.Namespace) -> argparse.Namespace:
 
     # Logging arguments
     if args.log_file_name is None:
-        args.log_file_name = f"residual_mlp_{args.dataset}_{args.activation}_model_{args.hidden_size}x{args.num_blocks}"
+        args.log_file_name = f"mlp_mixer_{args.dataset}_{args.num_features}x{args.hidden_size}x{args.num_blocks}"
 
     if args.experiment_name is None:
         args.experiment_name = f"{args.dataset}"
@@ -435,7 +434,7 @@ def main(args: argparse.Namespace):
                 data_augmentation=args.data_augmentation,
                 seed=args.seed,
             )
-            input_shape = train_dataset[0][0].shape[0]
+            in_channels, image_size, _ = train_dataset[0][0].shape
 
             pin_memory = device != torch.device("cpu")
             num_workers = args.num_workers if pin_memory else 0
@@ -464,13 +463,15 @@ def main(args: argparse.Namespace):
             top_1_accuracy: nn.Module = Accuracy(k=1)
 
         # create the model
-        model = GrowingResidualMLP(
-            in_features=input_shape,
+        model = GrowingMLPMixer(
+            image_size=image_size,
+            patch_size=args.patch_size,
+            in_channels=in_channels,
             num_features=args.num_features,
             hidden_features=args.hidden_size,
-            out_features=args.nb_class,
-            num_blocks=args.num_blocks,
-            activation=activation_functions[args.activation],
+            num_layers=args.num_blocks,
+            num_classes=args.nb_class,
+            dropout=0.0,
         )
 
         logger.info(f"Model before training:\n{model}")
@@ -572,15 +573,15 @@ def main(args: argparse.Namespace):
                     last_updated_block = (last_updated_block + 1) % len(model.blocks)
                     model.select_update(block_index=last_updated_block)
                 elif args.selection_method == "fo":
-                    last_updated_block = model.select_best_update()
+                    model.select_best_update()
                 else:
                     raise NotImplementedError("Growing the model is not implemented yet")
 
-                logs["selected_update"] = last_updated_block
+                # logs["selected_update"] = last_updated_block
 
-                if model.currently_updated_block.eigenvalues_extension is not None:
+                if model.currently_updated_block.mlp.second_layer.eigenvalues_extension is not None:
                     logs["added_neurons"] = (
-                        model.currently_updated_block.eigenvalues_extension.size(0)
+                        model.currently_updated_block.mlp.second_layer.eigenvalues_extension.size(0)
                     )
                 else:
                     logs["added_neurons"] = 0
@@ -593,9 +594,7 @@ def main(args: argparse.Namespace):
                         loss_function=loss_function,
                         batch_limit=args.line_search_batch_limit,
                         initial_loss=initial_train_loss,
-                        first_order_improvement=model.blocks[
-                            model.currently_updated_block_index
-                        ].first_order_improvement,
+                        first_order_improvement=model.currently_updated_block.mlp.second_layer.first_order_improvement,
                         alpha=args.line_search_alpha,
                         beta=args.line_search_beta,
                         max_iter=args.line_search_max_iter,
@@ -628,8 +627,9 @@ def main(args: argparse.Namespace):
                 logs["loss_history"] = loss_history
                 logs["number_of_line_search_iterations"] = len(gamma_history) - 1
 
-                model.blocks[model.currently_updated_block_index].scaling_factor = gamma**0.5
-                model.apply_change()
+                model.currently_updated_block.mlp.second_layer.scaling_factor = gamma**0.5
+                model.currently_updated_block.mlp.second_layer.apply_change()
+                model.delete_update()
 
                 train_loss = initial_train_loss
                 train_accuracy = initial_train_accuracy

@@ -21,7 +21,7 @@ class GrowingMLPBlock(nn.Module):
             num_features: int,
             hidden_features: int = 0,
             dropout: float = 0.0,
-            name: str = "block",
+            name: str | None = None,
             kwargs_layer: dict | None = None,
     ) -> None:
         """
@@ -48,12 +48,12 @@ class GrowingMLPBlock(nn.Module):
         super(GrowingMLPBlock, self).__init__()
         self.name = name
 
-        mid_activation = torch.nn.GELU()
+        self.norm = nn.LayerNorm(num_features)
         self.first_layer = LinearGrowingModule(
             num_features,
             hidden_features,
-            post_layer_function=mid_activation,
-            name=f"{name}_first_layer",
+            post_layer_function=torch.nn.GELU(),
+            name=f"{name}: first layer",
             **kwargs_layer,
         )
         self.dropout = nn.Dropout(dropout)
@@ -62,12 +62,12 @@ class GrowingMLPBlock(nn.Module):
             num_features,
             post_layer_function=nn.Identity(),
             previous_module=self.first_layer,
-            name=f"{name}_second_layer",
+            name=f"{name}: second layer",
             **kwargs_layer,
         )
         self.enable_extended_forward = False
 
-        self.activation_derivative = torch.func.grad(mid_activation)(torch.tensor(1e-5))
+        # self.activation_derivative = torch.func.grad(self.first_layer.post_layer_function)(torch.tensor(1e-5))
         # TODO: FIX this
         # self.activation_derivative = 1
 
@@ -345,10 +345,10 @@ __growing_attributes__ = [
 
 
 class GrowingTokenMixer(nn.Module):
-    def __init__(self, num_patches, num_features, hidden_features, dropout):
+    def __init__(self, num_patches, num_features, hidden_features, dropout, name=None):
         super(GrowingTokenMixer, self).__init__()
         self.norm = nn.LayerNorm(num_features)
-        self.mlp = GrowingMLPBlock(num_patches, hidden_features, dropout, name="MLP block")
+        self.mlp = GrowingMLPBlock(num_patches, hidden_features, dropout, name=f"{name}: Token Mixer")
         for item in __growing_methods__:
             setattr(self, item, getattr(self.mlp, item))
 
@@ -390,19 +390,20 @@ class GrowingTokenMixer(nn.Module):
         torch.Tensor
             output tensor
         """
-        x = self.norm(x)
-        y = x.transpose(1, 2)
+        residual = x
+        y = self.norm(x)
+        y = y.transpose(1, 2)
         y = self.mlp.extended_forward(y)
         y = y.transpose(1, 2)
-        y = y + x
-        return y
+        out = y + residual
+        return out
 
 
 class GrowingChannelMixer(nn.Module):
-    def __init__(self, num_features, hidden_features, dropout):
+    def __init__(self, num_features, hidden_features, dropout, name=None):
         super(GrowingChannelMixer, self).__init__()
         self.norm = nn.LayerNorm(num_features)
-        self.mlp = GrowingMLPBlock(num_features, hidden_features, dropout, name="MLP block")
+        self.mlp = GrowingMLPBlock(num_features, hidden_features, dropout, name=f"{name}: Channel Mixer")
         for item in __growing_methods__:
             setattr(self, item, getattr(self.mlp, item))
 
@@ -435,20 +436,22 @@ class GrowingChannelMixer(nn.Module):
         torch.Tensor
             output tensor
         """
+        residual = x
         x = self.norm(x)
-        y = self.mlp.extended_forward(x)
-        y = y + x
-        return y
+        x = self.mlp.extended_forward(x)
+        # x.shape == (batch_size, num_patches, num_features)
+        out = x + residual
+        return out
 
 
 class GrowingMixerLayer(nn.Module):
-    def __init__(self, num_patches, num_features, hidden_features, dropout):
+    def __init__(self, num_patches, num_features, hidden_features, dropout, name="Mixer Layer"):
         super(GrowingMixerLayer, self).__init__()
         self.token_mixer = GrowingTokenMixer(
-            num_patches, num_features, hidden_features, dropout
+            num_patches, num_features, hidden_features, dropout, name=f"{name}"
         )
         self.channel_mixer = GrowingChannelMixer(
-            num_features, hidden_features, dropout
+            num_features, hidden_features, dropout, name=f"{name}"
         )
 
     def forward(self, x):
@@ -591,13 +594,14 @@ class GrowingMLPMixer(nn.Module):
         self.patcher = nn.Conv2d(
             in_channels, num_features, kernel_size=patch_size, stride=patch_size
         )
-        self.mixers = nn.ModuleList(
+        self.mixers: nn.ModuleList[GrowingMixerLayer] = nn.ModuleList(
             [
-                GrowingMixerLayer(num_patches, num_features, hidden_features, dropout)
+                GrowingMixerLayer(num_patches, num_features, hidden_features, dropout, name=f"Layer {_}")
                 for _ in range(num_layers)
             ]
         )
         self.classifier = nn.Linear(num_features, num_classes)
+        self.currently_updated_block = None
 
     def forward(self, x):
         patches = self.patcher(x)
@@ -667,6 +671,7 @@ class GrowingMLPMixer(nn.Module):
         """
         for mixer in self.mixers:
             mixer.delete_update()
+        self.currently_updated_block = None
 
     def compute_optimal_update(
             self,
@@ -704,6 +709,7 @@ class GrowingMLPMixer(nn.Module):
         """
         for mixer in self.mixers:
             mixer.apply_change()
+        self.currently_updated_block = None
 
     def number_of_parameters(self):
         num_param = 0
@@ -742,12 +748,16 @@ class GrowingMLPMixer(nn.Module):
                 if i != best_token_mixer_index:
                     mixer.delete_update()
                 else:
+                    mixer.channel_mixer.delete_update()
                     self.currently_updated_block = mixer.token_mixer
-            else:
+                    print(f"Selected token mixer {i}")
+            elif token_or_channels == "channel":
                 if i != best_channel_mixer_index:
                     mixer.delete_update()
                 else:
+                    mixer.token_mixer.delete_update()
                     self.currently_updated_block = mixer.channel_mixer
+                    print(f"Selected channel mixer {i}")
 
     @property
     def first_order_improvement(self) -> torch.Tensor:
