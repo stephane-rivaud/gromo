@@ -58,8 +58,8 @@ class GrowingMLP(nn.Module):
             )
         )
 
-        self.currently_updated_block = None
-        self.currently_updated_block_index = None
+        self.currently_updated_layer = None
+        self.currently_updated_layer_index = None
 
     def number_of_parameters(self) -> int:
         """
@@ -204,9 +204,9 @@ class GrowingMLP(nn.Module):
                     print(f"Deleting layer {i}")
                 layer.delete_update()
             else:
-                self.currently_updated_block = layer
-                self.currently_updated_block_index = i
-        return self.currently_updated_block_index
+                self.currently_updated_layer = layer
+                self.currently_updated_layer_index = i
+        return self.currently_updated_layer_index
 
     def select_best_update(self, verbose: bool = False) -> int:
         max_update = max(self.updates_values)

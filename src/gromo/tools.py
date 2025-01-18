@@ -35,7 +35,7 @@ def get_preferred_linalg_library() -> str:
     if cuda_version is None:
         preferred_backend = None
     elif cuda_version >= 12.1:
-        preferred_backend = None
+        preferred_backend = "cusolver"
     else:
         preferred_backend = "magma"
 
@@ -73,7 +73,6 @@ def sqrt_inverse_matrix_semi_positive(
 
     if preferred_linalg_library is not None:
         torch.backends.cuda.preferred_linalg_library(preferred_linalg_library)
-
     try:
         eigenvalues, eigenvectors = torch.linalg.eigh(matrix)
     except torch.linalg.LinAlgError as e:
