@@ -101,7 +101,7 @@ fi
 command="${command} --nb-step $nb_step"
 batch_size=64
 optimizer="sgd"
-lr=0.05
+lr=0.01
 #weight_decay=0
 #dropout=0.0
 
