@@ -3,6 +3,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from gromo.linear_growing_module import LinearGrowingModule
+from gromo.utils.utils import global_device
 
 
 class GrowingMLPBlock(nn.Module):
@@ -592,7 +593,7 @@ class GrowingMLPMixer(nn.Module):
         # per-patch fully-connected is equivalent to strided conv2d
         print(f"in_channels: {in_channels}, num_features: {num_features}, patch_size: {patch_size}")
         self.patcher = nn.Conv2d(
-            in_channels, num_features, kernel_size=patch_size, stride=patch_size
+            in_channels, num_features, kernel_size=patch_size, stride=patch_size, device=global_device(),
         )
         self.mixers: nn.ModuleList[GrowingMixerLayer] = nn.ModuleList(
             [
@@ -600,7 +601,7 @@ class GrowingMLPMixer(nn.Module):
                 for _ in range(num_layers)
             ]
         )
-        self.classifier = nn.Linear(num_features, num_classes)
+        self.classifier = nn.Linear(num_features, num_classes, device=global_device())
         self.currently_updated_block = None
 
     def forward(self, x):
