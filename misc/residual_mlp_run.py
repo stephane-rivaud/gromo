@@ -435,7 +435,7 @@ def main(args: argparse.Namespace):
                 data_augmentation=args.data_augmentation,
                 seed=args.seed,
             )
-            input_shape = train_dataset[0][0].shape[0]
+            input_shape = train_dataset[0][0].shape
 
             pin_memory = device != torch.device("cpu")
             num_workers = args.num_workers if pin_memory else 0
@@ -465,7 +465,7 @@ def main(args: argparse.Namespace):
 
         # create the model
         model = GrowingResidualMLP(
-            in_features=input_shape,
+            input_shape=input_shape,
             num_features=args.num_features,
             hidden_features=args.hidden_size,
             out_features=args.nb_class,

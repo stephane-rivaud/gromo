@@ -117,6 +117,10 @@ def create_parser() -> argparse.ArgumentParser:
     training_group.add_argument(
         "--seed", type=int, default=None, help="random seed (default: 0)"
     )
+    # dropout
+    training_group.add_argument(
+        "--dropout", type=float, default=0.0, help="dropout rate (default: 0.0)"
+)
     training_group.add_argument(
         "--nb-step", type=int, default=10, help="number of cycles (default: 10)"
     )
@@ -471,7 +475,7 @@ def main(args: argparse.Namespace):
             hidden_features=args.hidden_size,
             num_layers=args.num_blocks,
             num_classes=args.nb_class,
-            dropout=0.0,
+            dropout=args.dropout,
         )
 
         logger.info(f"Model before training:\n{model}")

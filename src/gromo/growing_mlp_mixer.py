@@ -153,36 +153,36 @@ class GrowingMLPBlock(nn.Module):
         y = self.dropout(y)
         return y
 
-    @property
-    def in_activity(self) -> torch.Tensor:
-        """
-        Get the input activity of the block.
-
-        Returns
-        -------
-        torch.Tensor
-            input activity
-        """
-        return self.first_layer.input
-
-    def set_store_in_activity(self, value: bool):
-        """
-        Set the store_in_activity parameter of the block.
-        If True, the block will store the activity after the first activation
-        function.
-
-        Parameters
-        ----------
-        value: bool
-            value to set
-        """
-        self.first_layer.store_input = True
+    # @property
+    # def in_activity(self) -> torch.Tensor:
+    #     """
+    #     Get the input activity of the block.
+    #
+    #     Returns
+    #     -------
+    #     torch.Tensor
+    #         input activity
+    #     """
+    #     return self.first_layer.input
+    #
+    # def set_store_in_activity(self, value: bool):
+    #     """
+    #     Set the store_in_activity parameter of the block.
+    #     If True, the block will store the activity after the first activation
+    #     function.
+    #
+    #     Parameters
+    #     ----------
+    #     value: bool
+    #         value to set
+    #     """
+    #     self.first_layer.store_input = True
 
     def init_computation(self):
         """
         Initialise the computation of the block.
         """
-        # self.first_layer.init_computation()
+        self.first_layer.init_computation()
         self.second_layer.init_computation()
 
     def update_computation(self, desired_activation: torch.Tensor | None = None):
@@ -194,7 +194,7 @@ class GrowingMLPBlock(nn.Module):
         desired_activation: torch.Tensor
             desired direction of the output variation of the block
         """
-        # self.first_layer.update_computation()
+        self.first_layer.update_computation()
         self.second_layer.update_computation()
 
     def reset_computation(self):
@@ -208,6 +208,7 @@ class GrowingMLPBlock(nn.Module):
         """
         Delete the update of the block.
         """
+        self.first_layer.delete_update()
         self.second_layer.delete_update(include_previous=True)
 
     def compute_optimal_update(
@@ -266,7 +267,6 @@ class GrowingMLPBlock(nn.Module):
         optimal delta and layer extension with the current scaling factor.
         """
         self.second_layer.apply_change(apply_previous=True)
-        # self.hidden_features += self.eigenvalues_extension.shape[0]
 
     def sub_select_optimal_added_parameters(
             self,
