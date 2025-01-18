@@ -49,7 +49,6 @@ class GrowingMLPBlock(nn.Module):
         super(GrowingMLPBlock, self).__init__()
         self.name = name
 
-        self.norm = nn.LayerNorm(num_features)
         self.first_layer = LinearGrowingModule(
             num_features,
             hidden_features,
