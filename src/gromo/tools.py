@@ -73,7 +73,6 @@ def sqrt_inverse_matrix_semi_positive(
 
     if preferred_linalg_library is not None:
         torch.backends.cuda.preferred_linalg_library(preferred_linalg_library)
-
     try:
         eigenvalues, eigenvectors = torch.linalg.eigh(matrix)
     except torch.linalg.LinAlgError as e:
