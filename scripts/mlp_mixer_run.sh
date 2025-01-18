@@ -104,8 +104,9 @@ batch_size=128
 optimizer="sgd"
 lr=0.05
 #weight_decay=0
+#dropout=0.0
 
-command="${command} --batch-size $batch_size --optimizer $optimizer --lr $lr --weight-decay $weight_decay"
+command="${command} --batch-size $batch_size --optimizer $optimizer --lr $lr --weight-decay $weight_decay --dropout $dropout"
 
 # Growing training arguments
 #epochs_per_growth=4

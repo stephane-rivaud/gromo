@@ -33,7 +33,7 @@ run_jobs() {
               else
                 selection_method='fo'
               fi
-              local command="scripts/residual_mlp_run.sh $num_blocks $num_features $hidden_size $weight_decay $epoch_per_growth $selection_method $dropout"
+              local command="scripts/mlp_mixer_run.sh $num_blocks $num_features $hidden_size $weight_decay $epoch_per_growth $selection_method $dropout"
               echo $command
               sbatch --gres=gpu:1 --time=01:45:00 $command
             done
