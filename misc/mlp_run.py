@@ -397,7 +397,7 @@ def main(args: argparse.Namespace):
                 data_augmentation=args.data_augmentation,
                 seed=args.seed,
             )
-            input_shape = train_dataset[0][0].shape[0]
+            input_shape = train_dataset[0][0].shape
 
             pin_memory = device != torch.device("cpu")
             num_workers = args.num_workers if pin_memory else 0
