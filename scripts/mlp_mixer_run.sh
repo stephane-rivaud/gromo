@@ -99,7 +99,7 @@ fi
 # Classical training arguments
 #seed=0
 command="${command} --nb-step $nb_step"
-batch_size=128
+batch_size=64
 optimizer="sgd"
 lr=0.05
 #weight_decay=0
