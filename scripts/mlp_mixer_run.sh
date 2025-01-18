@@ -89,10 +89,9 @@ fi
 #num_blocks=4
 #num_features=256
 #hidden_size=16
-activation="selu"
 bias=true
 
-command="${command} --num-blocks $num_blocks --num-features $num_features --hidden-size $hidden_size --activation $activation"
+command="${command} --num-blocks $num_blocks --num-features $num_features --hidden-size $hidden_size"
 if [ "$bias" = false ]; then
     command="${command} --no-bias"
 fi
