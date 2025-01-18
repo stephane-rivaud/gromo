@@ -7,9 +7,9 @@
 #epoch_per_growth_list=(-1 8 4)
 #weight_decay_list=(0.0 0.0005)
 
-num_block_list=(4)
-num_features=(256)
-hidden_size_list=(64)
+num_block_list=(1)
+num_features=(1)
+hidden_size_list=(1)
 epoch_per_growth_list=(-1)
 weight_decay_list=(0.0 0.0005)
 dropout_list=(0.0 0.3)
