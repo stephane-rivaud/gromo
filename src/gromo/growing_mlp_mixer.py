@@ -348,7 +348,7 @@ __growing_attributes__ = [
 class GrowingTokenMixer(nn.Module):
     def __init__(self, num_patches, num_features, hidden_features, dropout, name=None):
         super(GrowingTokenMixer, self).__init__()
-        self.norm = nn.LayerNorm(num_features)
+        self.norm = nn.LayerNorm(num_features, device=global_device(), elementwise_affine=False)
         self.mlp = GrowingMLPBlock(num_patches, hidden_features, dropout, name=f"{name}: Token Mixer")
         for item in __growing_methods__:
             setattr(self, item, getattr(self.mlp, item))
@@ -403,7 +403,7 @@ class GrowingTokenMixer(nn.Module):
 class GrowingChannelMixer(nn.Module):
     def __init__(self, num_features, hidden_features, dropout, name=None):
         super(GrowingChannelMixer, self).__init__()
-        self.norm = nn.LayerNorm(num_features)
+        self.norm = nn.LayerNorm(num_features, device=global_device(), elementwise_affine=False)
         self.mlp = GrowingMLPBlock(num_features, hidden_features, dropout, name=f"{name}: Channel Mixer")
         for item in __growing_methods__:
             setattr(self, item, getattr(self.mlp, item))
