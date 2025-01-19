@@ -483,7 +483,7 @@ def main(args: argparse.Namespace):
 
         # optimizer
         optimizer = known_optimizers[args.optimizer](
-            model.parameters(), lr=args.lr, weight_decay=args.weight_decay
+            model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.weight_decay
         )
 
         # scheduler
