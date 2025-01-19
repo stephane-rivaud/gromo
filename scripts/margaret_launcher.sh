@@ -8,7 +8,7 @@
 #weight_decay_list=(0.0 0.0005)
 
 num_block_list=(4)
-num_features=(64 128 256)
+num_features=(64 128)
 hidden_size_list=(16 32 64)
 epoch_per_growth_list=(-1)
 weight_decay_list=(0.01 0.001 0.0001)
