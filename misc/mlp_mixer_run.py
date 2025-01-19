@@ -481,6 +481,14 @@ def main(args: argparse.Namespace):
         logger.info(f"Model before training:\n{model}")
         logger.info(f"Number of parameters: {model.number_of_parameters(): ,}")
 
+        # optimizer
+        optimizer = known_optimizers[args.optimizer](
+            model.parameters(), lr=args.lr, weight_decay=args.weight_decay
+        )
+
+        # scheduler
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=40, gamma=0.1)
+
         # set the dtype for growing computations
         growing_dtype = torch.float32
         if args.growing_computation_dtype == "float64":
@@ -647,9 +655,6 @@ def main(args: argparse.Namespace):
             else:
                 logs["selected_update"] = -1
                 logs["epoch_type"] = "training"
-                optimizer = known_optimizers[args.optimizer](
-                    model.parameters(), lr=args.lr, weight_decay=args.weight_decay
-                )
                 train_loss, train_accuracy, _, _ = train(
                     model=model,
                     train_dataloader=train_dataloader,
@@ -659,6 +664,7 @@ def main(args: argparse.Namespace):
                     optimizer=optimizer,
                     nb_epoch=1,
                 )
+                model.zero_grad()
                 logs["train_loss"] = train_loss[-1]
                 logs["train_accuracy"] = train_accuracy[-1]
 
@@ -672,6 +678,8 @@ def main(args: argparse.Namespace):
                 dataloader=val_dataloader,
                 device=device,
             )
+
+            scheduler.step()
 
             logs["val_loss"] = val_loss
             logs["val_accuracy"] = val_accuracy
