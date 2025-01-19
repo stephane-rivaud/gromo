@@ -38,7 +38,7 @@ command="python -u misc/mlp_mixer_run.py"
 log_dir="logs/mlp_mixer_run"
 mkdir -p $log_dir
 log_file_name=""
-tags="mlp-mixer-steplr"
+tags="mlp-mixer-momentum-steplr"
 experiment_name="Res-MLP-${num_blocks}_blocks"
 nb_step=100
 no_cuda=false
