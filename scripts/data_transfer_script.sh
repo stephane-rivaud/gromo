@@ -7,4 +7,4 @@ if [ -z "$cluster_name" ]; then
 fi
 
 # Rsync command with a smooth progress bar using 'pv'
-rsync -azh --info=progress2 strivaud@$cluster_name.saclay.inria.fr:/home/tau/strivaud/gromo/logs/res_mlp_run /Users/strivaud/PycharmProjects/gromo/logs
+rsync -azh --info=progress2 strivaud@$cluster_name.saclay.inria.fr:/home/tau/strivaud/gromo/logs /Users/strivaud/PycharmProjects/gromo
