@@ -1,38 +1,26 @@
 import argparse
 import sys
-from os.path import split
-from time import time
-from warnings import warn
 import logging
-
+from functools import partial
+import torch.nn as nn
 import mlflow
-import torch
 from auxilliary_functions import *
+from schedulers import known_schedulers
 
 from gromo.growing_mlp_mixer import GrowingMLPMixer
-from gromo.utils.datasets import get_dataset
+from gromo.utils.datasets import get_dataset, known_datasets
 from gromo.utils.utils import global_device, set_device
 
 
-activation_functions = {
-    "relu": torch.nn.ReLU(),
-    "selu": torch.nn.SELU(),
-    "elu": torch.nn.ELU(),
-    "gelu": torch.nn.GELU(),
-}
-
 known_optimizers = {
     "sgd": torch.optim.SGD,
-    "adam": torch.optim.Adam,
+    "adamw": torch.optim.AdamW,
 }
 
 selection_methods = [
     "none",
     "fo",
-    "scaled_fo",
-    "one_step_fo",
 ]
-
 
 def create_parser() -> argparse.ArgumentParser:
     """
@@ -62,10 +50,10 @@ def create_parser() -> argparse.ArgumentParser:
         type=str,
         default="mnist",
         help="dataset to use (default: mnist)",
-        choices=["sin", "mnist", "cifar10"],
+        choices=known_datasets.keys(),
     )
     dataset_group.add_argument(
-        "--nb-class", type=int, default=10, help="number of classes (default: 10)"
+        "--nb-class", type=int, default=None, help="number of classes (default: None)"
     )
     dataset_group.add_argument(
         "--split-train-val",
@@ -117,10 +105,6 @@ def create_parser() -> argparse.ArgumentParser:
     training_group.add_argument(
         "--seed", type=int, default=None, help="random seed (default: 0)"
     )
-    # dropout
-    training_group.add_argument(
-        "--dropout", type=float, default=0.0, help="dropout rate (default: 0.0)"
-)
     training_group.add_argument(
         "--nb-step", type=int, default=10, help="number of cycles (default: 10)"
     )
@@ -134,6 +118,7 @@ def create_parser() -> argparse.ArgumentParser:
         "--optimizer",
         type=str,
         default="sgd",
+        choices=known_optimizers.keys(),
         help="optimizer to use (default: sgd)",
     )
     training_group.add_argument(
@@ -146,12 +131,30 @@ def create_parser() -> argparse.ArgumentParser:
         help="weight decay (default: 0)",
     )
     training_group.add_argument(
+        "--dropout", type=float, default=0.0, help="dropout rate (default: 0.0)"
+    )
+    training_group.add_argument(
         "--training-threshold",
         type=float,
         default=None,
         help="training is stopped when the loss is below this threshold (default: None)",
     )
 
+    # scheduler arguments
+    scheduler_group = parser.add_argument_group("scheduler")
+    scheduler_group.add_argument(
+        "--scheduler",
+        type=str,
+        default="none",
+        help="scheduler to use (default: step)",
+        choices=known_schedulers.keys(),
+    )
+    scheduler_group.add_argument(
+        "--warmup-iters",
+        type=int,
+        default=0,
+        help="number of warmup iterations (default: 0)",
+    )
 
     # growing training arguments
     growing_group = parser.add_argument_group("growing")
@@ -307,10 +310,23 @@ def preprocess_and_check_args(args: argparse.Namespace) -> argparse.Namespace:
 
     # Logging arguments
     if args.log_file_name is None:
-        args.log_file_name = f"mlp_mixer_{args.dataset}_{args.num_features}x{args.hidden_size}x{args.num_blocks}"
+        args.log_file_name = f"mlp_mixer_{args.dataset}_{args.num_blocks}x{args.num_features}x{args.hidden_size}"
 
     if args.experiment_name is None:
         args.experiment_name = f"{args.dataset}"
+
+    # Dataset arguments
+    if args.dataset == "sin":
+        raise ValueError("The sin dataset is not supported by MLP Mixer.")
+    if args.nb_class is None:
+        if args.dataset == "mnist":
+            args.nb_class = 10
+        elif args.dataset == "cifar10":
+            args.nb_class = 10
+        elif args.dataset == "cifar100":
+            args.nb_class = 100
+        else:
+            raise ValueError(f"Number of classes not specified for dataset {args.dataset}")
 
     # Growing arguments
     if args.normalize_weights and args.activation.lower().strip() != "relu":
@@ -359,8 +375,37 @@ def log_layers_metrics(layer_metrics: dict, step: int, prefix: str | None = None
             try:
                 mlflow.log_metric(prefix_key, value, step=step)
             except mlflow.exceptions.MlflowException as e:
-                # print(f"Cannot log {prefix_key} with value {value} ({e})")
-                pass
+                print(f"Cannot log {prefix_key} with value {value} ({e})")
+
+
+def get_logger(log_dir: str, log_file_name: str) -> logging.Logger:
+    """
+    Get the logger
+    Args:
+        log_dir: str
+            directory to save the logs
+        log_file_name: str
+            name of the log file
+
+    Returns:
+        logger: logging.Logger
+            logger
+    """
+    # configure the logger
+    logging.basicConfig(
+        filename=f"{log_dir}/{log_file_name}.log",
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+    )
+    logger = logging.getLogger()
+
+    # add console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    logger.addHandler(console_handler)
+
+    return logger
 
 
 def main(args: argparse.Namespace):
@@ -372,22 +417,7 @@ def main(args: argparse.Namespace):
     """
     start_time = time()
 
-    # configure the logger
-    # file_path = f"{args.log_dir}/{args.log_file_name}_{start_time:.0f}.txt"
-    logging.basicConfig(
-        filename=f"{args.log_dir}/{args.log_file_name}_{start_time:.0f}.log",
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-    )
-    logger = logging.getLogger()
-
-    # Add console handler
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-    logger.addHandler(console_handler)
-
-    logger.info(f"Log file: {args.log_dir}/{args.log_file_name}_{start_time:.0f}.txt")
+    logger = get_logger(args.log_dir, args.log_file_name)
 
     # configure MLflow experiment
     mlflow.set_tracking_uri(f"{args.log_dir}/mlruns")
@@ -416,55 +446,37 @@ def main(args: argparse.Namespace):
         logger.info(f'Using device: {device}')
 
         # load the dataset and create the dataloaders
-        if args.dataset == "sin":
-            input_shape = 1
-            train_dataloader = SinDataloader(
-                nb_sample=1_000, batch_size=args.batch_size, seed=args.seed, device=device
-            )
-            val_dataloader = train_dataloader
+        train_dataset, val_dataset, test_dataset = get_dataset(
+            dataset_name=args.dataset,
+            dataset_path=args.dataset_path,
+            nb_class=args.nb_class,
+            split_train_val=args.split_train_val,
+            data_augmentation=args.data_augmentation,
+        )
+        print(f"Input shape: {train_dataset[0][0].shape}")
+        in_channels, image_size, _ = train_dataset[0][0].shape
 
-            loss_function = AxisMSELoss(reduction="sum")
-            loss_function_mean = AxisMSELoss(reduction="mean")
-            top_1_accuracy: nn.Module | None = None
-            args.nb_class = 1
-        else:
-            # train_dataset, val_dataset, _ = get_dataset(
-            train_dataset, _, val_dataset = get_dataset(
-                dataset_name=args.dataset,
-                dataset_path=args.dataset_path,
-                nb_class=args.nb_class,
-                # split_train_val=args.split_train_val,
-                split_train_val=0.0,
-                data_augmentation=args.data_augmentation,
-                seed=args.seed,
-            )
-            in_channels, image_size, _ = train_dataset[0][0].shape
+        pin_memory = device != torch.device("cpu")
+        num_workers = args.num_workers if pin_memory else 0
 
-            pin_memory = device != torch.device("cpu")
-            num_workers = args.num_workers if pin_memory else 0
+        train_dataloader = torch.utils.data.DataLoader(
+            train_dataset,
+            batch_size=args.batch_size,
+            shuffle=True,
+            pin_memory=pin_memory,
+            num_workers=num_workers,
+            persistent_workers=num_workers > 0,
+        )
+        val_dataloader = torch.utils.data.DataLoader(
+            test_dataset,
+            batch_size=args.batch_size,
+            shuffle=False,
+            pin_memory=pin_memory,
+            num_workers=num_workers,
+            persistent_workers=num_workers > 0,
+        )
 
-            train_dataloader = torch.utils.data.DataLoader(
-                train_dataset,
-                batch_size=args.batch_size,
-                shuffle=True,
-                pin_memory=pin_memory,
-                num_workers=num_workers,
-                persistent_workers=num_workers > 0,
-            )
-            val_dataloader = torch.utils.data.DataLoader(
-                val_dataset,
-                batch_size=args.batch_size,
-                shuffle=False,
-                pin_memory=pin_memory,
-                num_workers=num_workers,
-                persistent_workers=num_workers > 0,
-            )
-
-            del train_dataset, val_dataset
-
-            loss_function = torch.nn.CrossEntropyLoss(reduction="sum")
-            loss_function_mean = torch.nn.CrossEntropyLoss(reduction="mean")
-            top_1_accuracy: nn.Module = Accuracy(k=1)
+        del train_dataset, val_dataset, test_dataset
 
         # create the model
         model = GrowingMLPMixer(
@@ -477,17 +489,56 @@ def main(args: argparse.Namespace):
             num_classes=args.nb_class,
             dropout=args.dropout,
         )
-
         logger.info(f"Model before training:\n{model}")
         logger.info(f"Number of parameters: {model.number_of_parameters(): ,}")
 
+        # loss function
+        if args.dataset == "sin":
+            loss_function = nn.MSELoss(reduction="sum")
+            loss_function_mean = nn.MSELoss(reduction="mean")
+            top_1_accuracy: nn.Module | None = None
+        else:
+            loss_function = nn.CrossEntropyLoss(reduction="sum")
+            loss_function_mean = nn.CrossEntropyLoss(reduction="mean")
+            top_1_accuracy: nn.Module = Accuracy(k=1)
+
         # optimizer
+        if args.optimizer == "sgd":
+            optim_kwargs = {"lr": args.lr, "momentum": 0.9, "weight_decay": args.weight_decay}
+        elif args.optimizer == "adamw":
+            optim_kwargs = {"lr": args.lr, "weight_decay": args.weight_decay}
         optimizer = known_optimizers[args.optimizer](
-            model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.weight_decay
+            model.parameters(), **optim_kwargs
         )
 
         # scheduler
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=40, gamma=0.1)
+        if args.scheduler == "step":
+            scheduler_kwargs = {
+                "step_size": args.nb_step // 3,
+                "gamma": 0.1,
+                "lr_init": args.lr,
+                "warmup_iters": args.warmup_iters,
+            }
+        elif args.scheduler == "multistep":
+            scheduler_kwargs = {
+                "milestones": [args.nb_step // 2, 3 * (args.nb_step // 4)],
+                "gamma": 0.1,
+                "lr_init": args.lr,
+                "warmup_iters": args.warmup_iters,
+            }
+        elif args.scheduler == "cosine":
+            scheduler_kwargs = {
+                "total_iters": args.nb_step,
+                "lr_init": args.lr,
+                "lr_min": 0,
+                "warmup_iters": args.warmup_iters,
+            }
+        elif args.scheduler == "none":
+            scheduler_kwargs = {"lr_init": args.lr}
+        else:
+            raise ValueError(f"Unknown scheduler: {args.scheduler}")
+
+        scheduler = partial(known_schedulers[args.scheduler], **scheduler_kwargs)
 
         # set the dtype for growing computations
         growing_dtype = torch.float32
@@ -530,10 +581,6 @@ def main(args: argparse.Namespace):
         if device.type == "cuda":
             logs["device_model"] = torch.cuda.get_device_name(device)
 
-        # with open(file_path, "a") as f:
-        #     f.write(str(logs))
-        #     f.write("\n")
-
         for key, value in logs.items():
             if key == "device" or key == "device_model":
                 # continue
@@ -545,11 +592,9 @@ def main(args: argparse.Namespace):
                     mlflow.log_metric(key, value, step=0)
                 except TypeError:
                     logger.warning(f"Cannot log {key} with value {value}")
-                    # pass
 
         # Training
         logs = dict()
-        last_updated_block = -1
         cycle_index = 0
         for step in range(1, args.nb_step + 1):
             step_start_time = time()
@@ -582,14 +627,12 @@ def main(args: argparse.Namespace):
 
                 # select the update to be applied
                 if args.selection_method == "none":
-                    last_updated_block = (last_updated_block + 1) % len(model.blocks)
-                    model.select_update(block_index=last_updated_block)
+                    raise NotImplementedError(f"Selection method '{args.selection_method}' not implemented.")
                 elif args.selection_method == "fo":
                     model.select_best_update()
                 else:
-                    raise NotImplementedError("Growing the model is not implemented yet")
+                    raise NotImplementedError(f"Unknown selection method: {args.selection_method}")
 
-                # logs["selected_update"] = last_updated_block
 
                 if model.currently_updated_block.mlp.second_layer.eigenvalues_extension is not None:
                     logs["added_neurons"] = (
@@ -630,7 +673,6 @@ def main(args: argparse.Namespace):
                     model[
                         model.currently_updated_block_index
                     ].extended_input_layer.weight.data.zero_()
-                    # torch.nn.init.zeros_(model[model.currently_updated_block_index].layer)
                 if args.init_new_neurons_with_random_in_and_zero_out:
                     model[model.currently_updated_block_index].optimal_delta_layer = None
 
@@ -652,9 +694,16 @@ def main(args: argparse.Namespace):
                         model.weights_statistics()
                     )
 
+                optimizer = known_optimizers[args.optimizer](
+                    model.parameters(), **optim_kwargs
+                )
+
             else:
-                logs["selected_update"] = -1
-                logs["epoch_type"] = "training"
+                # set the learning rate
+                print(f"Step: {step}, Learning rate: {scheduler(step - 1)}")
+                for param_group in optimizer.param_groups:
+                    param_group["lr"] = scheduler(step - 1)
+
                 train_loss, train_accuracy, _, _ = train(
                     model=model,
                     train_dataloader=train_dataloader,
@@ -665,6 +714,9 @@ def main(args: argparse.Namespace):
                     nb_epoch=1,
                 )
                 model.zero_grad()
+
+                logs["selected_update"] = -1
+                logs["epoch_type"] = "training"
                 logs["train_loss"] = train_loss[-1]
                 logs["train_accuracy"] = train_accuracy[-1]
 
@@ -679,8 +731,6 @@ def main(args: argparse.Namespace):
                 device=device,
             )
 
-            scheduler.step()
-
             logs["val_loss"] = val_loss
             logs["val_accuracy"] = val_accuracy
             logs["step_duration"] = time() - step_start_time
@@ -690,10 +740,6 @@ def main(args: argparse.Namespace):
                 logs["GPU utilization"] = torch.cuda.utilization(device)
 
             logger.info(f"Epoch [{step}/{args.nb_step}]: loss {val_loss: .4f} ({train_loss: .4f}) -- accuracy {val_accuracy: .4f} ({train_accuracy: .4f})  [{logs['epoch_type']}]")
-
-            # with open(file_path, "a") as f:
-            #     f.write(str(logs))
-            #     f.write("\n")
 
             for key, value in logs.items():
                 if key == "epoch_type":

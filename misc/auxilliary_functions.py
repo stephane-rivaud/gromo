@@ -11,6 +11,11 @@ from gromo.growing_mlp import GrowingMLP
 from gromo.utils.utils import global_device
 
 
+def topk_accuracy(y_pred, y, k=1):
+    result = y_pred.topk(k, dim=1).indices == y.unsqueeze(1)
+    return result
+
+
 class Accuracy(nn.Module):
     def __init__(self, k: int = 1, reduction: str = "sum"):
         super(Accuracy, self).__init__()
@@ -34,60 +39,27 @@ class Accuracy(nn.Module):
             raise ValueError("reduction should be in ['mean', 'sum', 'none']")
 
 
-class AxisMSELoss(nn.Module):
-    def __init__(self, reduction: str = "sum"):
-        super(AxisMSELoss, self).__init__()
-        assert reduction in [
-            "mean",
-            "sum",
-            "none",
-        ], "reduction should be in ['mean', 'sum', 'none']"
-        self.reduction = reduction
-
-    def forward(self, y_pred, y):
-        result = ((y_pred - y) ** 2).sum(dim=1)
-        if self.reduction == "none":
-            return result
-        elif self.reduction == "mean":
-            return result.mean()
-        elif self.reduction == "sum":
-            return result.sum()
-        else:
-            raise ValueError("reduction should be in ['mean', 'sum', 'none']")
-
-
-class SinDataloader:
+class SinDataset(torch.utils.data.Dataset):
     def __init__(
         self,
-        nb_sample: int = 1,
-        batch_size: int = 100,
-        seed: int = 0,
         device=global_device(),
     ):
-        self.nb_sample = nb_sample
-        self.batch_size = batch_size
-        self.seed = seed
-        self.sample_index = 0
+        self.nb_sample = 1_000
         self.device = device
 
-    def __iter__(self):
-        torch.manual_seed(self.seed)
-        self.sample_index = 0
-        return self
+    def __len__(self):
+        return self.nb_sample
 
-    def __next__(self):
-        if self.sample_index >= self.nb_sample:
-            raise StopIteration
-        self.sample_index += 1
-        x = torch.rand(self.batch_size, 1, device=self.device) * 2 * np.pi
-        y = torch.sin(x)
-        return x, y
+    def __getitem__(self, _):
+        data = torch.rand(1, 1, device=self.device) * 2 * np.pi
+        target = torch.sin(data)
+        return data, target
 
 
 def evaluate_model(
     model: nn.Module,
     dataloader: torch.utils.data.DataLoader,
-    loss_function: nn.Module = AxisMSELoss(),
+    loss_function: nn.Module = nn.MSELoss(reduction="mean"),
     aux_loss_function: nn.Module | None = Accuracy(k=1),
     batch_limit: int = -1,
     device: torch.device = global_device(),
@@ -133,7 +105,7 @@ def evaluate_model(
 def extended_evaluate_model(
     growing_model: "GrowingMLP",
     dataloader: torch.utils.data.DataLoader,
-    loss_function: nn.Module = AxisMSELoss(),
+    loss_function: nn.Module = nn.MSELoss(reduction="mean"),
     batch_limit: int = -1,
     device: torch.device = global_device(),
 ) -> float:
@@ -180,7 +152,7 @@ def train(
     model: nn.Module,
     train_dataloader: torch.utils.data.DataLoader,
     val_dataloader: torch.utils.data.DataLoader | None = None,
-    loss_function=AxisMSELoss(reduction="mean"),
+    loss_function=nn.MSELoss(reduction="mean"),
     aux_loss_function: nn.Module | None = Accuracy(k=1),
     optimizer=None,
     lr: float = 1e-2,
@@ -272,7 +244,7 @@ def train(
 def compute_statistics(
     growing_model: GrowingMLP,
     dataloader: torch.utils.data.DataLoader,
-    loss_function: nn.Module = AxisMSELoss(),
+    loss_function: nn.Module = nn.MSELoss(reduction="sum"),
     aux_loss_function: nn.Module | None = Accuracy(k=1),
     batch_limit: int = 1_000_000,
     device: torch.device = global_device(),
@@ -332,14 +304,13 @@ def compute_statistics(
         n_batch += 1
         if 0 <= batch_limit <= n_batch:
             break
-        # print(f"num samples: {nb_sample} vs {growing_model.blocks[0].second_layer.tensor_s.samples}")
     return total_loss.item() / nb_sample, total_aux_loss.item() / nb_sample
 
 
 def line_search(
     model: nn.Module,
     dataloader: torch.utils.data.DataLoader,
-    loss_function: nn.Module = AxisMSELoss(),
+    loss_function: nn.Module = nn.MSELoss(reduction="sum"),
     batch_limit: int = -1,
     initial_loss: float | None = None,
     first_order_improvement: float = 1,
@@ -449,3 +420,11 @@ def full_search(
         )
 
     return xs, values
+
+
+if __name__ == '__main__':
+    # testing topk_accuracy
+    y_pred = torch.tensor([[0.1, 0.2, 0.7], [0.3, 0.3, 0.4]])
+    y = torch.tensor([2, 0])
+    k = 1
+    print(topk_accuracy(y_pred, y, k))

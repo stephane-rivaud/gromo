@@ -60,7 +60,6 @@ def create_parser() -> argparse.ArgumentParser:
         default=None,
         help="prefix to add to the log file name (default: None)",
     )
-    # add experiment name
     general_group.add_argument(
         "--experiment-name",
         type=str,
