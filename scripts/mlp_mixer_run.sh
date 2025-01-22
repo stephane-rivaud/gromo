@@ -100,6 +100,7 @@ optimizer="adamw"
 lr=0.01
 #weight_decay=0
 dropout=0.0
+scheduler="cosine"
 
 command="${command} --batch-size $batch_size --optimizer $optimizer --lr $lr --weight-decay $weight_decay --dropout $dropout"
 
