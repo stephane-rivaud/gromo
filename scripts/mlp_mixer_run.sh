@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=res-mlp
+#SBATCH --job-name=mlp-mixer
 #SBATCH --output=slurm/%x-%j.out
 #SBATCH --error=slurm/%x-%j.err
 
