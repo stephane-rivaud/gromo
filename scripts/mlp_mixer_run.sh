@@ -100,9 +100,9 @@ optimizer="adamw"
 lr=0.01
 #weight_decay=0
 dropout=0.0
-scheduler="multistep"
+scheduler="cosine"
 
-command="${command} --batch-size $batch_size --optimizer $optimizer --lr $lr --weight-decay $weight_decay --dropout $dropout"
+command="${command} --batch-size $batch_size --optimizer $optimizer --lr $lr --weight-decay $weight_decay --dropout $dropout --scheduler $scheduler"
 
 # Growing training arguments
 #epochs_per_growth=4
