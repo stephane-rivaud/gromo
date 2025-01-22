@@ -5,10 +5,10 @@ import torch
 from torch.utils import data
 from torchvision import datasets, transforms
 
-import misc.auxilliary_functions
+# import misc.auxilliary_functions
 
 known_datasets = {
-    "sin": misc.auxilliary_functions.SinDataset,
+    # "sin": misc.auxilliary_functions.SinDataset,
     "mnist": datasets.MNIST,
     # "fashion-mnist": datasets.FashionMNIST, # not used, but can be added with the right augmentation
     "cifar10": datasets.CIFAR10,
