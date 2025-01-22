@@ -1,4 +1,36 @@
 import math
+from functools import partial
+
+
+def get_scheduler(scheduler, nb_step, lr, warmup_iters):
+    if scheduler == "step":
+        scheduler_kwargs = {
+            "step_size": nb_step // 3,
+            "gamma": 0.1,
+            "lr_init": lr,
+            "warmup_iters": warmup_iters,
+        }
+    elif scheduler == "multistep":
+        scheduler_kwargs = {
+            "milestones": [nb_step // 2, 3 * (nb_step // 4)],
+            "gamma": 0.1,
+            "lr_init": lr,
+            "warmup_iters": warmup_iters,
+        }
+    elif scheduler == "cosine":
+        scheduler_kwargs = {
+            "total_iters": nb_step,
+            "lr_init": lr,
+            "lr_min": 1e-6,
+            "warmup_iters": warmup_iters,
+        }
+    elif scheduler == "none":
+        scheduler_kwargs = {"lr_init": lr}
+    else:
+        raise ValueError(f"Unknown scheduler: {scheduler}")
+
+    scheduler = partial(known_schedulers[scheduler], **scheduler_kwargs)
+    return scheduler
 
 
 def warm_up_lr(iter, total_iters, lr_final):

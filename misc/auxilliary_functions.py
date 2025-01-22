@@ -1,5 +1,5 @@
 from warnings import warn
-import subprocess
+from typing import Callable
 
 import numpy as np
 import torch
@@ -13,36 +13,13 @@ from gromo.utils.utils import global_device
 
 def topk_accuracy(y_pred, y, k=1):
     result = y_pred.topk(k, dim=1).indices == y.unsqueeze(1)
-    return result
-
-
-class Accuracy(nn.Module):
-    def __init__(self, k: int = 1, reduction: str = "sum"):
-        super(Accuracy, self).__init__()
-        assert reduction in [
-            "mean",
-            "sum",
-            "none",
-        ], "reduction should be in ['mean', 'sum', 'none']"
-        self.reduction = reduction
-        self.k = k
-
-    def forward(self, y_pred, y):
-        result = y_pred.topk(self.k, dim=1).indices == y.unsqueeze(1)
-        if self.reduction == "none":
-            return result
-        elif self.reduction == "mean":
-            return result.mean()
-        elif self.reduction == "sum":
-            return result.sum()
-        else:
-            raise ValueError("reduction should be in ['mean', 'sum', 'none']")
+    return result.sum().item() / y.size(0)
 
 
 class SinDataset(torch.utils.data.Dataset):
     def __init__(
-        self,
-        device=global_device(),
+            self,
+            device=global_device(),
     ):
         self.nb_sample = 1_000
         self.device = device
@@ -57,12 +34,12 @@ class SinDataset(torch.utils.data.Dataset):
 
 
 def evaluate_model(
-    model: nn.Module,
-    dataloader: torch.utils.data.DataLoader,
-    loss_function: nn.Module = nn.MSELoss(reduction="mean"),
-    aux_loss_function: nn.Module | None = Accuracy(k=1),
-    batch_limit: int = -1,
-    device: torch.device = global_device(),
+        model: nn.Module,
+        dataloader: torch.utils.data.DataLoader,
+        loss_function: nn.Module = nn.MSELoss(reduction="mean"),
+        aux_loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
+        batch_limit: int = -1,
+        device: torch.device = global_device(),
 ) -> tuple[float, float]:
     """
     /!/ The loss function should not be averaged over the batch
@@ -72,10 +49,7 @@ def evaluate_model(
         "sum",
     ], "The loss function should be averaged over the batch"
     normalized_loss = loss_function.reduction == "mean"
-    # assert loss_function.reduction == "sum", "The loss function should not be averaged over the batch"
-    assert (
-        aux_loss_function is None or aux_loss_function.reduction == "sum"
-    ), "The aux loss function should not be averaged over the batch"
+
     model.eval()
     n_batch = 0
     nb_sample = 0
@@ -98,19 +72,19 @@ def evaluate_model(
         if 0 <= batch_limit <= n_batch:
             break
     total_loss /= nb_sample
-    aux_total_loss /= nb_sample
+    aux_total_loss /= n_batch
     return total_loss.item(), aux_total_loss.item()
 
 
 def extended_evaluate_model(
-    growing_model: "GrowingMLP",
-    dataloader: torch.utils.data.DataLoader,
-    loss_function: nn.Module = nn.MSELoss(reduction="mean"),
-    batch_limit: int = -1,
-    device: torch.device = global_device(),
+        growing_model: "GrowingMLP",
+        dataloader: torch.utils.data.DataLoader,
+        loss_function: nn.Module = nn.MSELoss(reduction="mean"),
+        batch_limit: int = -1,
+        device: torch.device = global_device(),
 ) -> float:
     assert (
-        loss_function.reduction == "sum"
+            loss_function.reduction == "sum"
     ), "The loss function should not be averaged over the batch"
     growing_model.eval()
     n_batch = 0
@@ -131,6 +105,7 @@ def extended_evaluate_model(
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
+
     def __init__(self):
         self.reset()
 
@@ -149,106 +124,67 @@ class AverageMeter(object):
 
 
 def train(
-    model: nn.Module,
-    train_dataloader: torch.utils.data.DataLoader,
-    val_dataloader: torch.utils.data.DataLoader | None = None,
-    loss_function=nn.MSELoss(reduction="mean"),
-    aux_loss_function: nn.Module | None = Accuracy(k=1),
-    optimizer=None,
-    lr: float = 1e-2,
-    weight_decay: float = 0,
-    nb_epoch: int = 10,
-    show: bool = False,
-    device: torch.device = global_device(),
+        model: nn.Module,
+        train_dataloader: torch.utils.data.DataLoader,
+        loss_function=nn.MSELoss(reduction="mean"),
+        aux_loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
+        optimizer=None,
+        lr: float = 1e-2,
+        weight_decay: float = 0,
+        show: bool = False,
+        device: torch.device = global_device(),
 ):
     assert (
-        loss_function.reduction == "mean"
+            loss_function.reduction == "mean"
     ), "The loss function should be averaged over the batch"
-    assert (
-        aux_loss_function is None or aux_loss_function.reduction == "sum"
-    ), "The aux loss function should not be averaged over the batch"
+
     if optimizer is None:
         optimizer = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay)
-    epoch_loss_train = []
-    epoch_accuracy_train = []
-    epoch_loss_val = []
-    epoch_accuracy_val = []
+    # metrics meters
+    loss_meter = AverageMeter()
+    accuracy_meter = AverageMeter()
+    # time meters
     batch_time_meter = AverageMeter()
     data_time_meter = AverageMeter()
     transfer_time_meter = AverageMeter()
 
-    iterator = range(nb_epoch)
-    if show:
-        iterator = tqdm(iterator)
+    start_time = time()
+    for x, y in train_dataloader:
+        data_time_meter.update(time() - start_time)
 
-    for epoch in iterator:
-        this_epoch_loss_train = torch.tensor(0.0, device=device)
-        this_epoch_accuracy_train = torch.tensor(0.0, device=device)
-        nb_examples = 0
+        x = x.to(device)
+        y = y.to(device)
+        transfer_time_meter.update(time() - start_time)
+
+        optimizer.zero_grad()
+        y_pred = model(x)
+        loss = loss_function(y_pred, y)
+        assert loss.isnan().sum() == 0, f"During training of {model}, loss is NaN: {loss}"
+
+        loss.backward()
+        optimizer.step()
+
+        # update metrics
+        loss_meter.update(loss.item())
+        if aux_loss_function:
+            accuracy_meter.update(topk_accuracy(y_pred, y))
+
+        batch_time_meter.update(time() - start_time)
         start_time = time()
-        for x, y in train_dataloader:
-            data_time_meter.update(time() - start_time)
-            x = x.to(global_device())
-            y = y.to(global_device())
-            transfer_time_meter.update(time() - start_time)
-            optimizer.zero_grad()
-            y_pred = model(x)
-            loss = loss_function(y_pred, y)
-            assert (
-                loss.isnan().sum() == 0
-            ), f"During training of {model}, loss is NaN: {loss}"
-            loss.backward()
-            optimizer.step()
-            this_epoch_loss_train += loss * y.shape[0]
-            if aux_loss_function:
-                this_epoch_accuracy_train += aux_loss_function(y_pred, y)
-            nb_examples += y.shape[0]
-            batch_time_meter.update(time() - start_time)
-            start_time = time()
-        # print(f"Epoch {epoch}:\tbatch time {batch_time_meter.avg:.5f}s"
-        #       f" -- data time {data_time_meter.avg:.5f}s"
-        #       f" -- transfer time {transfer_time_meter.avg:.5f}s")
 
-        this_epoch_accuracy_train /= nb_examples
-        this_epoch_loss_train /= nb_examples
-        epoch_loss_train.append(this_epoch_loss_train.item())
-        epoch_accuracy_train.append(this_epoch_accuracy_train.item())
-
-        this_epoch_loss_val = 0
-        this_epoch_accuracy_val = 0
-        if val_dataloader is not None:
-            this_epoch_loss_val, this_epoch_accuracy_val = evaluate_model(
-                model=model,
-                dataloader=val_dataloader,
-                loss_function=loss_function,
-                aux_loss_function=aux_loss_function,
-                device=device,
-            )
-            epoch_loss_val.append(this_epoch_loss_val)
-            epoch_accuracy_val.append(this_epoch_accuracy_val)
-            model.train()
-
-        if show and epoch % max(1, (nb_epoch // 10)) == 0:
-            print(
-                f"Epoch {epoch}:\t",
-                f"Train: loss={this_epoch_loss_train:.3e}, accuracy={this_epoch_accuracy_train:.2f}\t",
-                (
-                    f"Val: loss={this_epoch_loss_val:.3e}, accuracy={this_epoch_accuracy_val:.2f}"
-                    if val_dataloader is not None
-                    else ""
-                ),
-            )
-    return epoch_loss_train, epoch_accuracy_train, epoch_loss_val, epoch_accuracy_val
+    if show:
+        print(f"Train: loss={loss_meter.avg:.3e}, accuracy={accuracy_meter.avg:.2f}")
+    return loss_meter.avg, accuracy_meter.avg
 
 
 def compute_statistics(
-    growing_model: GrowingMLP,
-    dataloader: torch.utils.data.DataLoader,
-    loss_function: nn.Module = nn.MSELoss(reduction="sum"),
-    aux_loss_function: nn.Module | None = Accuracy(k=1),
-    batch_limit: int = 1_000_000,
-    device: torch.device = global_device(),
-    show: bool = False,
+        growing_model: GrowingMLP,
+        dataloader: torch.utils.data.DataLoader,
+        loss_function: nn.Module = nn.MSELoss(reduction="sum"),
+        aux_loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
+        batch_limit: int = 1_000_000,
+        device: torch.device = global_device(),
+        show: bool = False,
 ) -> tuple[float, float]:
     """
     Compute the tensor of statistics of the model on the dataloader
@@ -273,12 +209,8 @@ def compute_statistics(
         If True, display a progress bar
     """
     assert (
-        loss_function.reduction == "sum"
+            loss_function.reduction == "sum"
     ), "The loss function should not be averaged over the batch"
-    if aux_loss_function is not None:
-        assert (
-            aux_loss_function.reduction == "sum"
-        ), "The loss function should not be averaged over the batch"
 
     growing_model.init_computation()
     n_batch = 0
@@ -304,25 +236,27 @@ def compute_statistics(
         n_batch += 1
         if 0 <= batch_limit <= n_batch:
             break
-    return total_loss.item() / nb_sample, total_aux_loss.item() / nb_sample
+    return total_loss.item() / nb_sample, total_aux_loss.item()
 
 
 def line_search(
-    model: nn.Module,
-    dataloader: torch.utils.data.DataLoader,
-    loss_function: nn.Module = nn.MSELoss(reduction="sum"),
-    batch_limit: int = -1,
-    initial_loss: float | None = None,
-    first_order_improvement: float = 1,
-    alpha: float = 0.1,
-    beta: float = 0.5,
-    t0: float | None = None,
-    extended_search: bool = True,
-    max_iter: int = 100,
-    epsilon: float = 1e-7,
-    verbose: bool = False,
-    device: torch.device = global_device(),
+        model: nn.Module,
+        dataloader: torch.utils.data.DataLoader,
+        loss_function: nn.Module = nn.MSELoss(reduction="sum"),
+        batch_limit: int = -1,
+        initial_loss: float | None = None,
+        first_order_improvement: float = 1,
+        alpha: float = 0.1,
+        beta: float = 0.5,
+        t0: float | None = None,
+        extended_search: bool = True,
+        max_iter: int = 100,
+        epsilon: float = 1e-7,
+        verbose: bool = False,
+        device: torch.device = global_device(),
 ) -> tuple[float, float, list[float], list[float]]:
+    assert model.currently_updated_block is not None, "No currently updated block"
+
     gammas = []
     losses = []
     beta = np.sqrt(beta)
@@ -333,7 +267,7 @@ def line_search(
         initial_loss = initial_loss.item()
 
     def test_gamma(sqrt_gamma):
-        model.amplitude_factor = sqrt_gamma
+        model.currently_updated_block.scaling_factor = sqrt_gamma
         loss = extended_evaluate_model(
             growing_model=model,
             loss_function=loss_function,
@@ -341,14 +275,14 @@ def line_search(
             batch_limit=batch_limit,
             device=device,
         )
-        gammas.append(sqrt_gamma**2)
+        gammas.append(sqrt_gamma ** 2)
         losses.append(loss)
         if verbose:
             print(f"gamma n° {len(gammas)}: {sqrt_gamma ** 2:.3e} -> Loss: {loss:.3e}")
         return loss
 
     def under_bound(sqrt_gamma: float, loss: float):
-        return loss < initial_loss - alpha * sqrt_gamma**2 * first_order_improvement
+        return loss < initial_loss - alpha * sqrt_gamma ** 2 * first_order_improvement
 
     if initial_loss is None:
         warn("Initial loss is not provided, computing it")
@@ -376,8 +310,8 @@ def line_search(
                 go = l1 < l0 and i < max_iter
                 i += 1
             t *= beta
-        model.amplitude_factor = t
-        return t**2, l0, gammas, losses
+        model.currently_updated_block.scaling_factor = t
+        return t ** 2, l0, gammas, losses
     else:
         go = True
         while go:
@@ -385,26 +319,26 @@ def line_search(
             t *= beta
             l1 = test_gamma(t)
             go = (
-                ((not under_bound(t, l1)) or (l1 < l0 and extended_search))
-                and i < max_iter
-                and t > epsilon
+                    ((not under_bound(t, l1)) or (l1 < l0 and extended_search))
+                    and i < max_iter
+                    and t > epsilon
             )
             i += 1
         t /= beta
-        model.amplitude_factor = t
-        return t**2, l0, gammas, losses
+        model.currently_updated_block.scaling_factor = t
+        return t ** 2, l0, gammas, losses
 
 
 def full_search(
-    model: nn.Module,
-    loss: nn.Module,
-    dataloader: torch.utils.data.DataLoader,
-    batch_limit: int = 1_000_000,
-    initial_loss: float = None,
-    first_order_improvement: float = 1,
-    min_value: float = -100,
-    max_value: float = 100,
-    nb_points: int = 100,
+        model: nn.Module,
+        loss: nn.Module,
+        dataloader: torch.utils.data.DataLoader,
+        batch_limit: int = 1_000_000,
+        initial_loss: float = None,
+        first_order_improvement: float = 1,
+        min_value: float = -100,
+        max_value: float = 100,
+        nb_points: int = 100,
 ):
     xs = np.linspace(min_value, max_value, nb_points)
     values = []

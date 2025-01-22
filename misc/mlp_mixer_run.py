@@ -2,15 +2,17 @@ import argparse
 import sys
 import logging
 from functools import partial
-import torch.nn as nn
 import mlflow
-from auxilliary_functions import *
-from schedulers import known_schedulers
+import torch
+import torch.nn as nn
+from time import time
+from warnings import warn
 
+from auxilliary_functions import evaluate_model, compute_statistics, line_search, topk_accuracy, train
+from schedulers import get_scheduler, known_schedulers
 from gromo.growing_mlp_mixer import GrowingMLPMixer
-from gromo.utils.datasets import get_dataset, known_datasets
+from gromo.utils.datasets import get_dataloaders, known_datasets
 from gromo.utils.utils import global_device, set_device
-
 
 known_optimizers = {
     "sgd": torch.optim.SGD,
@@ -21,6 +23,7 @@ selection_methods = [
     "none",
     "fo",
 ]
+
 
 def create_parser() -> argparse.ArgumentParser:
     """
@@ -91,10 +94,19 @@ def create_parser() -> argparse.ArgumentParser:
     architecture_group.add_argument(
         "--num-features",
         type=int,
-        default=64,
+        default=128,
     )
     architecture_group.add_argument(
-        "--hidden-size", type=int, default=8, help="hidden size (default: 10)"
+        "--hidden-dim-token",
+        type=int,
+        default=64,
+        help="hidden dimension for the token mixer (default: 256)",
+    )
+    architecture_group.add_argument(
+        "--hidden-dim-channel",
+        type=int,
+        default=512,
+        help="hidden dimension for the channel mixer (default: 512)",
     )
     architecture_group.add_argument(
         "--no-bias", action="store_true", default=False, help="disables bias"
@@ -220,7 +232,7 @@ def create_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="initialize the new neurons with random fan-in weights "
-        "and zero fan-out weights (default: False)",
+             "and zero fan-out weights (default: False)",
     )
 
     # line search arguments
@@ -310,7 +322,7 @@ def preprocess_and_check_args(args: argparse.Namespace) -> argparse.Namespace:
 
     # Logging arguments
     if args.log_file_name is None:
-        args.log_file_name = f"mlp_mixer_{args.dataset}_{args.num_blocks}x{args.num_features}x{args.hidden_size}"
+        args.log_file_name = f"mlp_mixer_{args.dataset}_{args.num_blocks}x{args.num_features}x{args.hidden_dim_token}x{args.hidden_dim_channel}"
 
     if args.experiment_name is None:
         args.experiment_name = f"{args.dataset}"
@@ -408,6 +420,33 @@ def get_logger(log_dir: str, log_file_name: str) -> logging.Logger:
     return logger
 
 
+def setup_mlflow(log_dir: str, experiment_name: str, tags: str | None, logger: logging.Logger) -> None:
+    """
+    Setup MLflow
+    Args:
+        log_dir: str
+            directory to save the logs
+        experiment_name: str
+            name of the experiment
+        tags: str, optional
+            tags to add to the experiment
+        logger: logging.Logger
+            logger
+    """
+    mlflow.set_tracking_uri(f"{log_dir}/mlruns")
+    logger.info(f"MLflow tracking uri: {mlflow.get_tracking_uri()}")
+    try:
+        mlflow.create_experiment(
+            name=f"{experiment_name}",
+            tags={"tags": tags} if tags is not None else None,
+        )
+    except mlflow.exceptions.MlflowException:
+        logger.warning(f"Experiment {experiment_name} already exists.")
+
+    mlflow.set_experiment(f"{experiment_name}")
+
+
+
 def main(args: argparse.Namespace):
     """
     Main function
@@ -417,21 +456,13 @@ def main(args: argparse.Namespace):
     """
     start_time = time()
 
+    # get the logger
     logger = get_logger(args.log_dir, args.log_file_name)
 
     # configure MLflow experiment
-    mlflow.set_tracking_uri(f"{args.log_dir}/mlruns")
-    logger.info(f"MLflow tracking uri: {mlflow.get_tracking_uri()}")
-    try:
-        mlflow.create_experiment(
-            name=f"{args.experiment_name}",
-            tags={"tags": args.tags} if args.tags is not None else None,
-        )
-    except mlflow.exceptions.MlflowException:
-        logger.warning(f"Experiment {args.dataset} already exists.")
+    setup_mlflow(args.log_dir, args.experiment_name, args.tags, logger)
 
-    # set the experiment and run
-    mlflow.set_experiment(f"{args.experiment_name}")
+    # start the MLflow run
     with mlflow.start_run(run_name=args.log_file_name, log_system_metrics=args.log_system_metrics):
         # log the arguments
         if args.tags is not None:
@@ -445,38 +476,17 @@ def main(args: argparse.Namespace):
         device: torch.device = global_device()
         logger.info(f'Using device: {device}')
 
-        # load the dataset and create the dataloaders
-        train_dataset, val_dataset, test_dataset = get_dataset(
+        # create the dataloaders
+        train_dataloader, val_dataloader, in_channels, image_size = get_dataloaders(
             dataset_name=args.dataset,
             dataset_path=args.dataset_path,
             nb_class=args.nb_class,
             split_train_val=args.split_train_val,
             data_augmentation=args.data_augmentation,
-        )
-        print(f"Input shape: {train_dataset[0][0].shape}")
-        in_channels, image_size, _ = train_dataset[0][0].shape
-
-        pin_memory = device != torch.device("cpu")
-        num_workers = args.num_workers if pin_memory else 0
-
-        train_dataloader = torch.utils.data.DataLoader(
-            train_dataset,
             batch_size=args.batch_size,
-            shuffle=True,
-            pin_memory=pin_memory,
-            num_workers=num_workers,
-            persistent_workers=num_workers > 0,
+            num_workers=args.num_workers,
+            device=device,
         )
-        val_dataloader = torch.utils.data.DataLoader(
-            test_dataset,
-            batch_size=args.batch_size,
-            shuffle=False,
-            pin_memory=pin_memory,
-            num_workers=num_workers,
-            persistent_workers=num_workers > 0,
-        )
-
-        del train_dataset, val_dataset, test_dataset
 
         # create the model
         model = GrowingMLPMixer(
@@ -484,23 +494,24 @@ def main(args: argparse.Namespace):
             patch_size=args.patch_size,
             in_channels=in_channels,
             num_features=args.num_features,
-            hidden_features=args.hidden_size,
+            hidden_dim_token=args.hidden_dim_token,
+            hidden_dim_channel=args.hidden_dim_channel,
             num_layers=args.num_blocks,
             num_classes=args.nb_class,
             dropout=args.dropout,
         )
         logger.info(f"Model before training:\n{model}")
-        logger.info(f"Number of parameters: {model.number_of_parameters(): ,}")
+        logger.info(f"Number of parameters: {model.number_of_parameters(): ,}M")
 
         # loss function
         if args.dataset == "sin":
             loss_function = nn.MSELoss(reduction="sum")
             loss_function_mean = nn.MSELoss(reduction="mean")
-            top_1_accuracy: nn.Module | None = None
+            top_1_accuracy = None
         else:
             loss_function = nn.CrossEntropyLoss(reduction="sum")
             loss_function_mean = nn.CrossEntropyLoss(reduction="mean")
-            top_1_accuracy: nn.Module = Accuracy(k=1)
+            top_1_accuracy = partial(topk_accuracy, k=1)
 
         # optimizer
         if args.optimizer == "sgd":
@@ -512,33 +523,12 @@ def main(args: argparse.Namespace):
         )
 
         # scheduler
-        if args.scheduler == "step":
-            scheduler_kwargs = {
-                "step_size": args.nb_step // 3,
-                "gamma": 0.1,
-                "lr_init": args.lr,
-                "warmup_iters": args.warmup_iters,
-            }
-        elif args.scheduler == "multistep":
-            scheduler_kwargs = {
-                "milestones": [args.nb_step // 2, 3 * (args.nb_step // 4)],
-                "gamma": 0.1,
-                "lr_init": args.lr,
-                "warmup_iters": args.warmup_iters,
-            }
-        elif args.scheduler == "cosine":
-            scheduler_kwargs = {
-                "total_iters": args.nb_step,
-                "lr_init": args.lr,
-                "lr_min": 0,
-                "warmup_iters": args.warmup_iters,
-            }
-        elif args.scheduler == "none":
-            scheduler_kwargs = {"lr_init": args.lr}
-        else:
-            raise ValueError(f"Unknown scheduler: {args.scheduler}")
-
-        scheduler = partial(known_schedulers[args.scheduler], **scheduler_kwargs)
+        scheduler = get_scheduler(
+            scheduler=args.scheduler,
+            nb_step=args.nb_step,
+            lr=args.lr,
+            warmup_iters=args.warmup_iters,
+        )
 
         # set the dtype for growing computations
         growing_dtype = torch.float32
@@ -598,6 +588,9 @@ def main(args: argparse.Namespace):
         cycle_index = 0
         for step in range(1, args.nb_step + 1):
             step_start_time = time()
+            # reset peak memory stats
+            if device.type == "cuda":
+                torch.cuda.reset_peak_memory_stats(device)
             if cycle_index == args.epochs_per_growth:
                 # grow the model
                 logs["epoch_type"] = "growth"
@@ -612,8 +605,6 @@ def main(args: argparse.Namespace):
                     batch_limit=args.growing_batch_limit,
                     device=device,
                 )
-                logs["train_loss"] = initial_train_loss
-                logs["train_accuracy"] = initial_train_accuracy
 
                 # compute the optimal updates
                 model.compute_optimal_update(
@@ -623,7 +614,8 @@ def main(args: argparse.Namespace):
                     maximum_added_neurons=args.growing_maximum_added_neurons,
                     dtype=growing_dtype,
                 )
-                logs["updates_information"] = model.update_information()
+
+
 
                 # select the update to be applied
                 if args.selection_method == "none":
@@ -633,14 +625,6 @@ def main(args: argparse.Namespace):
                 else:
                     raise NotImplementedError(f"Unknown selection method: {args.selection_method}")
 
-
-                if model.currently_updated_block.mlp.second_layer.eigenvalues_extension is not None:
-                    logs["added_neurons"] = (
-                        model.currently_updated_block.mlp.second_layer.eigenvalues_extension.size(0)
-                    )
-                else:
-                    logs["added_neurons"] = 0
-
                 # line search to find the optimal amplitude factor
                 if not args.init_new_neurons_with_random_in_and_zero_out:
                     gamma, estimated_loss, gamma_history, loss_history = line_search(
@@ -649,7 +633,7 @@ def main(args: argparse.Namespace):
                         loss_function=loss_function,
                         batch_limit=args.line_search_batch_limit,
                         initial_loss=initial_train_loss,
-                        first_order_improvement=model.currently_updated_block.mlp.second_layer.first_order_improvement,
+                        first_order_improvement=model.currently_updated_block.first_order_improvement,
                         alpha=args.line_search_alpha,
                         beta=args.line_search_beta,
                         max_iter=args.line_search_max_iter,
@@ -663,27 +647,35 @@ def main(args: argparse.Namespace):
 
                 # optionally reset the weights of the new neurons
                 if (
-                    args.init_new_neurons_with_random_in_and_zero_out
-                    and model.currently_updated_block_index - 1 >= 0
+                        args.init_new_neurons_with_random_in_and_zero_out
+                        and model.currently_updated_block_index - 1 >= 0
                 ):
                     # set the new neurons to have random fan-in weights and zero fan-out weights
                     model[
                         model.currently_updated_block_index - 1
-                    ].extended_output_layer.reset_parameters()
+                        ].extended_output_layer.reset_parameters()
                     model[
                         model.currently_updated_block_index
                     ].extended_input_layer.weight.data.zero_()
                 if args.init_new_neurons_with_random_in_and_zero_out:
                     model[model.currently_updated_block_index].optimal_delta_layer = None
 
+                logs["train_loss"] = initial_train_loss
+                logs["train_accuracy"] = initial_train_accuracy
+                logs["updates_information"] = model.update_information()
+                if model.currently_updated_block.mlp.second_layer.eigenvalues_extension is not None:
+                    logs["added_neurons"] = (
+                        model.currently_updated_block.mlp.second_layer.eigenvalues_extension.size(0)
+                    )
+                else:
+                    logs["added_neurons"] = 0
                 logs["gamma"] = gamma
                 logs["gamma_history"] = gamma_history
                 logs["loss_history"] = loss_history
                 logs["number_of_line_search_iterations"] = len(gamma_history) - 1
 
-                model.currently_updated_block.mlp.second_layer.scaling_factor = gamma**0.5
-                model.currently_updated_block.mlp.second_layer.apply_change()
-                model.delete_update()
+                model.currently_updated_block.scaling_factor = gamma ** 0.5
+                model.apply_change()
 
                 train_loss = initial_train_loss
                 train_accuracy = initial_train_accuracy
@@ -704,24 +696,18 @@ def main(args: argparse.Namespace):
                 for param_group in optimizer.param_groups:
                     param_group["lr"] = scheduler(step - 1)
 
-                train_loss, train_accuracy, _, _ = train(
+                train_loss, train_accuracy = train(
                     model=model,
                     train_dataloader=train_dataloader,
-                    val_dataloader=None,
                     loss_function=loss_function_mean,
                     aux_loss_function=top_1_accuracy,
                     optimizer=optimizer,
-                    nb_epoch=1,
                 )
-                model.zero_grad()
 
                 logs["selected_update"] = -1
                 logs["epoch_type"] = "training"
-                logs["train_loss"] = train_loss[-1]
-                logs["train_accuracy"] = train_accuracy[-1]
-
-                train_loss = train_loss[-1]
-                train_accuracy = train_accuracy[-1]
+                logs["train_loss"] = train_loss
+                logs["train_accuracy"] = train_accuracy
 
             val_loss, val_accuracy = evaluate_model(
                 model=model,
@@ -739,7 +725,14 @@ def main(args: argparse.Namespace):
             if device.type == "cuda":
                 logs["GPU utilization"] = torch.cuda.utilization(device)
 
-            logger.info(f"Epoch [{step}/{args.nb_step}]: loss {val_loss: .4f} ({train_loss: .4f}) -- accuracy {val_accuracy: .4f} ({train_accuracy: .4f})  [{logs['epoch_type']}]")
+            logger.info(
+                f"Epoch [{step}/{args.nb_step}]: loss {val_loss: .4f} ({train_loss: .4f}) -- accuracy {val_accuracy: .4f} ({train_accuracy: .4f})"
+            )
+            # display epoch type, maximum memory allocated and maximum memory reserved
+            if device.type == "cuda":
+                logger.info(
+                    f"Epoch type: {logs['epoch_type']} -- Maximum memory allocated: {torch.cuda.max_memory_allocated(device) / (1024 ** 3): .2f} GB -- Maximum memory reserved: {torch.cuda.max_memory_reserved(device) / (1024 ** 3): .2f} GB"
+                )
 
             for key, value in logs.items():
                 if key == "epoch_type":
@@ -758,8 +751,8 @@ def main(args: argparse.Namespace):
             cycle_index += 1
 
             if (
-                args.training_threshold is not None
-                and train_loss < args.training_threshold
+                    args.training_threshold is not None
+                    and train_loss < args.training_threshold
             ):
                 logger.info(f"Training threshold reached at step {step}")
                 break

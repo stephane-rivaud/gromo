@@ -1119,7 +1119,6 @@ class GrowingModule(torch.nn.Module):
         apply_extension: bool
             if True apply the extension to the layer, by default True
         """
-        # print(f"==================== Applying change to {self.name} ====================")
         if scaling_factor is not None:
             self.scaling_factor = scaling_factor  # type: ignore
             # this type problem is due to the use of the setter to change the scaling factor
@@ -1163,6 +1162,7 @@ class GrowingModule(torch.nn.Module):
                 self.previous_module.update_size()
             if isinstance(self.next_module, AdditionGrowingModule):
                 self.next_module.update_size()
+        self.delete_update(include_previous=apply_previous)
 
     # Optimal update computation
     def compute_optimal_delta(

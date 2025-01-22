@@ -17,12 +17,58 @@ known_datasets = {
 }
 
 
+def get_dataloaders(
+        dataset_name,
+        dataset_path,
+        nb_class,
+        split_train_val,
+        data_augmentation,
+        batch_size,
+        num_workers,
+        device
+):
+    # load the dataset and create the dataloaders
+    train_dataset, val_dataset, test_dataset = get_dataset(
+        dataset_name=dataset_name,
+        dataset_path=dataset_path,
+        nb_class=nb_class,
+        split_train_val=split_train_val,
+        data_augmentation=data_augmentation,
+    )
+    print(f"Input shape: {train_dataset[0][0].shape}")
+    in_channels, image_size, _ = train_dataset[0][0].shape
+
+    pin_memory = device != torch.device("cpu")
+    num_workers = num_workers if pin_memory else 0
+
+    train_dataloader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        pin_memory=pin_memory,
+        num_workers=num_workers,
+        persistent_workers=num_workers > 0,
+    )
+    val_dataloader = torch.utils.data.DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        pin_memory=pin_memory,
+        num_workers=num_workers,
+        persistent_workers=num_workers > 0,
+    )
+
+    del train_dataset, val_dataset, test_dataset
+
+    return train_dataloader, val_dataloader, in_channels, image_size
+
+
 def get_dataset(
-    dataset_name: str,
-    dataset_path: str,
-    nb_class: int | None = None,
-    split_train_val: float = 0.1,
-    data_augmentation: list[str] | None = None,
+        dataset_name: str,
+        dataset_path: str,
+        nb_class: int | None = None,
+        split_train_val: float = 0.1,
+        data_augmentation: list[str] | None = None,
 ) -> tuple[data.Dataset, data.Dataset, data.Dataset]:
     """
     Get the dataset

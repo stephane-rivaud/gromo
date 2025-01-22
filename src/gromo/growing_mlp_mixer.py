@@ -238,8 +238,7 @@ class GrowingMLPBlock(nn.Module):
         ], f"{part=} should be in ['all', 'parameter', 'neuron']"
 
         if part == "parameter":
-            _, _, self.parameter_update_decrease = self.second_layer.compute_optimal_delta(dtype=dtype)
-            # _, _, _ = self.second_layer.compute_optimal_delta(dtype=dtype)
+            _, _, _ = self.second_layer.compute_optimal_delta(dtype=dtype)
         elif part == "neuron":
             _, _ = self.second_layer.compute_optimal_updates(
                 zero_delta=True,
@@ -249,7 +248,7 @@ class GrowingMLPBlock(nn.Module):
                 dtype=dtype,
             )
             self.second_layer.optimal_delta_layer = None
-            self.second.layer.parameter_update_decrease = 0
+            self.second_layer.parameter_update_decrease = 0
         elif part == "all":
             _, _ = (
                 self.second_layer.compute_optimal_updates(
@@ -321,6 +320,8 @@ class GrowingMLPBlock(nn.Module):
         layer_information["update_value"] = self.first_order_improvement
         layer_information["parameter_improvement"] = self.parameter_update_decrease
         layer_information["eigenvalues_extension"] = self.eigenvalues_extension
+        layer_information["scaling_factor"] = self.scaling_factor
+        layer_information["added_neurons"] = 0 if self.eigenvalues_extension is None else self.eigenvalues_extension.size(0)
         return layer_information
 
 
@@ -347,13 +348,13 @@ __growing_attributes__ = [
 class GrowingTokenMixer(nn.Module):
     def __init__(self, num_patches, num_features, hidden_features, dropout, name=None):
         super(GrowingTokenMixer, self).__init__()
-        self.norm = nn.LayerNorm(num_features, device=global_device(), elementwise_affine=False)
+        self.norm = nn.LayerNorm(num_features, device=global_device())
         self.mlp = GrowingMLPBlock(num_patches, hidden_features, dropout, name=f"{name}: Token Mixer")
-        for item in __growing_methods__:
-            setattr(self, item, getattr(self.mlp, item))
 
     def __getattr__(self, item):
         if item in __growing_attributes__:
+            return getattr(self.mlp, item)
+        elif item in __growing_methods__:
             return getattr(self.mlp, item)
         else:
             return super(GrowingTokenMixer, self).__getattr__(item)
@@ -402,7 +403,7 @@ class GrowingTokenMixer(nn.Module):
 class GrowingChannelMixer(nn.Module):
     def __init__(self, num_features, hidden_features, dropout, name=None):
         super(GrowingChannelMixer, self).__init__()
-        self.norm = nn.LayerNorm(num_features, device=global_device(), elementwise_affine=False)
+        self.norm = nn.LayerNorm(num_features, device=global_device())
         self.mlp = GrowingMLPBlock(num_features, hidden_features, dropout, name=f"{name}: Channel Mixer")
         for item in __growing_methods__:
             setattr(self, item, getattr(self.mlp, item))
@@ -445,13 +446,13 @@ class GrowingChannelMixer(nn.Module):
 
 
 class GrowingMixerLayer(nn.Module):
-    def __init__(self, num_patches, num_features, hidden_features, dropout, name="Mixer Layer"):
+    def __init__(self, num_patches, num_features, hidden_dim_token, hidden_dim_channel, dropout, name="Mixer Layer"):
         super(GrowingMixerLayer, self).__init__()
         self.token_mixer = GrowingTokenMixer(
-            num_patches, num_features, hidden_features, dropout, name=f"{name}"
+            num_patches, num_features, hidden_dim_token, dropout, name=f"{name}"
         )
         self.channel_mixer = GrowingChannelMixer(
-            num_features, hidden_features, dropout, name=f"{name}"
+            num_features, hidden_dim_channel, dropout, name=f"{name}"
         )
 
     def forward(self, x):
@@ -578,14 +579,15 @@ def check_sizes(image_size, patch_size):
 class GrowingMLPMixer(nn.Module):
     def __init__(
             self,
-            image_size=256,
-            patch_size=16,
+            image_size=32,
+            patch_size=4,
             in_channels=3,
             num_features=128,
-            hidden_features=2,
+            hidden_dim_token=64,
+            hidden_dim_channel=512,
             num_layers=8,
             num_classes=10,
-            dropout=0.5,
+            dropout=0.0,
     ):
         num_patches = check_sizes(image_size, patch_size)
         super(GrowingMLPMixer, self).__init__()
@@ -596,7 +598,9 @@ class GrowingMLPMixer(nn.Module):
         )
         self.mixers: nn.ModuleList[GrowingMixerLayer] = nn.ModuleList(
             [
-                GrowingMixerLayer(num_patches, num_features, hidden_features, dropout, name=f"Layer {_}")
+                GrowingMixerLayer(
+                    num_patches, num_features, hidden_dim_token, hidden_dim_channel, dropout, name=f"Layer {_}"
+                )
                 for _ in range(num_layers)
             ]
         )
@@ -707,8 +711,7 @@ class GrowingMLPMixer(nn.Module):
         Apply the optimal delta and extend the layer with current
         optimal delta and layer extension with the current scaling factor.
         """
-        for mixer in self.mixers:
-            mixer.apply_change()
+        self.currently_updated_block.apply_change()
         self.currently_updated_block = None
 
     def number_of_parameters(self):
@@ -724,10 +727,8 @@ class GrowingMLPMixer(nn.Module):
         return statistics
 
     def update_information(self):
-        layer_information = dict()
-        for i, mixer in enumerate(self.mixers):
-            layer_information[i] = mixer.update_information()
-        return layer_information
+        assert self.currently_updated_block is not None, "No block is currently updated."
+        return self.currently_updated_block.update_information()
 
     def select_best_update(self):
         token_mixers_first_order_improvement = torch.tensor([

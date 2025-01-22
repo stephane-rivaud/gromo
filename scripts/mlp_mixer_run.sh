@@ -6,17 +6,12 @@
 
 # script parameters
 num_blocks=$1
-num_features=$2
-hidden_size=$3
-weight_decay=$4
-epochs_per_growth=$5
-selection_method=$6
-dropout=$7
+weight_decay=$2
+epochs_per_growth=$3
+selection_method=$4
 
 echo TMPDIR: $TMPDIR
 echo "num_blocks: $num_blocks"
-echo "num_features: $num_features"
-echo "hidden_size: $hidden_size"
 echo "weight_decay: $weight_decay"
 echo "epochs_per_growth: $epochs_per_growth"
 echo "selection_method: $selection_method"
@@ -38,8 +33,8 @@ command="python -u misc/mlp_mixer_run.py"
 log_dir="logs/mlp_mixer_run"
 mkdir -p $log_dir
 log_file_name=""
-tags="mlp-mixer-momentum-steplr"
-experiment_name="Res-MLP-${num_blocks}_blocks"
+tags="mlp-mixer"
+experiment_name="MLP_mixer-${num_blocks}_blocks"
 nb_step=100
 no_cuda=false
 training_threshold=""
@@ -87,11 +82,12 @@ fi
 
 # Model arguments
 #num_blocks=4
-#num_features=256
-#hidden_size=16
+num_features=128
+hidden_dim_token=64
+hidden_dim_channel=512
 bias=true
 
-command="${command} --num-blocks $num_blocks --num-features $num_features --hidden-size $hidden_size"
+command="${command} --num-blocks $num_blocks --num-features $num_features --hidden-dim-token $hidden_dim_token --hidden-dim-channel $hidden_dim_channel"
 if [ "$bias" = false ]; then
     command="${command} --no-bias"
 fi
@@ -99,11 +95,11 @@ fi
 # Classical training arguments
 #seed=0
 command="${command} --nb-step $nb_step"
-batch_size=64
-optimizer="sgd"
+batch_size=128
+optimizer="adamw"
 lr=0.01
 #weight_decay=0
-#dropout=0.0
+dropout=0.0
 
 command="${command} --batch-size $batch_size --optimizer $optimizer --lr $lr --weight-decay $weight_decay --dropout $dropout"
 
