@@ -114,14 +114,28 @@ class AverageMeter(object):
             self.avg = self.sum / self.count
 
 
-def rand_bbox(size: Tuple[int, int, int, int], lam: float) -> Tuple[int, int, int, int]:
+# CutMix function
+def cutmix_data(x, y, beta=1.0, cutmix_prob=0.5):
+    if np.random.rand() > cutmix_prob:
+        return x, y, y, 1.0  # No CutMix applied
+
+    indices = torch.randperm(x.size(0))
+    shuffled_x = x[indices]
+    shuffled_y = y[indices]
+
+    lam = np.random.beta(beta, beta)
+    bbx1, bby1, bbx2, bby2 = rand_bbox(x.size(), lam)
+    x[:, :, bbx1:bbx2, bby1:bby2] = shuffled_x[:, :, bbx1:bbx2, bby1:bby2]
+
+    return x, y, shuffled_y, lam
+
+def rand_bbox(size, lam):
     W = size[2]
     H = size[3]
     cut_rat = np.sqrt(1. - lam)
     cut_w = int(W * cut_rat)
     cut_h = int(H * cut_rat)
 
-    # uniform
     cx = np.random.randint(W)
     cy = np.random.randint(H)
 
@@ -172,18 +186,10 @@ def train(
         optimizer.zero_grad()
 
         # Apply CutMix
-        if np.random.rand() < cutmix_prob:
-            lam = np.random.beta(cutmix_beta, cutmix_beta)
-            rand_index = torch.randperm(x.size()[0]).to(device)
-            target_a = y
-            target_b = y[rand_index]
-            bbx1, bby1, bbx2, bby2 = rand_bbox(x.size(), lam)
-            x[:, :, bbx1:bbx2, bby1:bby2] = x[rand_index, :, bbx1:bbx2, bby1:bby2]
-            y_pred = model(x)
-            loss = lam * loss_function(y_pred, target_a) + (1 - lam) * loss_function(y_pred, target_b)
-        else:
-            y_pred = model(x)
-            loss = loss_function(y_pred, y)
+        x, y, y_shuffled, lam = cutmix_data(x, y, beta=cutmix_beta, cutmix_prob=cutmix_prob)
+
+        y_pred = model(x)
+        loss = lam * loss_function(y_pred, y) + (1 - lam) * loss_function(y_pred, y_shuffled)
 
         assert loss.isnan().sum() == 0, f"During training of {model}, loss is NaN: {loss}"
 
