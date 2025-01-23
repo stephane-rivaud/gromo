@@ -52,8 +52,7 @@ class GrowingMLPBlock(nn.Module):
         self.first_layer = LinearGrowingModule(
             num_features,
             hidden_features,
-            post_layer_function=torch.nn.GELU(),
-            name=f"{name}: first layer",
+            post_layer_function=nn.GELU(),
             **kwargs_layer,
         )
         self.dropout = nn.Dropout(dropout)
@@ -62,7 +61,6 @@ class GrowingMLPBlock(nn.Module):
             num_features,
             post_layer_function=nn.Identity(),
             previous_module=self.first_layer,
-            name=f"{name}: second layer",
             **kwargs_layer,
         )
         self.enable_extended_forward = False
@@ -349,12 +347,12 @@ class GrowingTokenMixer(nn.Module):
     def __init__(self, num_patches, num_features, hidden_features, dropout, name=None):
         super(GrowingTokenMixer, self).__init__()
         self.norm = nn.LayerNorm(num_features, device=global_device())
-        self.mlp = GrowingMLPBlock(num_patches, hidden_features, dropout, name=f"{name}: Token Mixer")
+        self.mlp = GrowingMLPBlock(num_patches, hidden_features, dropout)
 
     def __getattr__(self, item):
         if item in __growing_attributes__:
             return getattr(self.mlp, item)
-        elif item in __growing_methods__:
+        elif item != "number_of_parameters" and item in __growing_methods__:
             return getattr(self.mlp, item)
         else:
             return super(GrowingTokenMixer, self).__getattr__(item)
@@ -399,17 +397,22 @@ class GrowingTokenMixer(nn.Module):
         out = y + residual
         return out
 
+    def number_of_parameters(self):
+        return self.mlp.number_of_parameters() + sum(p.numel() for p in self.norm.parameters())
+
 
 class GrowingChannelMixer(nn.Module):
     def __init__(self, num_features, hidden_features, dropout, name=None):
         super(GrowingChannelMixer, self).__init__()
         self.norm = nn.LayerNorm(num_features, device=global_device())
-        self.mlp = GrowingMLPBlock(num_features, hidden_features, dropout, name=f"{name}: Channel Mixer")
+        self.mlp = GrowingMLPBlock(num_features, hidden_features, dropout)
         for item in __growing_methods__:
             setattr(self, item, getattr(self.mlp, item))
 
     def __getattr__(self, item):
         if item in __growing_attributes__:
+            return getattr(self.mlp, item)
+        elif item != "number_of_parameters" and item in __growing_methods__:
             return getattr(self.mlp, item)
         else:
             return super(GrowingChannelMixer, self).__getattr__(item)
@@ -444,15 +447,18 @@ class GrowingChannelMixer(nn.Module):
         out = x + residual
         return out
 
+    def number_of_parameters(self):
+        return self.mlp.number_of_parameters() + sum(p.numel() for p in self.norm.parameters())
+
 
 class GrowingMixerLayer(nn.Module):
     def __init__(self, num_patches, num_features, hidden_dim_token, hidden_dim_channel, dropout, name="Mixer Layer"):
         super(GrowingMixerLayer, self).__init__()
         self.token_mixer = GrowingTokenMixer(
-            num_patches, num_features, hidden_dim_token, dropout, name=f"{name}"
+            num_patches, num_features, hidden_dim_token, dropout
         )
         self.channel_mixer = GrowingChannelMixer(
-            num_features, hidden_dim_channel, dropout, name=f"{name}"
+            num_features, hidden_dim_channel, dropout
         )
 
     def forward(self, x):
@@ -599,7 +605,7 @@ class GrowingMLPMixer(nn.Module):
         self.mixers: nn.ModuleList[GrowingMixerLayer] = nn.ModuleList(
             [
                 GrowingMixerLayer(
-                    num_patches, num_features, hidden_dim_token, hidden_dim_channel, dropout, name=f"Layer {_}"
+                    num_patches, num_features, hidden_dim_token, hidden_dim_channel, dropout
                 )
                 for _ in range(num_layers)
             ]
@@ -715,9 +721,10 @@ class GrowingMLPMixer(nn.Module):
         self.currently_updated_block = None
 
     def number_of_parameters(self):
-        num_param = 0
+        num_param = sum(p.numel() for p in self.patcher.parameters())
         for mixer in self.mixers:
             num_param += mixer.number_of_parameters()
+        num_param += sum(p.numel() for p in self.classifier.parameters())
         return num_param
 
     def weights_statistics(self) -> dict[int, dict[str, dict[str, float] | int]]:

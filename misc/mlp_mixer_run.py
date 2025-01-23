@@ -227,13 +227,6 @@ def create_parser() -> argparse.ArgumentParser:
         default=False,
         help="normalize the weights after growing (default: False)",
     )
-    growing_group.add_argument(
-        "--init-new-neurons-with-random-in-and-zero-out",
-        action="store_true",
-        default=False,
-        help="initialize the new neurons with random fan-in weights "
-             "and zero fan-out weights (default: False)",
-    )
 
     # line search arguments
     line_search_group = parser.add_argument_group("line search")
@@ -344,9 +337,6 @@ def preprocess_and_check_args(args: argparse.Namespace) -> argparse.Namespace:
     if args.normalize_weights and args.activation.lower().strip() != "relu":
         warn("Normalizing the weights is only an invariant for ReLU activation functions.")
 
-    if args.init_new_neurons_with_random_in_and_zero_out:
-        args.selection_method = "none"
-
     if args.num_blocks < 1:
         raise ValueError("The number of hidden layers must be greater than 0.")
 
@@ -446,7 +436,6 @@ def setup_mlflow(log_dir: str, experiment_name: str, tags: str | None, logger: l
     mlflow.set_experiment(f"{experiment_name}")
 
 
-
 def main(args: argparse.Namespace):
     """
     Main function
@@ -502,6 +491,8 @@ def main(args: argparse.Namespace):
         )
         logger.info(f"Model before training:\n{model}")
         logger.info(f"Number of parameters: {model.number_of_parameters(): ,}M")
+        logger.info(f"Number of parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad): ,}M")
+
 
         # loss function
         if args.dataset == "sin":
@@ -591,6 +582,7 @@ def main(args: argparse.Namespace):
             # reset peak memory stats
             if device.type == "cuda":
                 torch.cuda.reset_peak_memory_stats(device)
+
             if cycle_index == args.epochs_per_growth:
                 # grow the model
                 logs["epoch_type"] = "growth"
@@ -615,8 +607,6 @@ def main(args: argparse.Namespace):
                     dtype=growing_dtype,
                 )
 
-
-
                 # select the update to be applied
                 if args.selection_method == "none":
                     raise NotImplementedError(f"Selection method '{args.selection_method}' not implemented.")
@@ -626,39 +616,20 @@ def main(args: argparse.Namespace):
                     raise NotImplementedError(f"Unknown selection method: {args.selection_method}")
 
                 # line search to find the optimal amplitude factor
-                if not args.init_new_neurons_with_random_in_and_zero_out:
-                    gamma, estimated_loss, gamma_history, loss_history = line_search(
-                        model=model,
-                        dataloader=train_dataloader,
-                        loss_function=loss_function,
-                        batch_limit=args.line_search_batch_limit,
-                        initial_loss=initial_train_loss,
-                        first_order_improvement=model.currently_updated_block.first_order_improvement,
-                        alpha=args.line_search_alpha,
-                        beta=args.line_search_beta,
-                        max_iter=args.line_search_max_iter,
-                        epsilon=args.line_search_epsilon,
-                        device=device,
-                    )
-                else:
-                    gamma = 1
-                    gamma_history = [1]
-                    loss_history = [-1]
 
-                # optionally reset the weights of the new neurons
-                if (
-                        args.init_new_neurons_with_random_in_and_zero_out
-                        and model.currently_updated_block_index - 1 >= 0
-                ):
-                    # set the new neurons to have random fan-in weights and zero fan-out weights
-                    model[
-                        model.currently_updated_block_index - 1
-                        ].extended_output_layer.reset_parameters()
-                    model[
-                        model.currently_updated_block_index
-                    ].extended_input_layer.weight.data.zero_()
-                if args.init_new_neurons_with_random_in_and_zero_out:
-                    model[model.currently_updated_block_index].optimal_delta_layer = None
+                gamma, estimated_loss, gamma_history, loss_history = line_search(
+                    model=model,
+                    dataloader=train_dataloader,
+                    loss_function=loss_function,
+                    batch_limit=args.line_search_batch_limit,
+                    initial_loss=initial_train_loss,
+                    first_order_improvement=model.currently_updated_block.first_order_improvement,
+                    alpha=args.line_search_alpha,
+                    beta=args.line_search_beta,
+                    max_iter=args.line_search_max_iter,
+                    epsilon=args.line_search_epsilon,
+                    device=device,
+                )
 
                 logs["train_loss"] = initial_train_loss
                 logs["train_accuracy"] = initial_train_accuracy
