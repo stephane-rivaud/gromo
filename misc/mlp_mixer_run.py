@@ -160,7 +160,7 @@ def create_parser() -> argparse.ArgumentParser:
         type=str,
         default="none",
         help="scheduler to use (default: step)",
-        choices='cosine',
+        choices=['cosine'],
     )
     scheduler_group.add_argument(
         "--warmup-iters",
