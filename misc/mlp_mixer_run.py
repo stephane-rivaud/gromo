@@ -637,9 +637,9 @@ def main(args: argparse.Namespace):
                 logs["train_loss"] = initial_train_loss
                 logs["train_accuracy"] = initial_train_accuracy
                 logs["updates_information"] = model.update_information()
-                if model.currently_updated_block.mlp.second_layer.eigenvalues_extension is not None:
+                if model.currently_updated_block.eigenvalues_extension is not None:
                     logs["added_neurons"] = (
-                        model.currently_updated_block.mlp.second_layer.eigenvalues_extension.size(0)
+                        model.currently_updated_block.eigenvalues_extension.size(0)
                     )
                 else:
                     logs["added_neurons"] = 0
@@ -666,7 +666,6 @@ def main(args: argparse.Namespace):
 
             else:
                 # set the learning rate
-                print(f"Step: {step}, Learning rate: {scheduler(step - 1)}")
                 for param_group in optimizer.param_groups:
                     param_group["lr"] = scheduler(step - 1)
 
