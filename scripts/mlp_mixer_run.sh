@@ -58,7 +58,7 @@ command+=" --num-blocks $num_blocks --num-features $num_features --hidden-dim-to
 # Training arguments
 nb_step=300
 batch_size=128
-optimizer="adam"
+optimizer="adamw"
 lr=1e-3
 dropout=0.0
 
