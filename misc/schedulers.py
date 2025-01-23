@@ -112,7 +112,8 @@ class CosineScheduler:
     def step(self):
         self.current_step += 1
         if self.current_epoch < self.warmup_epochs:
-            lr = warm_up_lr(self.current_step, self.warmup_epochs * self.num_batches_per_epoch, self.base_lr)
+            current_step = self.current_step + self.current_epoch * self.num_batches_per_epoch
+            lr = self.base_lr * (current_step / (self.warmup_epochs * self.num_batches_per_epoch))
         else:
             progress = ((self.current_step - self.warmup_epochs * self.num_batches_per_epoch) /
                         ((self.total_epochs - self.warmup_epochs) * self.num_batches_per_epoch))
