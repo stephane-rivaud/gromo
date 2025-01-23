@@ -13,7 +13,7 @@ from gromo.utils.utils import global_device
 
 def topk_accuracy(y_pred, y, k=1):
     result = y_pred.topk(k, dim=1).indices == y.unsqueeze(1)
-    return result.sum().item() / y.size(0)
+    return result.sum() / y.size(0)
 
 
 def evaluate_model(
