@@ -524,8 +524,8 @@ def main(args: argparse.Namespace):
             loss_function_mean = nn.MSELoss(reduction="mean")
             top_1_accuracy = None
         else:
-            loss_function = LabelSmoothingLoss(smoothing=0.1)
-            loss_function_mean = nn.CrossEntropyLoss(reduction="mean")
+            loss_function = nn.CrossEntropyLoss(reduction="sum")
+            loss_function_mean = LabelSmoothingLoss(smoothing=0.1)
             top_1_accuracy = partial(topk_accuracy, k=1)
 
         # optimizer
@@ -590,7 +590,6 @@ def main(args: argparse.Namespace):
         log_metrics(logs, step=0)
 
         # Training
-        logs = dict()
         cycle_index = 0
         for step in range(1, args.nb_step + 1):
             step_start_time = time()
@@ -598,9 +597,9 @@ def main(args: argparse.Namespace):
             if device.type == "cuda":
                 torch.cuda.reset_peak_memory_stats(device)
 
+            logs = dict()
             if cycle_index == args.epochs_per_growth:
                 # grow the model
-                logs["epoch_type"] = "growth"
                 cycle_index = -1
 
                 # compute the growth statistics
@@ -645,6 +644,7 @@ def main(args: argparse.Namespace):
                     device=device,
                 )
 
+                logs["epoch_type"] = "growth"
                 logs["train_loss"] = train_loss
                 logs["train_accuracy"] = train_accuracy
                 logs["updates_information"] = model.update_information()
@@ -713,20 +713,7 @@ def main(args: argparse.Namespace):
                     f"Epoch type: {logs['epoch_type']} -- Maximum memory allocated: {torch.cuda.max_memory_allocated(device) / (1024 ** 3): .2f} GB -- Maximum memory reserved: {torch.cuda.max_memory_reserved(device) / (1024 ** 3): .2f} GB"
                 )
 
-            for key, value in logs.items():
-                if key == "epoch_type":
-                    continue
-                    # mlflow.log_metric(key, value)
-                elif isinstance(value, dict):
-                    log_layers_metrics(value, step=step, prefix=key)
-                else:
-                    try:
-                        mlflow.log_metric(key, value, step=step)
-                    except TypeError:
-                        # print(f"Cannot log {key} with value {value}")
-                        pass
-
-            logs = dict()
+            log_metrics(logs, step=step)
             cycle_index += 1
 
             if (
