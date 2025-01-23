@@ -35,7 +35,7 @@ mkdir -p $log_dir
 log_file_name=""
 tags="mlp-mixer"
 experiment_name="MLP_mixer-${num_blocks}_blocks"
-nb_step=100
+nb_step=300
 no_cuda=false
 training_threshold=""
 log_system_metrics=true
