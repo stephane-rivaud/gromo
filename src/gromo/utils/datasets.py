@@ -206,3 +206,16 @@ def get_dataset(
     val_data.dataset.transform = transforms.Compose(datasets_transform)
 
     return train_data, val_data, test_data
+
+
+class SinDataset(torch.utils.data.Dataset):
+    def __init__(self, device):
+        self.nb_sample = 1_000
+
+    def __len__(self):
+        return self.nb_sample
+
+    def __getitem__(self, _):
+        data = torch.rand(1, 1) * 2 * torch.pi
+        target = torch.sin(data)
+        return data, target

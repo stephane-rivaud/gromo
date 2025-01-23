@@ -16,23 +16,6 @@ def topk_accuracy(y_pred, y, k=1):
     return result.sum().item() / y.size(0)
 
 
-class SinDataset(torch.utils.data.Dataset):
-    def __init__(
-            self,
-            device=global_device(),
-    ):
-        self.nb_sample = 1_000
-        self.device = device
-
-    def __len__(self):
-        return self.nb_sample
-
-    def __getitem__(self, _):
-        data = torch.rand(1, 1, device=self.device) * 2 * np.pi
-        target = torch.sin(data)
-        return data, target
-
-
 def evaluate_model(
         model: nn.Module,
         dataloader: torch.utils.data.DataLoader,
@@ -48,39 +31,29 @@ def evaluate_model(
         "mean",
         "sum",
     ], "The loss function should be averaged over the batch"
-    normalized_loss = loss_function.reduction == "mean"
 
     model.eval()
-    n_batch = 0
-    nb_sample = 0
-    total_loss = torch.tensor(0.0, device=device)
-    aux_total_loss = torch.tensor(0.0, device=device)
+    loss_meter = AverageMeter()
+    aux_loss_meter = AverageMeter()
     with torch.no_grad():
-        for x, y in dataloader:
+        for i, (x, y) in enumerate(dataloader):
             x, y = x.to(device), y.to(device)
 
             y_pred = model(x)
             loss = loss_function(y_pred, y)
-            if normalized_loss:
-                loss *= y.size(0)
-            total_loss += loss
+            loss_meter.update(loss.item())
             if aux_loss_function is not None:
                 aux_loss = aux_loss_function(y_pred, y)
-                aux_total_loss += aux_loss
-
-            nb_sample += x.size(0)
-            n_batch += 1
-            if 0 <= batch_limit <= n_batch:
+                aux_loss_meter.update(aux_loss.item())
+            if 0 <= batch_limit <= i:
                 break
-    total_loss /= nb_sample
-    aux_total_loss /= n_batch
-    return total_loss.item(), aux_total_loss.item()
+    return loss_meter.avg, aux_loss_meter.avg
 
 
 def extended_evaluate_model(
         growing_model: "GrowingMLP",
         dataloader: torch.utils.data.DataLoader,
-        loss_function: nn.Module = nn.MSELoss(reduction="mean"),
+        loss_function: nn.Module = nn.MSELoss(reduction="sum"),
         batch_limit: int = -1,
         device: torch.device = global_device(),
 ) -> float:
@@ -88,20 +61,16 @@ def extended_evaluate_model(
             loss_function.reduction == "sum"
     ), "The loss function should not be averaged over the batch"
     growing_model.eval()
-    n_batch = 0
-    nb_sample = 0
-    total_loss = torch.tensor(0.0, device=device)
+    loss_meter = AverageMeter()
     with torch.no_grad():
-        for x, y in dataloader:
+        for i, (x, y) in enumerate(dataloader):
             x, y = x.to(device), y.to(device)
             y_pred = growing_model.extended_forward(x)
             loss = loss_function(y_pred, y)
-            total_loss += loss
-            nb_sample += x.size(0)
-            n_batch += 1
-            if 0 <= batch_limit <= n_batch:
+            loss_meter.update(loss.item(), x.size(0))
+            if 0 <= batch_limit <= i:
                 break
-    return total_loss.item() / nb_sample
+    return loss_meter.avg
 
 
 class AverageMeter(object):
@@ -214,30 +183,26 @@ def compute_statistics(
     ), "The loss function should not be averaged over the batch"
 
     growing_model.init_computation()
-    n_batch = 0
-    nb_sample = 0
-    total_loss = torch.tensor(0.0, device=device)
-    total_aux_loss = torch.tensor(0.0, device=device)
+    loss_meter = AverageMeter()
+    aux_loss_meter = AverageMeter()
 
     if show:
         dataloader = tqdm(dataloader)
 
-    for x, y in dataloader:
+    for i, (x, y) in enumerate(dataloader):
         growing_model.zero_grad()
         x, y = x.to(device), y.to(device)
         y_pred = growing_model(x)
         loss = loss_function(y_pred, y)
         loss.backward()
         growing_model.update_computation()
-        total_loss += loss
+        loss_meter.update(loss.item() / x.size(0))
         if aux_loss_function is not None:
             aux_loss = aux_loss_function(y_pred, y)
-            total_aux_loss += aux_loss
-        nb_sample += x.size(0)
-        n_batch += 1
-        if 0 <= batch_limit <= n_batch:
+            aux_loss_meter.update(aux_loss.item() / x.size(0))
+        if 0 <= batch_limit <= i:
             break
-    return total_loss.item() / nb_sample, total_aux_loss.item()
+    return loss_meter.avg, aux_loss_meter.avg
 
 
 def line_search(
