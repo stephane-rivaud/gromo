@@ -55,22 +55,23 @@ def evaluate_model(
     nb_sample = 0
     total_loss = torch.tensor(0.0, device=device)
     aux_total_loss = torch.tensor(0.0, device=device)
-    for x, y in dataloader:
-        x, y = x.to(device), y.to(device)
+    with torch.no_grad():
+        for x, y in dataloader:
+            x, y = x.to(device), y.to(device)
 
-        y_pred = model(x)
-        loss = loss_function(y_pred, y)
-        if normalized_loss:
-            loss *= y.size(0)
-        total_loss += loss
-        if aux_loss_function is not None:
-            aux_loss = aux_loss_function(y_pred, y)
-            aux_total_loss += aux_loss
+            y_pred = model(x)
+            loss = loss_function(y_pred, y)
+            if normalized_loss:
+                loss *= y.size(0)
+            total_loss += loss
+            if aux_loss_function is not None:
+                aux_loss = aux_loss_function(y_pred, y)
+                aux_total_loss += aux_loss
 
-        nb_sample += x.size(0)
-        n_batch += 1
-        if 0 <= batch_limit <= n_batch:
-            break
+            nb_sample += x.size(0)
+            n_batch += 1
+            if 0 <= batch_limit <= n_batch:
+                break
     total_loss /= nb_sample
     aux_total_loss /= n_batch
     return total_loss.item(), aux_total_loss.item()
@@ -90,16 +91,16 @@ def extended_evaluate_model(
     n_batch = 0
     nb_sample = 0
     total_loss = torch.tensor(0.0, device=device)
-    for x, y in dataloader:
-        growing_model.zero_grad()
-        x, y = x.to(device), y.to(device)
-        y_pred = growing_model.extended_forward(x)
-        loss = loss_function(y_pred, y)
-        total_loss += loss
-        nb_sample += x.size(0)
-        n_batch += 1
-        if 0 <= batch_limit <= n_batch:
-            break
+    with torch.no_grad():
+        for x, y in dataloader:
+            x, y = x.to(device), y.to(device)
+            y_pred = growing_model.extended_forward(x)
+            loss = loss_function(y_pred, y)
+            total_loss += loss
+            nb_sample += x.size(0)
+            n_batch += 1
+            if 0 <= batch_limit <= n_batch:
+                break
     return total_loss.item() / nb_sample
 
 

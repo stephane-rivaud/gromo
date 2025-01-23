@@ -17,6 +17,7 @@ from gromo.utils.utils import global_device, set_device
 known_optimizers = {
     "sgd": torch.optim.SGD,
     "adamw": torch.optim.AdamW,
+    "adam": torch.optim.Adam,
 }
 
 selection_methods = [
@@ -508,7 +509,9 @@ def main(args: argparse.Namespace):
         if args.optimizer == "sgd":
             optim_kwargs = {"lr": args.lr, "momentum": 0.9, "weight_decay": args.weight_decay}
         elif args.optimizer == "adamw":
-            optim_kwargs = {"lr": args.lr, "weight_decay": args.weight_decay}
+            optim_kwargs = {"lr": args.lr, "betas": (0.9, 0.99), "weight_decay": args.weight_decay}
+        elif args.optimizer == "adam":
+            optim_kwargs = {"lr": args.lr, "betas": (0.9, 0.99), "weight_decay": args.weight_decay}
         optimizer = known_optimizers[args.optimizer](
             model.parameters(), **optim_kwargs
         )
