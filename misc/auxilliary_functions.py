@@ -18,9 +18,10 @@ def topk_accuracy(y_pred, y, k=1):
 
 # Label smoothing
 class LabelSmoothingLoss(nn.Module):
-    def __init__(self, smoothing=0.1):
+    def __init__(self, smoothing=0.1, reduction="mean"):
         super(LabelSmoothingLoss, self).__init__()
         self.smoothing = smoothing
+        self.reduction = reduction
 
     def forward(self, pred, target):
         confidence = 1.0 - self.smoothing
@@ -29,7 +30,12 @@ class LabelSmoothingLoss(nn.Module):
         nll_loss = nll_loss.squeeze(1)
         smooth_loss = -log_prob.mean(dim=-1)
         loss = confidence * nll_loss + self.smoothing * smooth_loss
-        return loss.mean()
+        if self.reduction == "mean":
+            return loss.mean()
+        elif self.reduction == "sum":
+            return loss.sum()
+        else:
+            return loss
 
 
 def evaluate_model(

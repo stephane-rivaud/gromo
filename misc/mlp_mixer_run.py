@@ -525,7 +525,7 @@ def main(args: argparse.Namespace):
             top_1_accuracy = None
         else:
             loss_function = nn.CrossEntropyLoss(reduction="sum")
-            loss_function_mean = LabelSmoothingLoss(smoothing=0.1)
+            loss_function_mean = LabelSmoothingLoss(smoothing=0.1, reduction="mean")
             top_1_accuracy = partial(topk_accuracy, k=1)
 
         # optimizer
