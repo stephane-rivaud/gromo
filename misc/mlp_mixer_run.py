@@ -62,7 +62,7 @@ def create_parser() -> argparse.ArgumentParser:
     dataset_group.add_argument(
         "--split-train-val",
         type=float,
-        default=0.3,
+        default=0.0,
         help="proportion of the training set to use as validation set (default: 0.3)",
     )
     dataset_group.add_argument(
