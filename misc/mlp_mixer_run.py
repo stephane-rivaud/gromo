@@ -534,7 +534,7 @@ def main(args: argparse.Namespace):
         # Initial train and validation scores
         train_loss, train_accuracy = evaluate_model(
             model=model,
-            loss_function=loss_function,
+            loss_function=loss_function_mean,
             aux_loss_function=top_1_accuracy,
             dataloader=train_dataloader,
             device=device,
@@ -542,7 +542,7 @@ def main(args: argparse.Namespace):
 
         val_loss, val_accuracy = evaluate_model(
             model=model,
-            loss_function=loss_function,
+            loss_function=loss_function_mean,
             aux_loss_function=top_1_accuracy,
             dataloader=val_dataloader,
             device=device,
@@ -684,7 +684,7 @@ def main(args: argparse.Namespace):
 
             val_loss, val_accuracy = evaluate_model(
                 model=model,
-                loss_function=loss_function,
+                loss_function=loss_function_mean,
                 aux_loss_function=top_1_accuracy,
                 dataloader=val_dataloader,
                 device=device,
