@@ -678,6 +678,9 @@ def main(args: argparse.Namespace):
                     loss_function=loss_function_mean,
                     aux_loss_function=top_1_accuracy,
                     optimizer=optimizer,
+                    device=device,
+                    cutmix_beta=1.0,
+                    cutmix_prob=0.5,
                 )
 
                 logs["selected_update"] = -1

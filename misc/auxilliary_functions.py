@@ -1,5 +1,5 @@
 from warnings import warn
-from typing import Callable
+from typing import Callable, Tuple
 
 import numpy as np
 import torch
@@ -92,6 +92,25 @@ class AverageMeter(object):
             self.avg = self.sum / self.count
 
 
+def rand_bbox(size: Tuple[int, int, int, int], lam: float) -> Tuple[int, int, int, int]:
+    W = size[2]
+    H = size[3]
+    cut_rat = np.sqrt(1. - lam)
+    cut_w = int(W * cut_rat)
+    cut_h = int(H * cut_rat)
+
+    # uniform
+    cx = np.random.randint(W)
+    cy = np.random.randint(H)
+
+    bbx1 = np.clip(cx - cut_w // 2, 0, W)
+    bby1 = np.clip(cy - cut_h // 2, 0, H)
+    bbx2 = np.clip(cx + cut_w // 2, 0, W)
+    bby2 = np.clip(cy + cut_h // 2, 0, H)
+
+    return bbx1, bby1, bbx2, bby2
+
+
 def train(
         model: nn.Module,
         train_dataloader: torch.utils.data.DataLoader,
@@ -102,6 +121,8 @@ def train(
         weight_decay: float = 0,
         show: bool = False,
         device: torch.device = global_device(),
+        cutmix_beta: float = 1.0,
+        cutmix_prob: float = 0.0,
 ):
     assert (
             loss_function.reduction == "mean"
@@ -126,8 +147,21 @@ def train(
         transfer_time_meter.update(time() - start_time)
 
         optimizer.zero_grad()
-        y_pred = model(x)
-        loss = loss_function(y_pred, y)
+
+        # Apply CutMix
+        if np.random.rand() < cutmix_prob:
+            lam = np.random.beta(cutmix_beta, cutmix_beta)
+            rand_index = torch.randperm(x.size()[0]).to(device)
+            target_a = y
+            target_b = y[rand_index]
+            bbx1, bby1, bbx2, bby2 = rand_bbox(x.size(), lam)
+            x[:, :, bbx1:bbx2, bby1:bby2] = x[rand_index, :, bbx1:bbx2, bby1:bby2]
+            y_pred = model(x)
+            loss = lam * loss_function(y_pred, target_a) + (1 - lam) * loss_function(y_pred, target_b)
+        else:
+            y_pred = model(x)
+            loss = loss_function(y_pred, y)
+
         assert loss.isnan().sum() == 0, f"During training of {model}, loss is NaN: {loss}"
 
         loss.backward()
