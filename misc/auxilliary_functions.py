@@ -63,9 +63,9 @@ def evaluate_model(
 
             y_pred = model(x)
             loss = loss_function(y_pred, y)
-            loss_meter.update(loss.item())
+            loss_meter.update(loss.item(), x.size(0))
             if aux_loss_function is not None:
-                aux_loss_meter.update(aux_loss_function(y_pred, y).item())
+                aux_loss_meter.update(aux_loss_function(y_pred, y).item(), x.size(0))
             if 0 <= batch_limit <= i:
                 break
     return loss_meter.avg, aux_loss_meter.avg
@@ -88,7 +88,7 @@ def extended_evaluate_model(
             x, y = x.to(device), y.to(device)
             y_pred = growing_model.extended_forward(x)
             loss = loss_function(y_pred, y)
-            loss_meter.update(loss.item())
+            loss_meter.update(loss.item(), x.size(0))
             if 0 <= batch_limit <= i:
                 break
     return loss_meter.avg
@@ -194,9 +194,9 @@ def train(
             scheduler.step()
 
         # update metrics
-        loss_meter.update(loss.item())
+        loss_meter.update(loss.item(), x.size(0))
         if aux_loss_function:
-            accuracy_meter.update(aux_loss_function(y_pred, y).item())
+            accuracy_meter.update(aux_loss_function(y_pred, y).item(), x.size(0))
 
         batch_time_meter.update(time() - start_time)
         start_time = time()
