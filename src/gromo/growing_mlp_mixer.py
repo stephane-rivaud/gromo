@@ -406,8 +406,6 @@ class GrowingChannelMixer(nn.Module):
         super(GrowingChannelMixer, self).__init__()
         self.norm = nn.LayerNorm(num_features, device=global_device())
         self.mlp = GrowingMLPBlock(num_features, hidden_features, dropout)
-        for item in __growing_methods__:
-            setattr(self, item, getattr(self.mlp, item))
 
     def __getattr__(self, item):
         if item in __growing_attributes__:

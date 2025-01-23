@@ -515,17 +515,14 @@ def main(args: argparse.Namespace):
         )
         logger.info(f"Model before training:\n{model}")
         logger.info(f"Number of parameters: {model.number_of_parameters(): ,}")
-        logger.info(f"Number of parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad): ,}")
-
 
         # loss function
         if args.dataset == "sin":
-            loss_function = nn.MSELoss(reduction="sum")
-            loss_function_mean = nn.MSELoss(reduction="mean")
-            top_1_accuracy = None
+            raise ValueError("The sin dataset is not supported by MLP Mixer.")
         else:
-            loss_function = nn.CrossEntropyLoss(reduction="sum")
-            loss_function_mean = LabelSmoothingLoss(smoothing=0.1, reduction="mean")
+            train_loss_fn = LabelSmoothingLoss(smoothing=0.1, reduction="mean")
+            test_loss_fn = nn.CrossEntropyLoss(reduction="mean")
+            growth_loss_fn = nn.CrossEntropyLoss(reduction="sum")
             top_1_accuracy = partial(topk_accuracy, k=1)
 
         # optimizer
@@ -559,7 +556,7 @@ def main(args: argparse.Namespace):
         # Initial train and validation scores
         train_loss, train_accuracy = evaluate_model(
             model=model,
-            loss_function=loss_function_mean,
+            loss_function=train_loss_fn,
             aux_loss_function=top_1_accuracy,
             dataloader=train_dataloader,
             device=device,
@@ -567,7 +564,7 @@ def main(args: argparse.Namespace):
 
         val_loss, val_accuracy = evaluate_model(
             model=model,
-            loss_function=loss_function_mean,
+            loss_function=test_loss_fn,
             aux_loss_function=top_1_accuracy,
             dataloader=val_dataloader,
             device=device,
@@ -608,7 +605,7 @@ def main(args: argparse.Namespace):
                 train_loss, train_accuracy = compute_statistics(
                     growing_model=model,
                     dataloader=train_dataloader,
-                    loss_function=loss_function,
+                    loss_function=growth_loss_fn,
                     aux_loss_function=top_1_accuracy,
                     batch_limit=args.growing_batch_limit,
                     device=device,
@@ -635,7 +632,7 @@ def main(args: argparse.Namespace):
                 gamma, estimated_loss, gamma_history, loss_history = line_search(
                     model=model,
                     dataloader=train_dataloader,
-                    loss_function=loss_function,
+                    loss_function=growth_loss_fn,
                     batch_limit=args.line_search_batch_limit,
                     initial_loss=train_loss,
                     first_order_improvement=model.currently_updated_block.first_order_improvement,
@@ -674,7 +671,7 @@ def main(args: argparse.Namespace):
                 train_loss, train_accuracy = train(
                     model=model,
                     train_dataloader=train_dataloader,
-                    loss_function=loss_function_mean,
+                    loss_function=train_loss_fn,
                     aux_loss_function=top_1_accuracy,
                     optimizer=optimizer,
                     device=device,
@@ -690,7 +687,7 @@ def main(args: argparse.Namespace):
 
             val_loss, val_accuracy = evaluate_model(
                 model=model,
-                loss_function=loss_function_mean,
+                loss_function=test_loss_fn,
                 aux_loss_function=top_1_accuracy,
                 dataloader=val_dataloader,
                 device=device,

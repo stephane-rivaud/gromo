@@ -375,19 +375,19 @@ class LinearGrowingModule(GrowingModule):
         else:
             return self.input
 
-    def number_of_parameters(self) -> int:
-        """
-        Return the number of parameters of the layer.
-
-        Returns
-        -------
-        int
-            number of parameters
-        """
-        return (
-            self.layer.in_features * self.layer.out_features
-            + self.layer.out_features * self.use_bias
-        )
+    # def number_of_parameters(self) -> int:
+    #     """
+    #     Return the number of parameters of the layer.
+    #
+    #     Returns
+    #     -------
+    #     int
+    #         number of parameters
+    #     """
+    #     return (
+    #         self.layer.in_features * self.layer.out_features
+    #         + self.layer.out_features * self.use_bias
+    #     )
 
     def __str__(self, verbose: int = 0) -> str:
         if verbose == 0:
