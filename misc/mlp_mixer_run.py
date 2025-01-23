@@ -706,7 +706,7 @@ def main(args: argparse.Namespace):
             logger.info(
                 f"Epoch [{step}/{args.nb_step}]: "
                 f"loss {val_loss: .4f} ({train_loss: .4f})"
-                f" -- accuracy {val_accuracy*100: 2.2f}% ({train_accuracy*100: 2.2f}%) [lr: {optimizer.param_groups[0]['lr']}]"
+                f" -- accuracy {val_accuracy*100: 2.2f}% ({train_accuracy*100: 2.2f}%) [lr: {optimizer.param_groups[0]['lr']: .6f}]"
             )
             # display epoch type, maximum memory allocated and maximum memory reserved
             if device.type == "cuda":

@@ -15,7 +15,7 @@ def get_scheduler(
     elif scheduler_name == "multistep":
         return MultistepScheduler(optimizer, milestones=[num_epochs // 2, 3 * num_epochs // 4], gamma=0.1, lr_init=lr, num_batches_per_epoch=num_batches_per_epoch, warmup_epochs=warmup_epochs)
     elif scheduler_name == "cosine":
-        return CosineScheduler(optimizer, warmup_epochs=warmup_epochs, total_epochs=num_epochs, num_batches_per_epoch=num_batches_per_epoch, min_lr=1e-6)
+        return CosineScheduler(optimizer, lr_init=lr, warmup_epochs=warmup_epochs, total_epochs=num_epochs, num_batches_per_epoch=num_batches_per_epoch, min_lr=1e-6)
     elif scheduler_name == "none":
         return ConstantScheduler(optimizer, lr)
     else:
@@ -99,13 +99,13 @@ class ConstantScheduler:
 
 # Learning rate scheduler
 class CosineScheduler:
-    def __init__(self, optimizer, warmup_epochs, total_epochs, num_batches_per_epoch, min_lr=1e-6):
+    def __init__(self, optimizer, lr_init, warmup_epochs, total_epochs, num_batches_per_epoch, min_lr=1e-6):
         self.optimizer = optimizer
         self.warmup_epochs = warmup_epochs
         self.total_epochs = total_epochs
         self.num_batches_per_epoch = num_batches_per_epoch
         self.min_lr = min_lr
-        self.base_lr = optimizer.param_groups[0]['lr']
+        self.base_lr = lr_init
         self.current_epoch = 0
         self.current_step = 0
 
