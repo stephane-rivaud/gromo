@@ -16,6 +16,22 @@ def topk_accuracy(y_pred, y, k=1):
     return result.sum() / y.size(0)
 
 
+# Label smoothing
+class LabelSmoothingLoss(nn.Module):
+    def __init__(self, smoothing=0.1):
+        super(LabelSmoothingLoss, self).__init__()
+        self.smoothing = smoothing
+
+    def forward(self, pred, target):
+        confidence = 1.0 - self.smoothing
+        log_prob = nn.functional.log_softmax(pred, dim=-1)
+        nll_loss = -log_prob.gather(dim=-1, index=target.unsqueeze(1))
+        nll_loss = nll_loss.squeeze(1)
+        smooth_loss = -log_prob.mean(dim=-1)
+        loss = confidence * nll_loss + self.smoothing * smooth_loss
+        return loss.mean()
+
+
 def evaluate_model(
         model: nn.Module,
         dataloader: torch.utils.data.DataLoader,

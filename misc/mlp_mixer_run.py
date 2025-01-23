@@ -8,7 +8,7 @@ import torch.nn as nn
 from time import time
 from warnings import warn
 
-from auxilliary_functions import evaluate_model, compute_statistics, line_search, topk_accuracy, train
+from auxilliary_functions import evaluate_model, compute_statistics, line_search, topk_accuracy, train, LabelSmoothingLoss
 from schedulers import get_scheduler, known_schedulers
 from gromo.growing_mlp_mixer import GrowingMLPMixer
 from gromo.utils.datasets import get_dataloaders, known_datasets
@@ -524,7 +524,7 @@ def main(args: argparse.Namespace):
             loss_function_mean = nn.MSELoss(reduction="mean")
             top_1_accuracy = None
         else:
-            loss_function = nn.CrossEntropyLoss(reduction="sum")
+            loss_function = LabelSmoothingLoss(smoothing=0.1)
             loss_function_mean = nn.CrossEntropyLoss(reduction="mean")
             top_1_accuracy = partial(topk_accuracy, k=1)
 
