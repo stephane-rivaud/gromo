@@ -395,6 +395,8 @@ def log_metrics(metrics: dict, step: int) -> None:
             log_layers_metrics(value, step, prefix=key)
         elif key == "epoch_type":
             continue
+        elif key == "device":
+            mlflow.log_param(key, str(value))
         else:
             try:
                 mlflow.log_metric(key, value, step=step)
