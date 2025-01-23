@@ -381,6 +381,27 @@ def log_layers_metrics(layer_metrics: dict, step: int, prefix: str | None = None
                 print(f"Cannot log {prefix_key} with value {value} ({e})")
 
 
+def log_metrics(metrics: dict, step: int) -> None:
+    """
+    Log the metrics
+    Args:
+        metrics: dict
+            metrics to log
+        step: int
+            step number
+    """
+    for key, value in metrics.items():
+        if isinstance(value, dict):
+            log_layers_metrics(value, step, prefix=key)
+        elif key == "epoch_type":
+            continue
+        else:
+            try:
+                mlflow.log_metric(key, value, step=step)
+            except mlflow.exceptions.MlflowException as e:
+                print(f"Cannot log {key} with value {value} ({e})")
+
+
 def get_logger(log_dir: str, log_file_name: str) -> logging.Logger:
     """
     Get the logger
@@ -564,18 +585,7 @@ def main(args: argparse.Namespace):
         }
         if device.type == "cuda":
             logs["device_model"] = torch.cuda.get_device_name(device)
-
-        for key, value in logs.items():
-            if key == "device" or key == "device_model":
-                # continue
-                mlflow.log_param(key, str(value))
-            elif isinstance(value, dict):
-                log_layers_metrics(value, step=0, prefix=key)
-            else:
-                try:
-                    mlflow.log_metric(key, value, step=0)
-                except TypeError:
-                    logger.warning(f"Cannot log {key} with value {value}")
+        log_metrics(logs, step=0)
 
         # Training
         logs = dict()
@@ -592,7 +602,7 @@ def main(args: argparse.Namespace):
                 cycle_index = -1
 
                 # compute the growth statistics
-                initial_train_loss, initial_train_accuracy = compute_statistics(
+                train_loss, train_accuracy = compute_statistics(
                     growing_model=model,
                     dataloader=train_dataloader,
                     loss_function=loss_function,
@@ -619,13 +629,12 @@ def main(args: argparse.Namespace):
                     raise NotImplementedError(f"Unknown selection method: {args.selection_method}")
 
                 # line search to find the optimal amplitude factor
-
                 gamma, estimated_loss, gamma_history, loss_history = line_search(
                     model=model,
                     dataloader=train_dataloader,
                     loss_function=loss_function,
                     batch_limit=args.line_search_batch_limit,
-                    initial_loss=initial_train_loss,
+                    initial_loss=train_loss,
                     first_order_improvement=model.currently_updated_block.first_order_improvement,
                     alpha=args.line_search_alpha,
                     beta=args.line_search_beta,
@@ -634,13 +643,11 @@ def main(args: argparse.Namespace):
                     device=device,
                 )
 
-                logs["train_loss"] = initial_train_loss
-                logs["train_accuracy"] = initial_train_accuracy
+                logs["train_loss"] = train_loss
+                logs["train_accuracy"] = train_accuracy
                 logs["updates_information"] = model.update_information()
                 if model.currently_updated_block.eigenvalues_extension is not None:
-                    logs["added_neurons"] = (
-                        model.currently_updated_block.eigenvalues_extension.size(0)
-                    )
+                    logs["added_neurons"] = model.currently_updated_block.eigenvalues_extension.size(0)
                 else:
                     logs["added_neurons"] = 0
                 logs["gamma"] = gamma
@@ -651,18 +658,12 @@ def main(args: argparse.Namespace):
                 model.currently_updated_block.scaling_factor = gamma ** 0.5
                 model.apply_change()
 
-                train_loss = initial_train_loss
-                train_accuracy = initial_train_accuracy
+                # reset the optimizer after growing
+                optimizer = known_optimizers[args.optimizer](model.parameters(), **optim_kwargs)
 
                 if args.normalize_weights:
                     model.normalise()
-                    logs["layers_statistics_pre_normalization"] = (
-                        model.weights_statistics()
-                    )
-
-                optimizer = known_optimizers[args.optimizer](
-                    model.parameters(), **optim_kwargs
-                )
+                    logs["layers_statistics_pre_normalization"] = model.weights_statistics()
 
             else:
                 # set the learning rate
