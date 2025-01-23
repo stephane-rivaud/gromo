@@ -704,12 +704,15 @@ def main(args: argparse.Namespace):
                 logs["GPU utilization"] = torch.cuda.utilization(device)
 
             logger.info(
-                f"Epoch [{step}/{args.nb_step}]: loss {val_loss: .4f} ({train_loss: .4f}) -- accuracy {val_accuracy*100: 2.2f}% ({train_accuracy*100: 2.2f}%) [lr: {optimizer.param_groups[0]['lr']}]"
+                f"Epoch [{step}/{args.nb_step}]: "
+                f"loss {val_loss: .4f} ({train_loss: .4f})"
+                f" -- accuracy {val_accuracy*100: 2.2f}% ({train_accuracy*100: 2.2f}%) [lr: {optimizer.param_groups[0]['lr']}]"
             )
             # display epoch type, maximum memory allocated and maximum memory reserved
             if device.type == "cuda":
                 logger.info(
-                    f"Epoch type: {logs['epoch_type']} -- Maximum memory allocated: {torch.cuda.max_memory_allocated(device) / (1024 ** 3): .2f} GB -- Maximum memory reserved: {torch.cuda.max_memory_reserved(device) / (1024 ** 3): .2f} GB"
+                    f"Peak memory allocated: {torch.cuda.max_memory_allocated(device) / (1024 ** 3): .2f} GB"
+                    f" -- Peak memory reserved: {torch.cuda.max_memory_reserved(device) / (1024 ** 3): .2f} GB"
                 )
 
             log_metrics(logs, step=step)
