@@ -160,7 +160,7 @@ def create_parser() -> argparse.ArgumentParser:
         type=str,
         default="none",
         help="scheduler to use (default: step)",
-        choices=known_schedulers.keys(),
+        choices='cosine',
     )
     scheduler_group.add_argument(
         "--warmup-iters",
@@ -540,13 +540,16 @@ def main(args: argparse.Namespace):
         )
 
         # scheduler
-        scheduler = WarmupCosineLR(
-            optimizer=optimizer,
-            warmup_epochs=args.warmup_iters,
-            total_epochs=args.nb_step,
-            num_batches_per_epoch=len(train_dataloader),
-            min_lr=1e-6,
-        )
+        if args.scheduler == "cosine":
+            scheduler = WarmupCosineLR(
+                optimizer=optimizer,
+                warmup_epochs=args.warmup_iters,
+                total_epochs=args.nb_step,
+                num_batches_per_epoch=len(train_dataloader),
+                min_lr=1e-6,
+            )
+        else:
+            raise ValueError(f"Unknown scheduler: {args.scheduler}")
 
         # set the dtype for growing computations
         growing_dtype = torch.float32
