@@ -491,8 +491,8 @@ def main(args: argparse.Namespace):
             dropout=args.dropout,
         )
         logger.info(f"Model before training:\n{model}")
-        logger.info(f"Number of parameters: {model.number_of_parameters(): ,}M")
-        logger.info(f"Number of parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad): ,}M")
+        logger.info(f"Number of parameters: {model.number_of_parameters(): ,}")
+        logger.info(f"Number of parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad): ,}")
 
 
         # loss function
