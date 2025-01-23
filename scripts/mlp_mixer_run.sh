@@ -40,7 +40,7 @@ command+=" --log-dir $log_dir --experiment-name $experiment_name --tags $tags --
 # Dataset arguments
 dataset="cifar10"
 nb_class=10
-split_train_val=0.3
+split_train_val=0.0
 dataset_path="dataset"
 data_augmentation="randaugment"
 
