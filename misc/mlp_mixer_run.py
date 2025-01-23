@@ -535,6 +535,7 @@ def main(args: argparse.Namespace):
         optimizer = known_optimizers[args.optimizer](
             model.parameters(), **optim_kwargs
         )
+        print(f"Optimizer: {optimizer}")
 
         # scheduler
         scheduler = get_scheduler(
@@ -545,6 +546,7 @@ def main(args: argparse.Namespace):
             lr=args.lr,
             warmup_epochs=args.warmup_epochs,
         )
+        print(f"Scheduler: {scheduler}")
 
         # set the dtype for growing computations
         growing_dtype = torch.float32
@@ -667,7 +669,7 @@ def main(args: argparse.Namespace):
                     logs["layers_statistics_pre_normalization"] = model.weights_statistics()
 
             else:
-                scheduler.current_epoch = step
+                scheduler.current_epoch = step - 1
                 train_loss, train_accuracy = train(
                     model=model,
                     train_dataloader=train_dataloader,

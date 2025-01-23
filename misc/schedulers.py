@@ -109,6 +109,12 @@ class CosineScheduler:
         self.current_epoch = 0
         self.current_step = 0
 
+    def __repr__(self):
+        return self.__str__()
+
+    def __str__(self):
+        return f"CosineScheduler(base_lr={self.base_lr}, min_lr={self.min_lr}, warmup_epochs={self.warmup_epochs}, total_epochs={self.total_epochs})"
+
     def step(self):
         self.current_step += 1
         if self.current_epoch < self.warmup_epochs:
