@@ -67,7 +67,7 @@ def get_dataset(
         dataset_name: str,
         dataset_path: str,
         nb_class: int | None = None,
-        split_train_val: float = 0.1,
+        split_train_val: float = 0.0,
         data_augmentation: list[str] | None = None,
 ) -> tuple[data.Dataset, data.Dataset, data.Dataset]:
     """
