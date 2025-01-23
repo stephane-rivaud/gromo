@@ -1,71 +1,104 @@
-import math
+import torch
 import numpy as np
-from functools import partial
 
 
-def get_scheduler(scheduler, nb_step, lr, warmup_iters):
-    if scheduler == "step":
-        scheduler_kwargs = {
-            "step_size": nb_step // 3,
-            "gamma": 0.1,
-            "lr_init": lr,
-            "warmup_iters": warmup_iters,
-        }
-    elif scheduler == "multistep":
-        scheduler_kwargs = {
-            "milestones": [nb_step // 2, 3 * (nb_step // 4)],
-            "gamma": 0.1,
-            "lr_init": lr,
-            "warmup_iters": warmup_iters,
-        }
-    elif scheduler == "cosine":
-        scheduler_kwargs = {
-            "total_iters": nb_step,
-            "lr_init": lr,
-            "lr_min": 1e-6,
-            "warmup_iters": warmup_iters,
-        }
-    elif scheduler == "none":
-        scheduler_kwargs = {"lr_init": lr}
+def get_scheduler(
+        scheduler_name: str,
+        optimizer: torch.optim.Optimizer,
+        num_epochs: int,
+        num_batches_per_epoch: int,
+        lr: float,
+        warmup_epochs: int,
+):
+    if scheduler_name == "step":
+        return StepScheduler(optimizer, step_size=num_epochs // 3, gamma=0.1, lr_init=lr, num_batches_per_epoch=num_batches_per_epoch, warmup_epochs=warmup_epochs)
+    elif scheduler_name == "multistep":
+        return MultistepScheduler(optimizer, milestones=[num_epochs // 2, 3 * num_epochs // 4], gamma=0.1, lr_init=lr, num_batches_per_epoch=num_batches_per_epoch, warmup_epochs=warmup_epochs)
+    elif scheduler_name == "cosine":
+        return CosineScheduler(optimizer, warmup_epochs=warmup_epochs, total_epochs=num_epochs, num_batches_per_epoch=num_batches_per_epoch, min_lr=1e-6)
+    elif scheduler_name == "none":
+        return ConstantScheduler(optimizer, lr)
     else:
-        raise ValueError(f"Unknown scheduler: {scheduler}")
-
-    scheduler = partial(known_schedulers[scheduler], **scheduler_kwargs)
-    return scheduler
+        raise ValueError(f"Unknown scheduler: {scheduler_name}")
 
 
-def warm_up_lr(iter, total_iters, lr_final):
-    gamma = (iter + 1) / total_iters
-    return gamma * lr_final
+
+def warm_up_lr(iter, total_iters, lr_final, lr_init=0.0):
+    return lr_init + (lr_final - lr_init) * iter / total_iters
 
 
-def step_lr(iter, step_size, gamma, lr_init, warmup_iters=0):
-    if iter < warmup_iters:
-        return warm_up_lr(iter, warmup_iters, lr_init)
-    else:
-        return lr_init * (gamma ** (iter // step_size))
+class StepScheduler:
+    def __init__(self, optimizer, step_size, gamma, lr_init, num_batches_per_epoch, warmup_epochs):
+        self.optimizer = optimizer
+        self.step_size = step_size
+        self.gamma = gamma
+        self.lr = lr_init
+        self.current_epoch = 0
+        self.current_step = 0
+        self.num_batches_per_epoch = num_batches_per_epoch
+        self.warmup_epochs = warmup_epochs
+
+    def step(self):
+        self.current_step += 1
+        if self.current_epoch < self.warmup_epochs:
+            current_step = self.current_epoch * self.num_batches_per_epoch + self.current_step
+            lr = warm_up_lr(current_step, self.warmup_epochs * self.num_batches_per_epoch, self.lr)
+        else:
+            lr = self.lr * (self.gamma ** (self.current_epoch // self.step_size))
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = lr
+
+    def epoch_step(self):
+        self.current_epoch += 1
+        self.current_step = 0
 
 
-def multistep_lr(iter, milestones, gamma, lr_init, warmup_iters=0):
-    if iter < warmup_iters:
-        return warm_up_lr(iter, warmup_iters, lr_init)
-    else:
-        return lr_init * (gamma ** sum(iter >= m for m in milestones))
+class MultistepScheduler:
+    def __init__(self, optimizer, milestones, gamma, lr_init, num_batches_per_epoch, warmup_epochs):
+        self.optimizer = optimizer
+        self.milestones = milestones
+        self.gamma = gamma
+        self.lr = lr_init
+        self.current_epoch = 0
+        self.current_step = 0
+        self.num_batches_per_epoch = num_batches_per_epoch
+        self.warmup_epochs = warmup_epochs
+
+    def step(self):
+        self.current_step += 1
+        if self.current_epoch < self.warmup_epochs:
+            current_step = self.current_epoch * self.num_batches_per_epoch + self.current_step
+            lr = warm_up_lr(current_step, self.warmup_epochs * self.num_batches_per_epoch, self.lr)
+        else:
+            lr = self.lr
+            for milestone in self.milestones:
+                if self.current_epoch >= milestone:
+                    lr *= self.gamma
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = lr
+
+    def epoch_step(self):
+        self.current_epoch += 1
+        self.current_step = 0
 
 
-def cosine_lr(iter, total_iters, lr_init, lr_min=0., warmup_iters=0):
-    if iter < warmup_iters:
-        return warm_up_lr(iter, warmup_iters, lr_init)
-    else:
-        return lr_min + 0.5 * (lr_init - lr_min) * (1 + math.cos(math.pi * (iter - warmup_iters) / (total_iters - warmup_iters)))
 
 
-def constant_lr(iter, lr_init):
-    return lr_init
+class ConstantScheduler:
+    def __init__(self, optimizer, lr):
+        self.optimizer = optimizer
+        self.lr = lr
+
+    def step(self):
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = self.lr
+
+    def epoch_step(self):
+        pass
 
 
 # Learning rate scheduler
-class WarmupCosineLR:
+class CosineScheduler:
     def __init__(self, optimizer, warmup_epochs, total_epochs, num_batches_per_epoch, min_lr=1e-6):
         self.optimizer = optimizer
         self.warmup_epochs = warmup_epochs
@@ -79,7 +112,7 @@ class WarmupCosineLR:
     def step(self):
         self.current_step += 1
         if self.current_epoch < self.warmup_epochs:
-            lr = self.base_lr * (self.current_step / (self.warmup_epochs * self.num_batches_per_epoch))
+            lr = warm_up_lr(self.current_step, self.warmup_epochs * self.num_batches_per_epoch, self.base_lr)
         else:
             progress = ((self.current_step - self.warmup_epochs * self.num_batches_per_epoch) /
                         ((self.total_epochs - self.warmup_epochs) * self.num_batches_per_epoch))
@@ -94,8 +127,8 @@ class WarmupCosineLR:
 
 
 known_schedulers = {
-    "step": step_lr,
-    "multistep": multistep_lr,
-    "cosine": cosine_lr,
-    "constant": constant_lr,
+    "step": StepScheduler,
+    "multistep": MultistepScheduler,
+    "cosine": CosineScheduler,
+    "none": ConstantScheduler,
 }

@@ -9,7 +9,7 @@ from time import time
 from warnings import warn
 
 from auxilliary_functions import evaluate_model, compute_statistics, line_search, topk_accuracy, train, LabelSmoothingLoss
-from schedulers import WarmupCosineLR
+from schedulers import get_scheduler
 from gromo.growing_mlp_mixer import GrowingMLPMixer
 from gromo.utils.datasets import get_dataloaders, known_datasets
 from gromo.utils.utils import global_device, set_device
@@ -163,7 +163,7 @@ def create_parser() -> argparse.ArgumentParser:
         choices=['cosine'],
     )
     scheduler_group.add_argument(
-        "--warmup-iters",
+        "--warmup-epochs",
         type=int,
         default=0,
         help="number of warmup iterations (default: 0)",
@@ -540,16 +540,14 @@ def main(args: argparse.Namespace):
         )
 
         # scheduler
-        if args.scheduler == "cosine":
-            scheduler = WarmupCosineLR(
-                optimizer=optimizer,
-                warmup_epochs=args.warmup_iters,
-                total_epochs=args.nb_step,
-                num_batches_per_epoch=len(train_dataloader),
-                min_lr=1e-6,
-            )
-        else:
-            raise ValueError(f"Unknown scheduler: {args.scheduler}")
+        scheduler = get_scheduler(
+            scheduler_name=args.scheduler,
+            optimizer=optimizer,
+            num_epochs=args.nb_step,
+            num_batches_per_epoch=len(train_dataloader),
+            lr=args.lr,
+            warmup_epochs=args.warmup_epochs,
+        )
 
         # set the dtype for growing computations
         growing_dtype = torch.float32
