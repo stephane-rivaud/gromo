@@ -139,6 +139,18 @@ def get_dataset(
                 augmentation_transforms.append(
                     transforms.RandomCrop(32, padding=4, padding_mode="reflect")
                 )
+            elif aug == "autoaugment":
+                if dataset_name == "cifar10":
+                    policy = transforms.AutoAugmentPolicy.CIFAR10
+                elif dataset_name == "cifar100":
+                    policy = transforms.AutoAugmentPolicy.CIFAR100
+                else:
+                    raise ValueError(f"AutoAugment not available for {dataset_name}")
+                augmentation_transforms.append(
+                    transforms.AutoAugment(policy=policy)
+                )
+            elif aug == "randaugment":
+                augmentation_transforms.append(transforms.RandAugment())
             else:
                 warn(f"Unknown augmentation {aug}")
             # Add more augmentations as needed

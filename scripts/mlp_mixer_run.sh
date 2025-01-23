@@ -73,7 +73,7 @@ dataset="cifar10"
 nb_class=10
 split_train_val=0.3
 dataset_path="dataset"
-data_augmentation="horizontal_flip crop"
+data_augmentation="randaugment"
 
 command="${command} --dataset $dataset --nb-class $nb_class --split-train-val $split_train_val --dataset-path $dataset_path"
 if [ -n "$data_augmentation" ]; then
@@ -97,7 +97,7 @@ fi
 command="${command} --nb-step $nb_step"
 batch_size=128
 optimizer="adamw"
-lr=0.01
+lr=1e-3
 #weight_decay=0
 dropout=0.0
 scheduler="cosine"
