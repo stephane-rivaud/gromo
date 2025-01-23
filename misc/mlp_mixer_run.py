@@ -9,7 +9,7 @@ from time import time
 from warnings import warn
 
 from auxilliary_functions import evaluate_model, compute_statistics, line_search, topk_accuracy, train, LabelSmoothingLoss
-from schedulers import get_scheduler, known_schedulers
+from schedulers import WarmupCosineLR
 from gromo.growing_mlp_mixer import GrowingMLPMixer
 from gromo.utils.datasets import get_dataloaders, known_datasets
 from gromo.utils.utils import global_device, set_device
@@ -540,11 +540,12 @@ def main(args: argparse.Namespace):
         )
 
         # scheduler
-        scheduler = get_scheduler(
-            scheduler=args.scheduler,
-            nb_step=args.nb_step,
-            lr=args.lr,
-            warmup_iters=args.warmup_iters,
+        scheduler = WarmupCosineLR(
+            optimizer=optimizer,
+            warmup_epochs=args.warmup_iters,
+            total_epochs=args.nb_step,
+            num_batches_per_epoch=len(train_dataloader),
+            min_lr=1e-6,
         )
 
         # set the dtype for growing computations
@@ -668,10 +669,7 @@ def main(args: argparse.Namespace):
                     logs["layers_statistics_pre_normalization"] = model.weights_statistics()
 
             else:
-                # set the learning rate
-                for param_group in optimizer.param_groups:
-                    param_group["lr"] = scheduler(step - 1)
-
+                scheduler.current_epoch = step
                 train_loss, train_accuracy = train(
                     model=model,
                     train_dataloader=train_dataloader,
@@ -681,6 +679,7 @@ def main(args: argparse.Namespace):
                     device=device,
                     cutmix_beta=1.0,
                     cutmix_prob=0.5,
+                    scheduler=scheduler,
                 )
 
                 logs["selected_update"] = -1

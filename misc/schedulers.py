@@ -63,6 +63,35 @@ def constant_lr(iter, lr_init):
     return lr_init
 
 
+# Learning rate scheduler
+class WarmupCosineLR:
+    def __init__(self, optimizer, warmup_epochs, total_epochs, num_batches_per_epoch, min_lr=1e-6):
+        self.optimizer = optimizer
+        self.warmup_epochs = warmup_epochs
+        self.total_epochs = total_epochs
+        self.num_batches_per_epoch = num_batches_per_epoch
+        self.min_lr = min_lr
+        self.base_lr = optimizer.param_groups[0]['lr']
+        self.current_epoch = 0
+        self.current_step = 0
+
+    def step(self):
+        self.current_step += 1
+        if self.current_epoch < self.warmup_epochs:
+            lr = self.base_lr * (self.current_step / (self.warmup_epochs * self.num_batches_per_epoch))
+        else:
+            progress = ((self.current_step - self.warmup_epochs * self.num_batches_per_epoch) /
+                        ((self.total_epochs - self.warmup_epochs) * self.num_batches_per_epoch))
+            lr = self.min_lr + 0.5 * (self.base_lr - self.min_lr) * (1 + np.cos(np.pi * progress))
+
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = lr
+
+    def epoch_step(self):
+        self.current_epoch += 1
+        self.current_step = 0
+
+
 known_schedulers = {
     "step": step_lr,
     "multistep": multistep_lr,

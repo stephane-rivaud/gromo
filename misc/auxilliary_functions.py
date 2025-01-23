@@ -145,6 +145,7 @@ def train(
         device: torch.device = global_device(),
         cutmix_beta: float = 1.0,
         cutmix_prob: float = 0.0,
+        scheduler=None,
 ):
     assert (
             loss_function.reduction == "mean"
@@ -189,6 +190,9 @@ def train(
         loss.backward()
         optimizer.step()
 
+        if scheduler is not None:
+            scheduler.step()
+
         # update metrics
         loss_meter.update(loss.item())
         if aux_loss_function:
@@ -196,6 +200,9 @@ def train(
 
         batch_time_meter.update(time() - start_time)
         start_time = time()
+
+    if scheduler is not None:
+        scheduler.epoch_step()
 
     if show:
         print(f"Train: loss={loss_meter.avg:.3e}, accuracy={accuracy_meter.avg:.2f}")
