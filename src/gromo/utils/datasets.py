@@ -213,7 +213,7 @@ def get_dataset(
         train_val_data, [train_size, val_size]
     )
     train_data.dataset.transform = transforms.Compose(
-        datasets_transform + augmentation_transforms
+        augmentation_transforms + datasets_transform
     )
     val_data.dataset.transform = transforms.Compose(datasets_transform)
 
