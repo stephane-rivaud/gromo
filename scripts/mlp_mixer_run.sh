@@ -82,9 +82,9 @@ fi
 
 # Model arguments
 #num_blocks=4
-num_features=16
-hidden_dim_token=4
-hidden_dim_channel=32
+num_features=128
+hidden_dim_token=64
+hidden_dim_channel=512
 bias=true
 
 command="${command} --num-blocks $num_blocks --num-features $num_features --hidden-dim-token $hidden_dim_token --hidden-dim-channel $hidden_dim_channel"
