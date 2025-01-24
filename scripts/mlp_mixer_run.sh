@@ -45,8 +45,8 @@ command+=" --dataset $dataset --nb-class $nb_class --split-train-val $split_trai
 # Model arguments
 num_blocks=8
 num_features=128
-hidden_dim_token=2
-hidden_dim_channel=16
+hidden_dim_token=4
+hidden_dim_channel=32
 bias=true
 
 command+=" --num-blocks $num_blocks --num-features $num_features --hidden-dim-token $hidden_dim_token --hidden-dim-channel $hidden_dim_channel"
