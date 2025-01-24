@@ -306,7 +306,7 @@ def main(args: argparse.Namespace):
             device=device,
         )
 
-        print(f"Epoch [{step + 1}/{args.epochs}] -- Loss: {val_loss:.3f} ({train_loss:.3f}) -- Accuracy: {val_accuracy*100:.3f}% ({train_accuracy*100:.3f}%) [lr: {optimizer.param_groups[0]['lr']:.6f}]")
+        print(f"Epoch [{step + 1}/{args.nb_step}] -- Loss: {val_loss:.3f} ({train_loss:.3f}) -- Accuracy: {val_accuracy*100:.3f}% ({train_accuracy*100:.3f}%) [lr: {optimizer.param_groups[0]['lr']:.6f}]")
         # display epoch type, maximum memory allocated and maximum memory reserved
         # if device.type == "cuda":
         #     print(
