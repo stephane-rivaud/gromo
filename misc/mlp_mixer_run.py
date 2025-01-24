@@ -645,6 +645,7 @@ def main(args: argparse.Namespace):
                     device=device,
                 )
 
+                # update logs
                 logs["epoch_type"] = "growth"
                 logs["train_loss"] = train_loss
                 logs["train_accuracy"] = train_accuracy
@@ -658,15 +659,27 @@ def main(args: argparse.Namespace):
                 logs["loss_history"] = loss_history
                 logs["number_of_line_search_iterations"] = len(gamma_history) - 1
 
+                # update the model
                 model.currently_updated_block.scaling_factor = gamma ** 0.5
                 model.apply_change()
 
+                # optional normalization of the weights
+                if args.normalize_weights:
+                    # logs["layers_statistics_pre_normalization"] = model.weights_statistics()
+                    # model.normalise()
+                    raise NotImplementedError("Normalisation of the weights is not implemented yet.")
+
                 # reset the optimizer after growing
                 optimizer = known_optimizers[args.optimizer](model.parameters(), **optim_kwargs)
-
-                if args.normalize_weights:
-                    model.normalise()
-                    logs["layers_statistics_pre_normalization"] = model.weights_statistics()
+                scheduler = get_scheduler(
+                    scheduler_name=args.scheduler,
+                    optimizer=optimizer,
+                    num_epochs=args.nb_step,
+                    num_batches_per_epoch=len(train_dataloader),
+                    lr=args.lr,
+                    warmup_epochs=args.warmup_epochs,
+                )
+                scheduler.current_epoch = step - 1
 
             else:
                 scheduler.current_epoch = step - 1
