@@ -215,7 +215,7 @@ def get_dataset(
     train_data.dataset.transform = transforms.Compose(
         augmentation_transforms + datasets_transform
     )
-    val_data.dataset.transform = transforms.Compose(datasets_transform)
+    # val_data.dataset.transform = transforms.Compose(datasets_transform)
 
     return train_data, val_data, test_data
 

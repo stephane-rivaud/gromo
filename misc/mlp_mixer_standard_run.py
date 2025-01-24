@@ -228,8 +228,11 @@ def main(args: argparse.Namespace):
         num_workers=args.num_workers,
         device=device,
     )
-    print(f"Training dataset size: {len(train_dataloader.dataset)}")
-    print(f"Validation dataset size: {len(val_dataloader.dataset)}")
+    # print(f"Training dataset: {train_dataloader.dataset}")
+    # print(f"Training dataset size: {len(train_dataloader.dataset)}")
+    # print(f"Training transforms: {train_dataloader.dataset.transform}")
+    # print(f"Validation dataset size: {len(val_dataloader.dataset)}")
+    # print(f"Validation transforms: {val_dataloader.dataset.transform}")
 
     # create the model
     model = GrowingMLPMixer(
