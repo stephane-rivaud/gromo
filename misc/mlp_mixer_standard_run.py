@@ -228,6 +228,7 @@ def main(args: argparse.Namespace):
         num_workers=args.num_workers,
         device=device,
     )
+    print(f"Training dataset size: {len(train_dataloader.dataset)}")
     print(f"Validation dataset size: {len(val_dataloader.dataset)}")
 
     # create the model
@@ -305,17 +306,13 @@ def main(args: argparse.Namespace):
             device=device,
         )
 
-        print(
-            f"Epoch [{step}/{args.nb_step}]: "
-            f"loss {val_loss: .4f} ({train_loss: .4f})"
-            f" -- accuracy {val_accuracy*100: 2.2f}% ({train_accuracy*100: 2.2f}%) [lr: {optimizer.param_groups[0]['lr']: .6f}]"
-        )
+        print(f"Epoch [{step + 1}/{args.epochs}] -- Loss: {val_loss:.3f} ({train_loss:.3f}) -- Accuracy: {val_accuracy*100:.3f}% ({train_accuracy*100:.3f}%) [lr: {optimizer.param_groups[0]['lr']:.6f}]")
         # display epoch type, maximum memory allocated and maximum memory reserved
-        if device.type == "cuda":
-            print(
-                f"Peak memory allocated: {torch.cuda.max_memory_allocated(device) / (1024 ** 3): .2f} GB"
-                f" -- Peak memory reserved: {torch.cuda.max_memory_reserved(device) / (1024 ** 3): .2f} GB"
-            )
+        # if device.type == "cuda":
+        #     print(
+        #         f"Peak memory allocated: {torch.cuda.max_memory_allocated(device) / (1024 ** 3): .2f} GB"
+        #         f" -- Peak memory reserved: {torch.cuda.max_memory_reserved(device) / (1024 ** 3): .2f} GB"
+        #     )
 
     print(f"Total duration: {time() - start_time: .2f} seconds")
     print(f"Model after training:\n{model}")
