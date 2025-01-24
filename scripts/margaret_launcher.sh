@@ -7,9 +7,7 @@
 #epoch_per_growth_list=(-1 8 4)
 #weight_decay_list=(0.0 0.0005)
 
-num_block_list=(8)
-epoch_per_growth_list=(-1)
-weight_decay_list=(5e-5)
+epoch_per_growth_list=(-1 0 2 4 8 16)
 
 # Function to create the slurm directory
 setup_environment() {
@@ -19,19 +17,10 @@ setup_environment() {
 # Function to execute the batch jobs
 
 run_jobs() {
-  for num_blocks in "${num_block_list[@]}"; do
-    for epoch_per_growth in "${epoch_per_growth_list[@]}"; do
-      for weight_decay in "${weight_decay_list[@]}"; do
-        if [ "$num_blocks" == 1 ]; then
-          selection_method='none'
-        else
-          selection_method='fo'
-        fi
-        local command="scripts/mlp_mixer_run.sh $num_blocks $weight_decay $epoch_per_growth $selection_method"
-        echo $command
-        sbatch --partition tau --gres=gpu:1 --time=01:45:00 $command
-      done
-    done
+  for epoch_per_growth in "${epoch_per_growth_list[@]}"; do
+    local command="scripts/mlp_mixer_run.sh $epoch_per_growth"
+    echo $command
+    sbatch --partition tau --gres=gpu:1 --time=12:00:00 $command
   done
 }
 

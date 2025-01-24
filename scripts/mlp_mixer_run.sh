@@ -5,14 +5,10 @@
 #SBATCH --error=slurm/%x-%j.err
 
 # Script parameters
-num_blocks=$1
-weight_decay=$2
-epochs_per_growth=$3
-selection_method=$4
+
 
 echo "TMPDIR: $TMPDIR"
 echo "num_blocks: $num_blocks"
-echo "weight_decay: $weight_decay"
 echo "epochs_per_growth: $epochs_per_growth"
 echo "selection_method: $selection_method"
 
@@ -47,9 +43,10 @@ data_augmentation="randaugment"
 command+=" --dataset $dataset --nb-class $nb_class --split-train-val $split_train_val --dataset-path $dataset_path --data-augmentation $data_augmentation"
 
 # Model arguments
+num_blocks=8
 num_features=128
-hidden_dim_token=64
-hidden_dim_channel=512
+hidden_dim_token=2
+hidden_dim_channel=16
 bias=true
 
 command+=" --num-blocks $num_blocks --num-features $num_features --hidden-dim-token $hidden_dim_token --hidden-dim-channel $hidden_dim_channel"
@@ -61,6 +58,7 @@ batch_size=128
 optimizer="adamw"
 lr=1e-3
 dropout=0.0
+weight_decay=5e-5
 
 command+=" --nb-step $nb_step --batch-size $batch_size --optimizer $optimizer --lr $lr --weight-decay $weight_decay --dropout $dropout"
 
@@ -71,12 +69,14 @@ warmup_epochs=5
 command+=" --scheduler $scheduler --warmup-epochs $warmup_epochs"
 
 # Growing training arguments
+epochs_per_growth=$1
 growing_batch_limit=-1
 growing_part="all"
 growing_numerical_threshold=1e-5
 growing_statistical_threshold=1e-3
 growing_maximum_added_neurons=10
 growing_computation_dtype="float32"
+selection_method='fo'
 normalize_weights=false
 init_new_neurons_with_random_in_and_zero_out=false
 
