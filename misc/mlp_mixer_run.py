@@ -621,6 +621,7 @@ def main(args: argparse.Namespace):
                     maximum_added_neurons=args.growing_maximum_added_neurons,
                     dtype=growing_dtype,
                 )
+                model.reset_computation()
 
                 # select the update to be applied
                 if args.selection_method == "none":
@@ -629,6 +630,8 @@ def main(args: argparse.Namespace):
                     model.select_best_update()
                 else:
                     raise NotImplementedError(f"Unknown selection method: {args.selection_method}")
+
+                model.reset_computation()
 
                 # line search to find the optimal amplitude factor
                 gamma, estimated_loss, gamma_history, loss_history = line_search(
