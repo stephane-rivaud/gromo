@@ -379,6 +379,8 @@ def log_layers_metrics(layer_metrics: dict, step: int, prefix: str | None = None
                 mlflow.log_metric(prefix_key, value, step=step)
             except mlflow.exceptions.MlflowException as e:
                 print(f"Cannot log {prefix_key} with value {value} ({e})")
+            except TypeError as e:
+                print(f"Cannot log {prefix_key} with value {value} ({e})")
 
 
 def log_metrics(metrics: dict, step: int) -> None:
@@ -397,10 +399,15 @@ def log_metrics(metrics: dict, step: int) -> None:
             continue
         elif key == "device" or key == "device_model":
             mlflow.log_param(key, str(value))
+        elif isinstance(value, list):
+            # avoid saturating the console output
+            pass
         else:
             try:
                 mlflow.log_metric(key, value, step=step)
             except mlflow.exceptions.MlflowException as e:
+                print(f"Cannot log {key} with value {value} ({e})")
+            except TypeError as e:
                 print(f"Cannot log {key} with value {value} ({e})")
 
 
@@ -604,6 +611,7 @@ def main(args: argparse.Namespace):
                 cycle_index = -1
 
                 # compute the growth statistics
+                growth_start_time = time()
                 train_loss, train_accuracy = compute_statistics(
                     growing_model=model,
                     dataloader=train_dataloader,
@@ -612,8 +620,11 @@ def main(args: argparse.Namespace):
                     batch_limit=args.growing_batch_limit,
                     device=device,
                 )
+                growth_duration = time() - growth_start_time
+                print(f"Growth statistics computation time: {growth_duration:.4f} seconds")
 
                 # compute the optimal updates
+                optimal_update_start_time = time()
                 model.compute_optimal_update(
                     part=args.growing_part,
                     numerical_threshold=args.growing_numerical_threshold,
@@ -621,6 +632,8 @@ def main(args: argparse.Namespace):
                     maximum_added_neurons=args.growing_maximum_added_neurons,
                     dtype=growing_dtype,
                 )
+                optimal_update_duration = time() - optimal_update_start_time
+                # print(f"Optimal update computation time: {optimal_update_duration:.4f} seconds")
                 model.reset_computation()
 
                 # select the update to be applied
@@ -631,9 +644,8 @@ def main(args: argparse.Namespace):
                 else:
                     raise NotImplementedError(f"Unknown selection method: {args.selection_method}")
 
-                model.reset_computation()
-
                 # line search to find the optimal amplitude factor
+                line_search_start_time = time()
                 gamma, estimated_loss, gamma_history, loss_history = line_search(
                     model=model,
                     dataloader=train_dataloader,
@@ -647,6 +659,8 @@ def main(args: argparse.Namespace):
                     epsilon=args.line_search_epsilon,
                     device=device,
                 )
+                line_search_duration = time() - line_search_start_time
+                print(f"Line search computation time: {line_search_duration:.4f} seconds")
 
                 # update logs
                 logs["epoch_type"] = "growth"
@@ -663,26 +677,19 @@ def main(args: argparse.Namespace):
                 logs["number_of_line_search_iterations"] = len(gamma_history) - 1
 
                 # update the model
+                print(f"Applying update with gamma={gamma}")
                 model.currently_updated_block.scaling_factor = gamma ** 0.5
                 model.apply_change()
 
                 # optional normalization of the weights
                 if args.normalize_weights:
-                    # logs["layers_statistics_pre_normalization"] = model.weights_statistics()
-                    # model.normalise()
+                    logs["layers_statistics_pre_normalization"] = model.weights_statistics()
+                    model.normalise()
                     raise NotImplementedError("Normalisation of the weights is not implemented yet.")
 
                 # reset the optimizer after growing
                 optimizer = known_optimizers[args.optimizer](model.parameters(), **optim_kwargs)
-                scheduler = get_scheduler(
-                    scheduler_name=args.scheduler,
-                    optimizer=optimizer,
-                    num_epochs=args.nb_step,
-                    num_batches_per_epoch=len(train_dataloader),
-                    lr=args.lr,
-                    warmup_epochs=args.warmup_epochs,
-                )
-                scheduler.current_epoch = step - 1
+                scheduler.optimizer = optimizer
 
             else:
                 scheduler.current_epoch = step - 1

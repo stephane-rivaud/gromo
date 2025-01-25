@@ -89,7 +89,7 @@ def extended_evaluate_model(
             y_pred = growing_model.extended_forward(x)
             loss = loss_function(y_pred, y)
             loss_meter.update(loss.item(), x.size(0))
-            if 0 <= batch_limit <= i:
+            if 0 <= batch_limit <= i - 1:
                 break
     return loss_meter.avg
 
@@ -268,7 +268,7 @@ def compute_statistics(
         if aux_loss_function is not None:
             aux_loss = aux_loss_function(y_pred, y)
             aux_loss_meter.update(aux_loss.item() / x.size(0))
-        if 0 <= batch_limit <= i:
+        if 0 <= batch_limit <= i - 1:
             break
     return loss_meter.avg, aux_loss_meter.avg
 

@@ -7,7 +7,7 @@
 #epoch_per_growth_list=(-1 8 4)
 #weight_decay_list=(0.0 0.0005)
 
-epoch_per_growth_list=(-1 0 2 4 8 16)
+epoch_per_growth_list=(-1 4 16 24 32)
 
 # Function to create the slurm directory
 setup_environment() {
