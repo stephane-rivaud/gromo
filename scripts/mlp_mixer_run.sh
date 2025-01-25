@@ -29,9 +29,11 @@ experiment_name="MLP_mixer-${num_blocks}_blocks"
 tags="mlp-mixer"
 log_system_metrics=true
 num_workers=4
+no_cuda=$1
 
 command+=" --log-dir $log_dir --experiment-name $experiment_name --tags $tags --num-workers $num_workers"
 [ "$log_system_metrics" = true ] && command+=" --log-system-metrics"
+[ "$no_cuda" = true ] && command+=" --no-cuda"
 
 # Dataset arguments
 dataset="cifar10"
@@ -43,7 +45,7 @@ data_augmentation="randaugment"
 command+=" --dataset $dataset --nb-class $nb_class --split-train-val $split_train_val --dataset-path $dataset_path --data-augmentation $data_augmentation"
 
 # Model arguments
-num_blocks=1
+num_blocks=8
 num_features=128
 hidden_dim_token=8
 hidden_dim_channel=32

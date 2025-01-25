@@ -8,7 +8,8 @@ import torch.nn as nn
 from time import time
 from warnings import warn
 
-from auxilliary_functions import evaluate_model, compute_statistics, line_search, topk_accuracy, train, LabelSmoothingLoss
+from auxilliary_functions import evaluate_model, compute_statistics, line_search, topk_accuracy, train, \
+    LabelSmoothingLoss
 from schedulers import get_scheduler
 from gromo.growing_mlp_mixer import GrowingMLPMixer
 from gromo.utils.datasets import get_dataloaders, known_datasets
@@ -567,6 +568,7 @@ def main(args: argparse.Namespace):
             raise ValueError(f"Unknown growing dtype: {args.growing_computation_dtype}")
 
         # Initial train and validation scores
+        train_start_time = time()
         train_loss, train_accuracy = evaluate_model(
             model=model,
             loss_function=train_loss_fn,
@@ -574,7 +576,9 @@ def main(args: argparse.Namespace):
             dataloader=train_dataloader,
             device=device,
         )
+        train_duration = time() - train_start_time
 
+        val_start_time = time()
         val_loss, val_accuracy = evaluate_model(
             model=model,
             loss_function=test_loss_fn,
@@ -582,10 +586,12 @@ def main(args: argparse.Namespace):
             dataloader=val_dataloader,
             device=device,
         )
+        val_duration = time() - val_start_time
 
         logger.info(
             f"Initialization: loss {val_loss: .4f} ({train_loss: .4f})"
-            f" -- accuracy {val_accuracy*100: 2.2f}% ({train_accuracy*100: 2.2f}%)"
+            f" -- accuracy {val_accuracy * 100: 2.2f}% ({train_accuracy * 100: 2.2f}%)"
+            f" -- time: {val_duration:.4f}s ({train_duration:.4f}s)"
         )
 
         logs = {
@@ -697,6 +703,7 @@ def main(args: argparse.Namespace):
 
             else:
                 scheduler.current_epoch = step - 1
+                train_start_time = time()
                 train_loss, train_accuracy = train(
                     model=model,
                     train_dataloader=train_dataloader,
@@ -708,12 +715,14 @@ def main(args: argparse.Namespace):
                     cutmix_prob=0.5,
                     scheduler=scheduler,
                 )
+                train_duration = time() - train_start_time
 
                 logs["selected_update"] = -1
                 logs["epoch_type"] = "training"
                 logs["train_loss"] = train_loss
                 logs["train_accuracy"] = train_accuracy
 
+            val_start_time = time()
             val_loss, val_accuracy = evaluate_model(
                 model=model,
                 loss_function=test_loss_fn,
@@ -721,6 +730,7 @@ def main(args: argparse.Namespace):
                 dataloader=val_dataloader,
                 device=device,
             )
+            val_duration = time() - val_start_time
 
             logs["val_loss"] = val_loss
             logs["val_accuracy"] = val_accuracy
@@ -731,16 +741,17 @@ def main(args: argparse.Namespace):
                 logs["GPU utilization"] = torch.cuda.utilization(device)
 
             logger.info(
-                f"Epoch [{step}/{args.nb_step}]: "
+                f"Epoch [{step}/{args.nb_step}] [lr: {optimizer.param_groups[0]['lr']: 1.2e}]: "
                 f"loss {val_loss: .4f} ({train_loss: .4f})"
-                f" -- accuracy {val_accuracy*100: 2.2f}% ({train_accuracy*100: 2.2f}%) [lr: {optimizer.param_groups[0]['lr']: .6f}]"
+                f" -- accuracy {val_accuracy * 100: 2.2f}% ({train_accuracy * 100: 2.2f}%)"
+                f" -- time: {val_duration:.4f}s ({train_duration:.4f}s)"
             )
             # display epoch type, maximum memory allocated and maximum memory reserved
-            if device.type == "cuda":
-                logger.info(
-                    f"Peak memory allocated: {torch.cuda.max_memory_allocated(device) / (1024 ** 3): .2f} GB"
-                    f" -- Peak memory reserved: {torch.cuda.max_memory_reserved(device) / (1024 ** 3): .2f} GB"
-                )
+            # if device.type == "cuda":
+            #     logger.info(
+            #         f"Peak memory allocated: {torch.cuda.max_memory_allocated(device) / (1024 ** 3): .2f} GB"
+            #         f" -- Peak memory reserved: {torch.cuda.max_memory_reserved(device) / (1024 ** 3): .2f} GB"
+            #     )
 
             log_metrics(logs, step=step)
             cycle_index += 1
