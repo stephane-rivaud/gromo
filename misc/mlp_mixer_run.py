@@ -402,6 +402,8 @@ def log_metrics(metrics: dict, step: int) -> None:
         elif isinstance(value, list):
             # avoid saturating the console output
             pass
+        elif key == "updates_information_eigenvalues_extension":
+            pass
         else:
             try:
                 mlflow.log_metric(key, value, step=step)
@@ -672,8 +674,8 @@ def main(args: argparse.Namespace):
                 else:
                     logs["added_neurons"] = 0
                 logs["gamma"] = gamma
-                logs["gamma_history"] = gamma_history
-                logs["loss_history"] = loss_history
+                # logs["gamma_history"] = gamma_history
+                # logs["loss_history"] = loss_history
                 logs["number_of_line_search_iterations"] = len(gamma_history) - 1
 
                 # update the model

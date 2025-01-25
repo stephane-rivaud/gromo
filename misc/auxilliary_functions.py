@@ -267,7 +267,7 @@ def compute_statistics(
         loss_meter.update(loss.item() / x.size(0))
         if aux_loss_function is not None:
             aux_loss = aux_loss_function(y_pred, y)
-            aux_loss_meter.update(aux_loss.item() / x.size(0))
+            aux_loss_meter.update(aux_loss.item(), x.size(0))
         if 0 <= batch_limit <= i - 1:
             break
     return loss_meter.avg, aux_loss_meter.avg
