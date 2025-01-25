@@ -1,8 +1,6 @@
 #!/bin/bash
 
 # Constants for growth parameters
-no_cuda=false
-sbatch scripts/mlp_mixer_run.sh $no_cuda
-
-no_cuda=true
-sbatch scripts/mlp_mixer_run.sh $no_cuda
+for bs in 128 512 2048 8192; do
+    sbatch run_training.sh $bs $epochs $optimizer $scheduler
+done

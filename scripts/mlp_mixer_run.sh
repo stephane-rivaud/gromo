@@ -32,7 +32,7 @@ experiment_name="MLP_mixer-${num_blocks}_blocks"
 tags="mlp-mixer"
 log_system_metrics=true
 num_workers=4
-no_cuda=$1
+no_cuda=false
 
 command+=" --log-dir $log_dir --experiment-name $experiment_name --tags $tags --num-workers $num_workers"
 [ "$log_system_metrics" = true ] && command+=" --log-system-metrics"
@@ -59,7 +59,7 @@ command+=" --num-blocks $num_blocks --num-features $num_features --hidden-dim-to
 
 # Training arguments
 nb_step=300
-batch_size=128
+batch_size=$1
 optimizer="adamw"
 lr=1e-3
 dropout=0.0
