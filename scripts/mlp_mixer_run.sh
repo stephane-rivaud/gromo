@@ -43,10 +43,10 @@ data_augmentation="randaugment"
 command+=" --dataset $dataset --nb-class $nb_class --split-train-val $split_train_val --dataset-path $dataset_path --data-augmentation $data_augmentation"
 
 # Model arguments
-num_blocks=8
+num_blocks=1
 num_features=128
 hidden_dim_token=8
-hidden_dim_channel=64
+hidden_dim_channel=32
 bias=true
 
 command+=" --num-blocks $num_blocks --num-features $num_features --hidden-dim-token $hidden_dim_token --hidden-dim-channel $hidden_dim_channel"
@@ -70,7 +70,7 @@ command+=" --scheduler $scheduler --warmup-epochs $warmup_epochs"
 
 # Growing training arguments
 epochs_per_growth=$1
-growing_batch_limit=-1
+growing_batch_limit=16
 growing_part="all"
 growing_numerical_threshold=1e-5
 growing_statistical_threshold=1e-3
@@ -89,7 +89,7 @@ line_search_alpha=0.1
 line_search_beta=0.5
 line_search_max_iter=20
 line_search_epsilon=1e-7
-line_search_batch_limit=-1
+line_search_batch_limit=16
 
 command+=" --line-search-alpha $line_search_alpha --line-search-beta $line_search_beta --line-search-max-iter $line_search_max_iter --line-search-epsilon $line_search_epsilon --line-search-batch-limit $line_search_batch_limit"
 
