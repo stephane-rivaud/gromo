@@ -1,6 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=mlp-mixer
+#SBATCH --partition=tau
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
 #SBATCH --output=slurm/%x-%j.out
