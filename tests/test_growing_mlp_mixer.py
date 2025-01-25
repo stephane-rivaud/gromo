@@ -60,7 +60,6 @@ if __name__ == "__main__":
     num_batch = 1000
     image_size = 32
     in_channels = 3
-    num_features = 64
     num_classes = 10
     dataset = [
         (
@@ -72,7 +71,9 @@ if __name__ == "__main__":
 
     # Define the model
     patch_size = 4
-    hidden_features = 16
+    num_features = 8
+    hidden_dim_token = 4
+    hidden_dim_channel = 32
     num_layers = 1
     dropout = 0.0
     model = GrowingMLPMixer(
@@ -80,7 +81,8 @@ if __name__ == "__main__":
         patch_size=patch_size,
         in_channels=in_channels,
         num_features=num_features,
-        hidden_features=hidden_features,
+        hidden_dim_token=hidden_dim_token,
+        hidden_dim_channel=hidden_dim_channel,
         num_layers=num_layers,
         num_classes=num_classes,
         dropout=dropout
@@ -92,7 +94,7 @@ if __name__ == "__main__":
     loss_fn_sum = nn.CrossEntropyLoss(reduction='sum')
 
     # Define the optimizer
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9, weight_decay=1e-5)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, betas=(0.9, 0.99), weight_decay=5e-5)
 
     # Initial evaluation
     training_loss_initial = evaluate(model, dataset, loss_fn_mean)
@@ -120,7 +122,7 @@ if __name__ == "__main__":
     print(f"Selected update: {model.currently_updated_block}")
 
     # Training loss with the change
-    scaling_factor = math.sqrt(optimizer.param_groups[0]['lr'])
+    scaling_factor = 0.5  # math.sqrt(optimizer.param_groups[0]['lr'])
     model.currently_updated_block.mlp.second_layer.scaling_factor = scaling_factor
     loss_with_extension = evaluate_with_extension(model, dataset, loss_fn_mean)
     print(f'Training Loss with the change: {loss_with_extension}')

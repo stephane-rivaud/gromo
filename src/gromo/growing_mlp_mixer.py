@@ -304,6 +304,8 @@ class GrowingMLPBlock(nn.Module):
     def weights_statistics(self) -> dict[int, dict[str, dict[str, float] | int]]:
         statistics = {}
         for i, layer in enumerate([self.first_layer, self.second_layer]):
+            if layer.weight.numel() == 0:
+                continue
             statistics[i] = {
                 "weight": self.tensor_statistics(layer.weight),
             }

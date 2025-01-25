@@ -372,6 +372,8 @@ def log_layers_metrics(layer_metrics: dict, step: int, prefix: str | None = None
     """
     for key, value in layer_metrics.items():
         prefix_key = f"{prefix}_{key}" if prefix is not None else key
+        if prefix_key == "updates_information_eigenvalues_extension":
+            pass
         if isinstance(value, dict):
             log_layers_metrics(value, step, prefix=prefix_key)
         else:
