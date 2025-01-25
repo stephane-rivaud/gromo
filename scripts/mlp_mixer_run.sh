@@ -71,7 +71,7 @@ warmup_epochs=5
 command+=" --scheduler $scheduler --warmup-epochs $warmup_epochs"
 
 # Growing training arguments
-epochs_per_growth=$1
+epochs_per_growth=-1
 growing_batch_limit=16
 growing_part="all"
 growing_numerical_threshold=1e-5
