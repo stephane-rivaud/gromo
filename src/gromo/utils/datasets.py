@@ -55,14 +55,14 @@ def get_dataset(
         "mnist": [
             transforms.ToTensor(),
             transforms.Normalize(mnist_mean, mnist_std),
-            transforms.Lambda(lambda x: x.view(-1)),
+            # transforms.Lambda(lambda x: x.view(-1)),
         ],
         "cifar10": [
             transforms.ToTensor(),
             transforms.Normalize(
                 mean=(0.4914, 0.4822, 0.4465), std=(0.2470, 0.2435, 0.2616)
             ),
-            transforms.Lambda(lambda x: x.view(-1)),
+            # transforms.Lambda(lambda x: x.view(-1)),
         ],
     }
     augmentation_transforms = []
