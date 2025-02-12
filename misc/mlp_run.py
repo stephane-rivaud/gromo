@@ -8,7 +8,7 @@ import torch
 from auxilliary_functions import *
 
 from gromo.growing_mlp import GrowingMLP
-from gromo.utils.datasets import get_dataset
+from gromo.utils.datasets import get_dataloaders, known_datasets
 from gromo.utils.utils import global_device, set_device
 
 
@@ -108,7 +108,7 @@ def create_parser() -> argparse.ArgumentParser:
         type=str,
         default="mnist",
         help="dataset to use (default: mnist)",
-        choices=["sin", "mnist", "cifar10"],
+        choices=known_datasets.keys(),
     )
     dataset_group.add_argument(
         "--nb-class", type=int, default=10, help="number of classes (default: 10)"
@@ -326,52 +326,21 @@ def main(args: argparse.Namespace):
             set_device(torch.device("cpu"))
         device: torch.device = global_device()
 
+        # get the dataloaders
         if args.dataset == "sin":
-            input_shape = 1
-            train_dataloader = SinDataloader(
-                nb_sample=1_000, batch_size=args.batch_size, seed=args.seed, device=device
-            )
-            val_dataloader = train_dataloader
-
-            loss_function = AxisMSELoss(reduction="sum")
-            loss_function_mean = AxisMSELoss(reduction="mean")
-            top_1_accuracy: nn.Module | None = None
             args.nb_class = 1
-        else:
-            train_dataset, val_dataset, _ = get_dataset(
-                dataset_name=args.dataset,
-                dataset_path=args.dataset_path,
-                nb_class=args.nb_class,
-                split_train_val=args.split_train_val,
-                data_augmentation=args.data_augmentation,
-                seed=args.seed,
-            )
-            input_shape = train_dataset[0][0].shape
 
-            pin_memory = device != torch.device("cpu")
-            num_workers = 4 if pin_memory else 0
+        train_loader, val_loader, test_loader, input_shape = get_dataloaders(
+            dataset_name=args.dataset,
+            dataset_path=args.dataset_path,
+            nb_class=args.nb_class,
+            split_train_val=args.split_train_val,
+            data_augmentation=args.data_augmentation,
+            batch_size=args.batch_size,
+            device=device,
+        )
 
-            train_dataloader = torch.utils.data.DataLoader(
-                train_dataset,
-                batch_size=args.batch_size,
-                shuffle=True,
-                pin_memory=pin_memory,
-                num_workers=num_workers,
-            )
-            val_dataloader = torch.utils.data.DataLoader(
-                val_dataset,
-                batch_size=args.batch_size,
-                shuffle=False,
-                pin_memory=pin_memory,
-                num_workers=num_workers,
-            )
-
-            del train_dataset, val_dataset
-
-            loss_function = torch.nn.CrossEntropyLoss(reduction="sum")
-            loss_function_mean = torch.nn.CrossEntropyLoss(reduction="mean")
-            top_1_accuracy: nn.Module = Accuracy(k=1)
-
+        # initialize the model
         model = GrowingMLP(
             input_shape=input_shape,
             output_shape=args.nb_class,
@@ -383,6 +352,17 @@ def main(args: argparse.Namespace):
             device=device,
         )
 
+        # initialize the loss function
+        if args.dataset == "sin":
+            loss_function_train = torch.nn.MSELoss(reduction="mean")
+            loss_function_growth = torch.nn.MSELoss(reduction="sum")
+            top_1_accuracy = None
+        else:
+            loss_function_train = torch.nn.CrossEntropyLoss(reduction="mean")
+            loss_function_growth = torch.nn.CrossEntropyLoss(reduction="sum")
+            top_1_accuracy = Accuracy(k=1)
+
+        # growing dtype
         growing_dtype = torch.float32
         if args.growing_computation_dtype == "float64":
             growing_dtype = torch.float64
@@ -394,17 +374,17 @@ def main(args: argparse.Namespace):
 
         train_loss, train_accuracy = evaluate_model(
             model=model,
-            loss_function=loss_function,
+            loss_function=loss_function_train,
             aux_loss_function=top_1_accuracy,
-            dataloader=train_dataloader,
+            dataloader=train_loader,
             device=device,
         )
 
         val_loss, val_accuracy = evaluate_model(
             model=model,
-            loss_function=loss_function,
+            loss_function=loss_function_train,
             aux_loss_function=top_1_accuracy,
-            dataloader=val_dataloader,
+            dataloader=test_loader,
             device=device,
         )
 
@@ -450,8 +430,8 @@ def main(args: argparse.Namespace):
 
                 initial_train_loss, initial_train_accuracy = compute_statistics(
                     growing_model=model,
-                    dataloader=train_dataloader,
-                    loss_function=loss_function,
+                    dataloader=train_loader,
+                    loss_function=loss_function_growth,
                     aux_loss_function=top_1_accuracy,
                     batch_limit=args.growing_batch_limit,
                     device=device,
@@ -487,8 +467,8 @@ def main(args: argparse.Namespace):
                 if not args.init_new_neurons_with_random_in_and_zero_out:
                     gamma, estimated_loss, gamma_history, loss_history = line_search(
                         model=model,
-                        dataloader=train_dataloader,
-                        loss_function=loss_function,
+                        dataloader=train_loader,
+                        loss_function=loss_function_growth,
                         batch_limit=args.line_search_batch_limit,
                         initial_loss=initial_train_loss,
                         first_order_improvement=model.updates_values[
@@ -545,9 +525,9 @@ def main(args: argparse.Namespace):
                 )
                 train_loss, train_accuracy, _, _ = train(
                     model=model,
-                    train_dataloader=train_dataloader,
+                    train_dataloader=train_loader,
                     val_dataloader=None,
-                    loss_function=loss_function_mean,
+                    loss_function=loss_function_train,
                     aux_loss_function=top_1_accuracy,
                     optimizer=optimizer,
                     nb_epoch=1,
@@ -559,9 +539,9 @@ def main(args: argparse.Namespace):
 
             val_loss, val_accuracy = evaluate_model(
                 model=model,
-                loss_function=loss_function,
+                loss_function=loss_function_growth,
                 aux_loss_function=top_1_accuracy,
-                dataloader=val_dataloader,
+                dataloader=test_loader,
                 device=device,
             )
 
