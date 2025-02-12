@@ -16,8 +16,8 @@
     document.documentElement.dataset.mode = localStorage.getItem("mode") || "light";
     document.documentElement.dataset.theme = localStorage.getItem("theme") || "light";
   </script>
-  <!-- 
-    this give us a css class that will be invisible only if js is disabled 
+  <!--
+    this give us a css class that will be invisible only if js is disabled
   -->
   <noscript>
     <style>
@@ -27,10 +27,10 @@
   </noscript>
   
   <!-- Loaded before other Sphinx assets -->
-  <link href="../_static/styles/theme.css?digest=26a4bc78f4c0ddb94549" rel="stylesheet" />
-<link href="../_static/styles/pydata-sphinx-theme.css?digest=26a4bc78f4c0ddb94549" rel="stylesheet" />
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
 
-    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=fa44fd50" />
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=03e43079" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sg_gallery.css?v=d2d258e8" />
     <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-binder.css?v=f4aeca0c" />
@@ -40,10 +40,10 @@
     <link rel="stylesheet" type="text/css" href="../_static/css/custom.css?v=7c1988a6" />
   
   <!-- So that users can add custom icons -->
-  <script src="../_static/scripts/fontawesome.js?digest=26a4bc78f4c0ddb94549"></script>
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=26a4bc78f4c0ddb94549" />
-<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=26a4bc78f4c0ddb94549" />
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
     <script src="../_static/jquery.js?v=5d32c60e"></script>
     <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
@@ -316,9 +316,14 @@
   
   
   <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
   </div>
-  
-  <div id="rtd-footer-container"></div>
 
 
       </div>
@@ -379,14 +384,14 @@ to download the full example code.</p>
 <section id="setup">
 <h2>Setup<a class="headerlink" href="#setup" title="Link to this heading">#</a></h2>
 <p>Importing the modules and verifying gpu availability.</p>
-<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">plt</span>
-<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
-<span class="kn">import</span> <span class="nn">torch</span>
-<span class="kn">import</span> <span class="nn">torch.nn</span> <span class="k">as</span> <span class="nn">nn</span>
-<span class="kn">from</span> <span class="nn">helpers.auxilliary_functions</span> <span class="kn">import</span> <span class="o">*</span>
+<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">helpers.auxilliary_functions</span><span class="w"> </span><span class="kn">import</span> <span class="o">*</span>
 
-<span class="kn">from</span> <span class="nn">gromo.growing_block</span> <span class="kn">import</span> <span class="n">GrowingBlock</span><span class="p">,</span> <span class="n">LinearGrowingBlock</span><span class="p">,</span> <span class="n">LinearGrowingModule</span>
-<span class="kn">from</span> <span class="nn">gromo.growing_mlp</span> <span class="kn">import</span> <span class="n">GrowingMLP</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gromo.growing_block</span><span class="w"> </span><span class="kn">import</span> <span class="n">GrowingBlock</span><span class="p">,</span> <span class="n">LinearGrowingBlock</span><span class="p">,</span> <span class="n">LinearGrowingModule</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gromo.growing_mlp</span><span class="w"> </span><span class="kn">import</span> <span class="n">GrowingMLP</span>
 
 
 <span class="n">DEVICE</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span> <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="k">else</span> <span class="s2">&quot;cpu&quot;</span><span class="p">)</span>
@@ -400,8 +405,8 @@ to download the full example code.</p>
 <section id="auxiliary-functions">
 <h2>Auxiliary functions<a class="headerlink" href="#auxiliary-functions" title="Link to this heading">#</a></h2>
 <p>We define some auxiliary functions to train the model, and plot the results.</p>
-<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">IdDataloader</span><span class="p">:</span>
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
+<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">IdDataloader</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">nb_sample</span></a><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">batch_size</span></a><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">100</span><span class="p">,</span> <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">DEVICE</span>
     <span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">nb_sample</span></a> <span class="o">=</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">nb_sample</span></a>
@@ -410,12 +415,12 @@ to download the full example code.</p>
         <span class="bp">self</span><span class="o">.</span><span class="n">sample_index</span> <span class="o">=</span> <span class="mi">0</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">device</span> <span class="o">=</span> <span class="n">device</span>
 
-    <span class="k">def</span> <span class="fm">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">seed</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">sample_index</span> <span class="o">=</span> <span class="mi">0</span>
         <span class="k">return</span> <span class="bp">self</span>
 
-    <span class="k">def</span> <span class="fm">__next__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__next__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">sample_index</span> <span class="o">&gt;=</span> <span class="bp">self</span><span class="o">.</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">nb_sample</span></a><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">StopIteration</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">sample_index</span> <span class="o">+=</span> <span class="mi">1</span>
@@ -423,7 +428,7 @@ to download the full example code.</p>
         <span class="k">return</span> <span class="n">x</span><span class="p">,</span> <span class="n">x</span>
 
 
-<span class="k">def</span> <span class="nf">plt_model</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <a href="https://matplotlib.org/stable/api/_as_gen/matplotlib.figure.Figure.html#matplotlib.figure.Figure" title="matplotlib.figure.Figure" class="sphx-glr-backref-module-matplotlib-figure sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">fig</span></a><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">plt_model</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <a href="https://matplotlib.org/stable/api/_as_gen/matplotlib.figure.Figure.html#matplotlib.figure.Figure" title="matplotlib.figure.Figure" class="sphx-glr-backref-module-matplotlib-figure sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">fig</span></a><span class="p">):</span>
     <span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span> <span class="o">*</span> <a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">pi</span></a><span class="p">,</span> <span class="mi">1000</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">DEVICE</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
     <span class="n">y</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
     <span class="n">y_pred</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
@@ -439,7 +444,7 @@ to download the full example code.</p>
     <a href="https://matplotlib.org/stable/api/_as_gen/matplotlib.figure.Figure.html#matplotlib.figure.Figure" title="matplotlib.figure.Figure" class="sphx-glr-backref-module-matplotlib-figure sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">fig</span><span class="o">.</span><span class="n">set_ylabel</span></a><span class="p">(</span><span class="s2">&quot;sin(x)&quot;</span><span class="p">)</span>
 
 
-<span class="k">def</span> <span class="nf">plt_model_id</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <a href="https://matplotlib.org/stable/api/_as_gen/matplotlib.figure.Figure.html#matplotlib.figure.Figure" title="matplotlib.figure.Figure" class="sphx-glr-backref-module-matplotlib-figure sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">fig</span></a><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">plt_model_id</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <a href="https://matplotlib.org/stable/api/_as_gen/matplotlib.figure.Figure.html#matplotlib.figure.Figure" title="matplotlib.figure.Figure" class="sphx-glr-backref-module-matplotlib-figure sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">fig</span></a><span class="p">):</span>
     <span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1000</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">DEVICE</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
     <span class="c1"># y = torch.selu(x)</span>
     <span class="n">y</span> <span class="o">=</span> <span class="n">x</span>
@@ -520,36 +525,36 @@ to download the full example code.</p>
 </ul>
 <div class="sphx-glr-script-out highlight-none notranslate"><div class="highlight"><pre><span></span>  0%|          | 0/15 [00:00&lt;?, ?it/s]Epoch 0:   Train: loss=9.557e-04, accuracy=0.00
 
-  7%|▋         | 1/15 [00:01&lt;00:16,  1.15s/it]Epoch 1:   Train: loss=9.207e-04, accuracy=0.00
+  7%|▋         | 1/15 [00:01&lt;00:16,  1.19s/it]Epoch 1:   Train: loss=9.207e-04, accuracy=0.00
 
- 13%|█▎        | 2/15 [00:02&lt;00:14,  1.15s/it]Epoch 2:   Train: loss=9.079e-04, accuracy=0.00
+ 13%|█▎        | 2/15 [00:02&lt;00:15,  1.18s/it]Epoch 2:   Train: loss=9.079e-04, accuracy=0.00
 
- 20%|██        | 3/15 [00:03&lt;00:13,  1.14s/it]Epoch 3:   Train: loss=8.995e-04, accuracy=0.00
+ 20%|██        | 3/15 [00:03&lt;00:14,  1.18s/it]Epoch 3:   Train: loss=8.995e-04, accuracy=0.00
 
- 27%|██▋       | 4/15 [00:04&lt;00:12,  1.14s/it]Epoch 4:   Train: loss=8.928e-04, accuracy=0.00
+ 27%|██▋       | 4/15 [00:04&lt;00:13,  1.18s/it]Epoch 4:   Train: loss=8.928e-04, accuracy=0.00
 
- 33%|███▎      | 5/15 [00:05&lt;00:11,  1.14s/it]Epoch 5:   Train: loss=8.872e-04, accuracy=0.00
+ 33%|███▎      | 5/15 [00:05&lt;00:11,  1.18s/it]Epoch 5:   Train: loss=8.872e-04, accuracy=0.00
 
- 40%|████      | 6/15 [00:06&lt;00:10,  1.14s/it]Epoch 6:   Train: loss=8.825e-04, accuracy=0.00
+ 40%|████      | 6/15 [00:07&lt;00:10,  1.18s/it]Epoch 6:   Train: loss=8.825e-04, accuracy=0.00
 
- 47%|████▋     | 7/15 [00:07&lt;00:09,  1.14s/it]Epoch 7:   Train: loss=8.785e-04, accuracy=0.00
+ 47%|████▋     | 7/15 [00:08&lt;00:09,  1.18s/it]Epoch 7:   Train: loss=8.785e-04, accuracy=0.00
 
- 53%|█████▎    | 8/15 [00:09&lt;00:07,  1.14s/it]Epoch 8:   Train: loss=8.749e-04, accuracy=0.00
+ 53%|█████▎    | 8/15 [00:09&lt;00:08,  1.18s/it]Epoch 8:   Train: loss=8.749e-04, accuracy=0.00
 
- 60%|██████    | 9/15 [00:10&lt;00:06,  1.14s/it]Epoch 9:   Train: loss=8.718e-04, accuracy=0.00
+ 60%|██████    | 9/15 [00:10&lt;00:07,  1.18s/it]Epoch 9:   Train: loss=8.718e-04, accuracy=0.00
 
- 67%|██████▋   | 10/15 [00:11&lt;00:05,  1.15s/it]Epoch 10:         Train: loss=8.689e-04, accuracy=0.00
+ 67%|██████▋   | 10/15 [00:11&lt;00:05,  1.18s/it]Epoch 10:         Train: loss=8.689e-04, accuracy=0.00
 
- 73%|███████▎  | 11/15 [00:12&lt;00:04,  1.15s/it]Epoch 11:         Train: loss=8.664e-04, accuracy=0.00
+ 73%|███████▎  | 11/15 [00:13&lt;00:04,  1.19s/it]Epoch 11:         Train: loss=8.664e-04, accuracy=0.00
 
- 80%|████████  | 12/15 [00:13&lt;00:03,  1.15s/it]Epoch 12:         Train: loss=8.641e-04, accuracy=0.00
+ 80%|████████  | 12/15 [00:14&lt;00:03,  1.20s/it]Epoch 12:         Train: loss=8.641e-04, accuracy=0.00
 
- 87%|████████▋ | 13/15 [00:14&lt;00:02,  1.16s/it]Epoch 13:         Train: loss=8.620e-04, accuracy=0.00
+ 87%|████████▋ | 13/15 [00:15&lt;00:02,  1.20s/it]Epoch 13:         Train: loss=8.620e-04, accuracy=0.00
 
- 93%|█████████▎| 14/15 [00:16&lt;00:01,  1.16s/it]Epoch 14:         Train: loss=8.601e-04, accuracy=0.00
+ 93%|█████████▎| 14/15 [00:16&lt;00:01,  1.20s/it]Epoch 14:         Train: loss=8.601e-04, accuracy=0.00
 
-100%|██████████| 15/15 [00:17&lt;00:00,  1.16s/it]
-100%|██████████| 15/15 [00:17&lt;00:00,  1.15s/it]
+100%|██████████| 15/15 [00:17&lt;00:00,  1.20s/it]
+100%|██████████| 15/15 [00:17&lt;00:00,  1.19s/it]
 Initial error: 8.59e-04
 </pre></div>
 </div>
@@ -558,7 +563,7 @@ Initial error: 8.59e-04
 <h2>Growing MLP<a class="headerlink" href="#growing-mlp" title="Link to this heading">#</a></h2>
 <p>We define a growing MLP model to approximate the sin function.
 Define some auxiliary functions to train the model, and plot the results.</p>
-<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">plot</span><span class="p">():</span>
+<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">plot</span><span class="p">():</span>
     <a href="https://matplotlib.org/stable/api/_as_gen/matplotlib.figure.Figure.html#matplotlib.figure.Figure" title="matplotlib.figure.Figure" class="sphx-glr-backref-module-matplotlib-figure sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">fig</span></a><span class="p">,</span> <a href="https://matplotlib.org/stable/api/_as_gen/matplotlib.axes.Axes.html#matplotlib.axes.Axes" title="matplotlib.axes.Axes" class="sphx-glr-backref-module-matplotlib-axes sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ax</span></a> <span class="o">=</span> <a href="https://matplotlib.org/stable/api/_as_gen/matplotlib.pyplot.subplots.html#matplotlib.pyplot.subplots" title="matplotlib.pyplot.subplots" class="sphx-glr-backref-module-matplotlib-pyplot sphx-glr-backref-type-py-function"><span class="n">plt</span><span class="o">.</span><span class="n">subplots</span></a><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
     <span class="n">plt_model</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <a href="https://matplotlib.org/stable/api/_as_gen/matplotlib.axes.Axes.html#matplotlib.axes.Axes" title="matplotlib.axes.Axes" class="sphx-glr-backref-module-matplotlib-axes sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ax</span></a><span class="p">)</span>
 
@@ -567,7 +572,7 @@ Define some auxiliary functions to train the model, and plot the results.</p>
 <span class="n">loss_func_mean</span> <span class="o">=</span> <span class="n">AxisMSELoss</span><span class="p">(</span><span class="n">reduction</span><span class="o">=</span><span class="s2">&quot;mean&quot;</span><span class="p">)</span>
 
 
-<span class="k">def</span> <span class="nf">step</span><span class="p">(</span><span class="n">show</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">selected_layer</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">gamma_sample</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">100</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">step</span><span class="p">(</span><span class="n">show</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">selected_layer</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">gamma_sample</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">100</span><span class="p">):</span>
 
     <span class="n">train_dataloader</span> <span class="o">=</span> <span class="n">SinDataloader</span><span class="p">(</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">nb_sample</span></a><span class="o">=</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">nb_sample</span></a><span class="p">,</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">batch_size</span></a><span class="o">=</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">batch_size</span></a><span class="p">)</span>
 
@@ -641,7 +646,7 @@ Define some auxiliary functions to train the model, and plot the results.</p>
         <a href="https://matplotlib.org/stable/api/_as_gen/matplotlib.pyplot.legend.html#matplotlib.pyplot.legend" title="matplotlib.pyplot.legend" class="sphx-glr-backref-module-matplotlib-pyplot sphx-glr-backref-type-py-function"><span class="n">plt</span><span class="o">.</span><span class="n">legend</span></a><span class="p">()</span>
 
 
-<span class="k">def</span> <span class="nf">info</span><span class="p">():</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">info</span><span class="p">():</span>
     <span class="n">loss</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">evaluate_model</span><span class="p">(</span>
         <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
         <span class="n">loss_function</span><span class="o">=</span><span class="n">loss_func_mean</span><span class="p">,</span>
@@ -692,7 +697,7 @@ LinearGrowingModule(LinearGrowingModule(Layer 2))(in_features=10, out_features=1
 <span class="c1"># info()</span>
 </pre></div>
 </div>
-<p class="sphx-glr-timing"><strong>Total running time of the script:</strong> (0 minutes 21.526 seconds)</p>
+<p class="sphx-glr-timing"><strong>Total running time of the script:</strong> (0 minutes 22.855 seconds)</p>
 <div class="sphx-glr-footer sphx-glr-footer-example docutils container" id="sphx-glr-download-auto-examples-plot-mlp-run-py">
 <div class="sphx-glr-download sphx-glr-download-jupyter docutils container">
 <p><a class="reference download internal" download="" href="../_downloads/7d13a297f4e0f5670792ab2433d6e7a9/plot_mlp_run.ipynb"><code class="xref download docutils literal notranslate"><span class="pre">Download</span> <span class="pre">Jupyter</span> <span class="pre">notebook:</span> <span class="pre">plot_mlp_run.ipynb</span></code></a></p>
@@ -775,8 +780,8 @@ LinearGrowingModule(LinearGrowingModule(Layer 2))(in_features=10, out_features=1
   </div>
   
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script defer src="../_static/scripts/bootstrap.js?digest=26a4bc78f4c0ddb94549"></script>
-<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=26a4bc78f4c0ddb94549"></script>
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
 
   <footer class="bd-footer">
 <div class="bd-footer__inner bd-page-width">
@@ -787,7 +792,7 @@ LinearGrowingModule(LinearGrowingModule(Layer 2))(in_features=10, out_features=1
 
   <p class="copyright">
     
-      © Copyright 2024-2024 GroMo contributors.
+      © Copyright 2024-2025 GroMo contributors.
       <br/>
     
   </p>
@@ -801,7 +806,8 @@ LinearGrowingModule(LinearGrowingModule(Layer 2))(in_features=10, out_features=1
       
         <div class="footer-item">
 <p class="theme-version">
-  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.0.
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
 </p></div>
       
     </div>

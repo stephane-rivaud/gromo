@@ -16,8 +16,8 @@
     document.documentElement.dataset.mode = localStorage.getItem("mode") || "light";
     document.documentElement.dataset.theme = localStorage.getItem("theme") || "light";
   </script>
-  <!-- 
-    this give us a css class that will be invisible only if js is disabled 
+  <!--
+    this give us a css class that will be invisible only if js is disabled
   -->
   <noscript>
     <style>
@@ -27,10 +27,10 @@
   </noscript>
   
   <!-- Loaded before other Sphinx assets -->
-  <link href="_static/styles/theme.css?digest=26a4bc78f4c0ddb94549" rel="stylesheet" />
-<link href="_static/styles/pydata-sphinx-theme.css?digest=26a4bc78f4c0ddb94549" rel="stylesheet" />
+  <link href="_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
 
-    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=fa44fd50" />
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=03e43079" />
     <link rel="stylesheet" type="text/css" href="_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="_static/sg_gallery.css?v=d2d258e8" />
     <link rel="stylesheet" type="text/css" href="_static/sg_gallery-binder.css?v=f4aeca0c" />
@@ -40,10 +40,10 @@
     <link rel="stylesheet" type="text/css" href="_static/css/custom.css?v=7c1988a6" />
   
   <!-- So that users can add custom icons -->
-  <script src="_static/scripts/fontawesome.js?digest=26a4bc78f4c0ddb94549"></script>
+  <script src="_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=26a4bc78f4c0ddb94549" />
-<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=26a4bc78f4c0ddb94549" />
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
     <script src="_static/jquery.js?v=5d32c60e"></script>
     <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
@@ -313,9 +313,14 @@
   
   
   <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
   </div>
-  
-  <div id="rtd-footer-container"></div>
 
 
       </div>
@@ -370,6 +375,12 @@
 <section id="enhancements">
 <h3>Enhancements<a class="headerlink" href="#enhancements" title="Link to this heading">#</a></h3>
 <ul class="simple">
+<li><p>Add support for Conv2d layers in the sequential case (<a class="reference external" href="https://github.com/growingnet/gromo/issues/34">#34</a> by <a class="reference external" href="https://github.com/TheoRudkiewicz">Théo Rudkiewicz</a>)</p></li>
+<li><p>Replaced the <cite>assert</cite> statements with <cite>self.assert*</cite> methods in the unit tests (<a class="reference external" href="https://github.com/growingnet/gromo/issues/50">#50</a> by <a class="reference external" href="https://github.com/TheoRudkiewicz">Théo Rudkiewicz</a>)</p></li>
+<li><p>Reduce unit tests computational load, add parametrized unit tests (<a class="reference external" href="https://github.com/growingnet/gromo/issues/46">#46</a> by <a class="reference external" href="https://github.com/sylvchev">Sylvain Chevallier</a>)</p></li>
+<li><p>Add the possibly to separate S for natural gradient and S for new weights (<a class="reference external" href="https://github.com/growingnet/gromo/issues/33">#33</a> by <a class="reference external" href="https://github.com/TheoRudkiewicz">Théo Rudkiewicz</a>)</p></li>
+<li><p>Added GPU tracking (<a class="reference external" href="https://github.com/growingnet/gromo/issues/16">#16</a> by <a class="reference external" href="https://github.com/stelladk">Stella Douka</a>)</p></li>
+<li><p>Added Bayesian Information Criterion for selecting network expansion (<a class="reference external" href="https://github.com/growingnet/gromo/issues/16">#16</a> by <a class="reference external" href="https://github.com/stelladk">Stella Douka</a>)</p></li>
 <li><p>Unified documentation style (<a class="reference external" href="https://github.com/growingnet/gromo/issues/14">#14</a> by <a class="reference external" href="https://github.com/stelladk">Stella Douka</a>)</p></li>
 <li><p>Updated Unit Tests (<a class="reference external" href="https://github.com/growingnet/gromo/issues/14">#14</a> by <a class="reference external" href="https://github.com/stelladk">Stella Douka</a>)</p></li>
 <li><p>Option to disable logging (<a class="reference external" href="https://github.com/growingnet/gromo/issues/14">#14</a> by <a class="reference external" href="https://github.com/stelladk">Stella Douka</a>)</p></li>
@@ -378,9 +389,20 @@
 </section>
 <section id="bugs">
 <h3>Bugs<a class="headerlink" href="#bugs" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p>Use a different scaling factor for input and output extensions. In addition, <code class="docutils literal notranslate"><span class="pre">apply_change</span></code> and <code class="docutils literal notranslate"><span class="pre">extended_forward</span></code> have now compatible behavior in terms of scaling factor. (<a class="reference external" href="https://github.com/growingnet/gromo/issues/48">#48</a> by <a class="reference external" href="https://github.com/TheoRudkiewicz">Théo Rudkiewicz</a>)</p></li>
+<li><p>Fix the change application when updating the previous layer (<a class="reference external" href="https://github.com/growingnet/gromo/issues/48">#48</a> by <a class="reference external" href="https://github.com/TheoRudkiewicz">Théo Rudkiewicz</a>)</p></li>
+<li><p>Fix the sub-selection of added neurons in the sequential case (<a class="reference external" href="https://github.com/growingnet/gromo/issues/41">#41</a> by <a class="reference external" href="https://github.com/TheoRudkiewicz">Théo Rudkiewicz</a>)</p></li>
+<li><p>Correct codecov upload (<a class="reference external" href="https://github.com/growingnet/gromo/issues/49">#49</a> by <a class="reference external" href="https://github.com/sylvchev">Sylvain Chevallier</a>)</p></li>
+<li><p>Fix the data augmentation bug in get_dataset (<a class="reference external" href="https://github.com/growingnet/gromo/issues/58">#58</a> by <a class="reference external" href="https://github.com/streethagore">Stéphane Rivaud</a>)</p></li>
+<li><p>Fix dataset input_shape: remove the flattening in data augmentation (<a class="reference external" href="https://github.com/growingnet/gromo/issues/56">#56</a> by <a class="reference external" href="https://github.com/streethagore">Stéphane Rivaud</a>)</p></li>
+</ul>
 </section>
 <section id="api-changes">
 <h3>API changes<a class="headerlink" href="#api-changes" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p>None</p></li>
+</ul>
 </section>
 </section>
 </section>
@@ -454,8 +476,8 @@
   </div>
   
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script defer src="_static/scripts/bootstrap.js?digest=26a4bc78f4c0ddb94549"></script>
-<script defer src="_static/scripts/pydata-sphinx-theme.js?digest=26a4bc78f4c0ddb94549"></script>
+  <script defer src="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
 
   <footer class="bd-footer">
 <div class="bd-footer__inner bd-page-width">
@@ -466,7 +488,7 @@
 
   <p class="copyright">
     
-      © Copyright 2024-2024 GroMo contributors.
+      © Copyright 2024-2025 GroMo contributors.
       <br/>
     
   </p>
@@ -480,7 +502,8 @@
       
         <div class="footer-item">
 <p class="theme-version">
-  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.0.
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
 </p></div>
       
     </div>

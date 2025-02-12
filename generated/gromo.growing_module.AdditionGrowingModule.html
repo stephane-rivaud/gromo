@@ -16,8 +16,8 @@
     document.documentElement.dataset.mode = localStorage.getItem("mode") || "light";
     document.documentElement.dataset.theme = localStorage.getItem("theme") || "light";
   </script>
-  <!-- 
-    this give us a css class that will be invisible only if js is disabled 
+  <!--
+    this give us a css class that will be invisible only if js is disabled
   -->
   <noscript>
     <style>
@@ -27,10 +27,10 @@
   </noscript>
   
   <!-- Loaded before other Sphinx assets -->
-  <link href="../_static/styles/theme.css?digest=26a4bc78f4c0ddb94549" rel="stylesheet" />
-<link href="../_static/styles/pydata-sphinx-theme.css?digest=26a4bc78f4c0ddb94549" rel="stylesheet" />
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
 
-    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=fa44fd50" />
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=03e43079" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/sg_gallery.css?v=d2d258e8" />
     <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-binder.css?v=f4aeca0c" />
@@ -40,10 +40,10 @@
     <link rel="stylesheet" type="text/css" href="../_static/css/custom.css?v=7c1988a6" />
   
   <!-- So that users can add custom icons -->
-  <script src="../_static/scripts/fontawesome.js?digest=26a4bc78f4c0ddb94549"></script>
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=26a4bc78f4c0ddb94549" />
-<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=26a4bc78f4c0ddb94549" />
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
     <script src="../_static/jquery.js?v=5d32c60e"></script>
     <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
@@ -313,9 +313,14 @@
   
   
   <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
   </div>
-  
-  <div id="rtd-footer-container"></div>
 
 
       </div>
@@ -365,7 +370,7 @@
 <h1>gromo.growing_module.AdditionGrowingModule<a class="headerlink" href="#gromo-growing-module-additiongrowingmodule" title="Link to this heading">#</a></h1>
 <dl class="py class">
 <dt class="sig sig-object py" id="gromo.growing_module.AdditionGrowingModule">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gromo.growing_module.</span></span><span class="sig-name descname"><span class="pre">AdditionGrowingModule</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">post_addition_function</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Module</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">Identity()</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">previous_modules</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#gromo.growing_module.AdditionGrowingModule" title="gromo.growing_module.AdditionGrowingModule"><span class="pre">AdditionGrowingModule</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference internal" href="gromo.growing_module.GrowingModule.html#gromo.growing_module.GrowingModule" title="gromo.growing_module.GrowingModule"><span class="pre">GrowingModule</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">next_modules</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#gromo.growing_module.AdditionGrowingModule" title="gromo.growing_module.AdditionGrowingModule"><span class="pre">AdditionGrowingModule</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference internal" href="gromo.growing_module.GrowingModule.html#gromo.growing_module.GrowingModule" title="gromo.growing_module.GrowingModule"><span class="pre">GrowingModule</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">allow_growing</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tensor_s_shape</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">device</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference external" href="https://github.com/growingnet/gromo/blob/main/gromo/src/growing_module.py#L11-L357"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#gromo.growing_module.AdditionGrowingModule" title="Link to this definition">#</a></dt>
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gromo.growing_module.</span></span><span class="sig-name descname"><span class="pre">AdditionGrowingModule</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">post_addition_function</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Module</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">Identity()</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">previous_modules</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#gromo.growing_module.AdditionGrowingModule" title="gromo.growing_module.AdditionGrowingModule"><span class="pre">AdditionGrowingModule</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference internal" href="gromo.growing_module.GrowingModule.html#gromo.growing_module.GrowingModule" title="gromo.growing_module.GrowingModule"><span class="pre">GrowingModule</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">next_modules</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#gromo.growing_module.AdditionGrowingModule" title="gromo.growing_module.AdditionGrowingModule"><span class="pre">AdditionGrowingModule</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference internal" href="gromo.growing_module.GrowingModule.html#gromo.growing_module.GrowingModule" title="gromo.growing_module.GrowingModule"><span class="pre">GrowingModule</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">allow_growing</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tensor_s_shape</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">device</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference external" href="https://github.com/growingnet/gromo/blob/main/gromo/src/growing_module.py#L11-L384"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#gromo.growing_module.AdditionGrowingModule" title="Link to this definition">#</a></dt>
 <dd><p>Module to connect multiple modules with an addition operation.
 This module does not perform the addition operation, it is done by the user.</p>
 <dl class="py method">
@@ -437,7 +442,7 @@ This module does not perform the addition operation, it is done by the user.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="gromo.growing_module.AdditionGrowingModule.delete_update">
-<span class="sig-name descname"><span class="pre">delete_update</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">include_previous</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference external" href="https://github.com/growingnet/gromo/blob/main/gromo/src/growing_module.py#L275-L286"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#gromo.growing_module.AdditionGrowingModule.delete_update" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">delete_update</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">include_previous</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference external" href="https://github.com/growingnet/gromo/blob/main/gromo/src/growing_module.py#L275-L285"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#gromo.growing_module.AdditionGrowingModule.delete_update" title="Link to this definition">#</a></dt>
 <dd><p>Delete the update of the optimal added parameters.</p>
 </dd></dl>
 
@@ -469,7 +474,7 @@ registered hooks while the latter silently ignores them.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="gromo.growing_module.AdditionGrowingModule.parameters">
-<span class="sig-name descname"><span class="pre">parameters</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">recurse</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterator" title="(in Python v3.13)"><span class="pre">Iterator</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Parameter</span><span class="p"><span class="pre">]</span></span></span></span><a class="reference external" href="https://github.com/growingnet/gromo/blob/main/gromo/src/growing_module.py#L332-L333"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#gromo.growing_module.AdditionGrowingModule.parameters" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">parameters</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">recurse</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterator" title="(in Python v3.13)"><span class="pre">Iterator</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Parameter</span><span class="p"><span class="pre">]</span></span></span></span><a class="reference external" href="https://github.com/growingnet/gromo/blob/main/gromo/src/growing_module.py#L331-L332"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#gromo.growing_module.AdditionGrowingModule.parameters" title="Link to this definition">#</a></dt>
 <dd><p>Return an iterator over module parameters.</p>
 <p>This is typically passed to an optimizer.</p>
 <dl class="field-list simple">
@@ -539,7 +544,7 @@ dLoss/dA - dW B[-1]</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="gromo.growing_module.AdditionGrowingModule.sum_in_features">
-<span class="sig-name descname"><span class="pre">sum_in_features</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">with_bias</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></span><a class="reference external" href="https://github.com/growingnet/gromo/blob/main/gromo/src/growing_module.py#L335-L347"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#gromo.growing_module.AdditionGrowingModule.sum_in_features" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">sum_in_features</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">with_bias</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></span><a class="reference external" href="https://github.com/growingnet/gromo/blob/main/gromo/src/growing_module.py#L334-L346"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#gromo.growing_module.AdditionGrowingModule.sum_in_features" title="Link to this definition">#</a></dt>
 <dd><p>Count total in_features of previous modules</p>
 <dl class="field-list simple">
 <dt class="field-odd">Returns<span class="colon">:</span></dt>
@@ -553,7 +558,7 @@ dLoss/dA - dW B[-1]</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="gromo.growing_module.AdditionGrowingModule.sum_out_features">
-<span class="sig-name descname"><span class="pre">sum_out_features</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></span><a class="reference external" href="https://github.com/growingnet/gromo/blob/main/gromo/src/growing_module.py#L349-L357"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#gromo.growing_module.AdditionGrowingModule.sum_out_features" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">sum_out_features</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></span><a class="reference external" href="https://github.com/growingnet/gromo/blob/main/gromo/src/growing_module.py#L348-L356"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#gromo.growing_module.AdditionGrowingModule.sum_out_features" title="Link to this definition">#</a></dt>
 <dd><p>Count total out_features of next modules</p>
 <dl class="field-list simple">
 <dt class="field-odd">Returns<span class="colon">:</span></dt>
@@ -566,8 +571,21 @@ dLoss/dA - dW B[-1]</p>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="gromo.growing_module.AdditionGrowingModule.update_scaling_factor">
+<span class="sig-name descname"><span class="pre">update_scaling_factor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">scaling_factor</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference external" href="https://github.com/growingnet/gromo/blob/main/gromo/src/growing_module.py#L358-L384"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#gromo.growing_module.AdditionGrowingModule.update_scaling_factor" title="Link to this definition">#</a></dt>
+<dd><p>Update the scaling factor of all next modules and
+the _next_module_scaling_factor of the previous modules.
+Does only work if previous and next modules are GrowingModule.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>scaling_factor</strong> (<em>torch.Tensor</em><em> | </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a>) – scaling factor to apply to the optimal delta</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="gromo.growing_module.AdditionGrowingModule.update_size">
-<span class="sig-name descname"><span class="pre">update_size</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference external" href="https://github.com/growingnet/gromo/blob/main/gromo/src/growing_module.py#L288-L326"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#gromo.growing_module.AdditionGrowingModule.update_size" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">update_size</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference external" href="https://github.com/growingnet/gromo/blob/main/gromo/src/growing_module.py#L287-L325"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#gromo.growing_module.AdditionGrowingModule.update_size" title="Link to this definition">#</a></dt>
 <dd><p>Update the input and output size of the module</p>
 </dd></dl>
 
@@ -639,6 +657,7 @@ dLoss/dA - dW B[-1]</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gromo.growing_module.AdditionGrowingModule.set_previous_modules"><code class="docutils literal notranslate"><span class="pre">AdditionGrowingModule.set_previous_modules()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gromo.growing_module.AdditionGrowingModule.sum_in_features"><code class="docutils literal notranslate"><span class="pre">AdditionGrowingModule.sum_in_features()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gromo.growing_module.AdditionGrowingModule.sum_out_features"><code class="docutils literal notranslate"><span class="pre">AdditionGrowingModule.sum_out_features()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gromo.growing_module.AdditionGrowingModule.update_scaling_factor"><code class="docutils literal notranslate"><span class="pre">AdditionGrowingModule.update_scaling_factor()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gromo.growing_module.AdditionGrowingModule.update_size"><code class="docutils literal notranslate"><span class="pre">AdditionGrowingModule.update_size()</span></code></a></li>
 </ul>
 </li>
@@ -658,8 +677,8 @@ dLoss/dA - dW B[-1]</p>
   </div>
   
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script defer src="../_static/scripts/bootstrap.js?digest=26a4bc78f4c0ddb94549"></script>
-<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=26a4bc78f4c0ddb94549"></script>
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
 
   <footer class="bd-footer">
 <div class="bd-footer__inner bd-page-width">
@@ -670,7 +689,7 @@ dLoss/dA - dW B[-1]</p>
 
   <p class="copyright">
     
-      © Copyright 2024-2024 GroMo contributors.
+      © Copyright 2024-2025 GroMo contributors.
       <br/>
     
   </p>
@@ -684,7 +703,8 @@ dLoss/dA - dW B[-1]</p>
       
         <div class="footer-item">
 <p class="theme-version">
-  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.0.
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
 </p></div>
       
     </div>

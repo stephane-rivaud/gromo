@@ -16,8 +16,8 @@
     document.documentElement.dataset.mode = localStorage.getItem("mode") || "light";
     document.documentElement.dataset.theme = localStorage.getItem("theme") || "light";
   </script>
-  <!-- 
-    this give us a css class that will be invisible only if js is disabled 
+  <!--
+    this give us a css class that will be invisible only if js is disabled
   -->
   <noscript>
     <style>
@@ -27,10 +27,10 @@
   </noscript>
   
   <!-- Loaded before other Sphinx assets -->
-  <link href="_static/styles/theme.css?digest=26a4bc78f4c0ddb94549" rel="stylesheet" />
-<link href="_static/styles/pydata-sphinx-theme.css?digest=26a4bc78f4c0ddb94549" rel="stylesheet" />
+  <link href="_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
 
-    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=fa44fd50" />
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=03e43079" />
     <link rel="stylesheet" type="text/css" href="_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="_static/sg_gallery.css?v=d2d258e8" />
     <link rel="stylesheet" type="text/css" href="_static/sg_gallery-binder.css?v=f4aeca0c" />
@@ -40,10 +40,10 @@
     <link rel="stylesheet" type="text/css" href="_static/css/custom.css?v=7c1988a6" />
   
   <!-- So that users can add custom icons -->
-  <script src="_static/scripts/fontawesome.js?digest=26a4bc78f4c0ddb94549"></script>
+  <script src="_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=26a4bc78f4c0ddb94549" />
-<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=26a4bc78f4c0ddb94549" />
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
     <script src="_static/jquery.js?v=5d32c60e"></script>
     <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
@@ -313,9 +313,14 @@
   
   
   <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
   </div>
-  
-  <div id="rtd-footer-container"></div>
 
 
       </div>
@@ -369,10 +374,12 @@
 <ul class="simple">
 <li><p><cite>S local</cite>: the tensor <span class="math notranslate nohighlight">\(S_{-1}\)</span> for the natural gradient</p></li>
 <li><p><cite>M</cite>: the tensor <span class="math notranslate nohighlight">\(M_{-1}\)</span> for the natural gradient</p></li>
-<li><p><cite>S prev</cite>: the tensor <span class="math notranslate nohighlight">\(S_{-2}\)</span> to compute the new weights</p></li>
+<li><p><cite>S growth</cite>: the tensor <span class="math notranslate nohighlight">\(S_{-2}\)</span> to compute the new weights</p></li>
 <li><p><cite>M prev</cite>: the tensor <span class="math notranslate nohighlight">\(M_{-2}\)</span> to compute the new weights</p></li>
 <li><p><cite>cross covariance</cite>: the cross covariance <span class="math notranslate nohighlight">\(P\)</span> to compute the new weights</p></li>
 </ul>
+<section id="intermediate-quantities">
+<h3>Intermediate quantities<a class="headerlink" href="#intermediate-quantities" title="Link to this heading">#</a></h3>
 <p>To compute those statistics we need to access some intermediate quantities:</p>
 <ul class="simple">
 <li><p><span class="math notranslate nohighlight">\(a\)</span>: the pre-activation of the layer</p></li>
@@ -384,6 +391,30 @@
 <a class="reference internal image-reference" href="_images/gromo_links.png"><img alt="Where are quantities stored ?" class="align-center" src="_images/gromo_links.png" style="width: 800px; height: 565px;" />
 </a>
 <p>When we link only <cite>GrowingModule</cite> modules together, the quantities are stored in the <cite>GrowingModule</cite> module. When we link <cite>GrowingModule</cite> with <cite>AdditionGrowingModule</cite> the quantities are stored in the <cite>AdditionGrowingModule</cite>.  This is due to the fact that we use the <cite>AdditionGrowingModule</cite> when we connect multiple <cite>GrowingModule</cite> together and we do not want to store the same quantities multiple times. Hence we store them in the <cite>AdditionGrowingModule</cite> and we can access them from the <cite>GrowingModule</cite>. Note that we perform the activation after the addition in the <cite>AdditionGrowingModule</cite> so that we can access the pre-activity of the previous layer as the input of the next layer.</p>
+</section>
+<section id="statistical-quantities">
+<h3>Statistical quantities<a class="headerlink" href="#statistical-quantities" title="Link to this heading">#</a></h3>
+<p>The computation of all statistic has the same structure.</p>
+<ol class="arabic simple">
+<li><p>Firstly the statistic is created as an instance of <cite>TensorStatistics</cite>.</p></li>
+<li><p>Then we use our network to compute intermediate quantities. During this forward pass we store the intermediate quantities as explained above and we set the statistics as not updated. This is to ensure that we do not update a statistic multiple times with the same data.</p></li>
+<li><p>We call the method <cite>update</cite> of the statistic to update it with the intermediate quantities. This includes updating the number of samples seen to compute the current statistic.</p></li>
+<li><p>We can then access the statistic by calling it (i.e. using <cite>__call__</cite>).</p></li>
+</ol>
+<p>The previously mentioned statistics (<cite>S local</cite>, <cite>M</cite>, <cite>S growth</cite>, <cite>M prev</cite>, <cite>cross covariance</cite>) are transparently accessible in the <cite>GrowingModule</cite>. However they are not necessarily stored in the <cite>GrowingModule</cite>. In the case of a <cite>GrowingModule</cite>,  (<cite>M</cite>, <cite>M prev</cite>, <cite>cross covariance</cite>) are computed in the <cite>GrowingModule</cite>. <cite>S local</cite> is computed either in the previous module if it is an <cite>AdditionGrowingModule</cite> or in the <cite>GrowingModule</cite> if it is a <cite>GrowingModule</cite> (this is due to the fact that all next modules of an addition module require the same <cite>S local</cite>). The computation of <cite>S growth</cite> done directly in the module with the input of the previous module (However due to the fact that in the case of fully-connected layers (<cite>nn.Linear</cite>) the <cite>S growth</cite> is exactly the <cite>S local</cite> of the previous module, we do not recompute it, and simply point to the S local tensor of the previous module). (Note that here we talk about the <cite>S growth</cite> used by the current layer to compute new weights. Indeed, the layer still needs to compute a <cite>S growth</cite> but which is used by the next layer to compute its new weights).</p>
+<p><cite>S local</cite> and <cite>S growth</cite> (for the next module) tensors are computed using the input of the module. <cite>cross covariance</cite> is computed using the input of the module and of the previous module. <cite>M</cite> is computed using the input and the output gradient of the module. <cite>M prev</cite> is computed using the input of the previous module and the output gradient of the current module.</p>
+</section>
+<section id="updates">
+<h3>Updates<a class="headerlink" href="#updates" title="Link to this heading">#</a></h3>
+<p>Once the statistics are computed we can compute the optimal updates. First the natural gradient using the <cite>S local</cite> and <cite>M</cite> tensors that get stored in the <cite>optimal_delta_layer</cite> attribute of the module. Then we can compute the tensor <cite>N</cite> using the <cite>cross covariance</cite> and <cite>M prev</cite> tensors. Finally we can compute the new weights using the <cite>S growth</cite> and <cite>N</cite> tensors. Those new weights are stored in the <cite>layer_in_extension</cite> attribute of the current module and in the <cite>layer_out_extension</cite> attribute of the previous module.</p>
+</section>
+<section id="wrap-up">
+<h3>Wrap-up<a class="headerlink" href="#wrap-up" title="Link to this heading">#</a></h3>
+<p>If we take an example with two growing modules and look at most of the objects that are computed we have the following graph:</p>
+<a class="reference internal image-reference" href="_images/gromo_statistics.png"><img alt="computation graph of the statistics" class="align-center" src="_images/gromo_statistics.png" style="width: 800px; height: 565px;" />
+</a>
+<p>The first step is to compute the statistics (the objects written in black) and which are directly computed from intermediate quantities of the network (the gray arrows indicate the dependencies of each statistic). Then we can compute the optimal parameter update (represented by <cite>optimal_delta_layer</cite> and represented in purple). Finally we can compute the new weights using the method <cite>compute_optimal_added_parameters</cite> (represented in red) which store the result in the <cite>layer_in_extension</cite> attribute of the current module and in the <cite>layer_out_extension</cite> attribute of the previous module.</p>
+</section>
 </section>
 <section id="growing-a-layer">
 <h2>Growing a layer<a class="headerlink" href="#growing-a-layer" title="Link to this heading">#</a></h2>
@@ -455,7 +486,13 @@ fixing them optimally. TMLR.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#attributes">Attributes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#attributes">Attributes</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#intermediate-quantities">Intermediate quantities</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#statistical-quantities">Statistical quantities</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#updates">Updates</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#wrap-up">Wrap-up</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#growing-a-layer">Growing a layer</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#sequential-case">Sequential case</a></li>
 </ul>
@@ -478,8 +515,8 @@ fixing them optimally. TMLR.</p>
   </div>
   
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script defer src="_static/scripts/bootstrap.js?digest=26a4bc78f4c0ddb94549"></script>
-<script defer src="_static/scripts/pydata-sphinx-theme.js?digest=26a4bc78f4c0ddb94549"></script>
+  <script defer src="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
 
   <footer class="bd-footer">
 <div class="bd-footer__inner bd-page-width">
@@ -490,7 +527,7 @@ fixing them optimally. TMLR.</p>
 
   <p class="copyright">
     
-      © Copyright 2024-2024 GroMo contributors.
+      © Copyright 2024-2025 GroMo contributors.
       <br/>
     
   </p>
@@ -504,7 +541,8 @@ fixing them optimally. TMLR.</p>
       
         <div class="footer-item">
 <p class="theme-version">
-  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.0.
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
 </p></div>
       
     </div>
