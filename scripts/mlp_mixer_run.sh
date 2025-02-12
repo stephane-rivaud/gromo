@@ -48,7 +48,7 @@ data_augmentation="randaugment"
 command+=" --dataset $dataset --nb-class $nb_class --split-train-val $split_train_val --dataset-path $dataset_path --data-augmentation $data_augmentation"
 
 # Model arguments
-num_blocks=8
+num_blocks=1
 num_features=128
 hidden_dim_token=8
 hidden_dim_channel=32

@@ -7,17 +7,17 @@ def get_scheduler(
         optimizer: torch.optim.Optimizer,
         num_epochs: int,
         num_batches_per_epoch: int,
-        lr: float,
+        base_lr: float,
         warmup_epochs: int,
 ):
     if scheduler_name == "step":
-        return StepScheduler(optimizer, step_size=num_epochs // 3, gamma=0.1, lr_init=lr, num_batches_per_epoch=num_batches_per_epoch, warmup_epochs=warmup_epochs)
+        return StepScheduler(optimizer, step_size=num_epochs // 3, gamma=0.1, lr_init=base_lr, num_batches_per_epoch=num_batches_per_epoch, warmup_epochs=warmup_epochs)
     elif scheduler_name == "multistep":
-        return MultistepScheduler(optimizer, milestones=[num_epochs // 2, 3 * num_epochs // 4], gamma=0.1, lr_init=lr, num_batches_per_epoch=num_batches_per_epoch, warmup_epochs=warmup_epochs)
+        return MultistepScheduler(optimizer, milestones=[num_epochs // 2, 3 * num_epochs // 4], gamma=0.1, lr_init=base_lr, num_batches_per_epoch=num_batches_per_epoch, warmup_epochs=warmup_epochs)
     elif scheduler_name == "cosine":
-        return CosineScheduler(optimizer, lr_init=lr, warmup_epochs=warmup_epochs, total_epochs=num_epochs, num_batches_per_epoch=num_batches_per_epoch, min_lr=1e-6)
+        return CosineScheduler(optimizer, lr_init=base_lr, warmup_epochs=warmup_epochs, total_epochs=num_epochs, num_batches_per_epoch=num_batches_per_epoch, min_lr=1e-6)
     elif scheduler_name == "none":
-        return ConstantScheduler(optimizer, lr)
+        return ConstantScheduler(optimizer, base_lr)
     else:
         raise ValueError(f"Unknown scheduler: {scheduler_name}")
 

@@ -5,7 +5,7 @@ import torch
 from torch.utils import data
 from torchvision import datasets, transforms
 
-# import misc.auxilliary_functions
+from gromo.utils.utils import global_device
 
 known_datasets = {
     # "sin": misc.auxilliary_functions.SinDataset,
@@ -18,14 +18,15 @@ known_datasets = {
 
 
 def get_dataloaders(
-        dataset_name,
-        dataset_path,
-        nb_class,
-        split_train_val,
-        data_augmentation,
-        batch_size,
-        num_workers,
-        device
+        dataset_name: str = "cifar10",
+        dataset_path: str = "dataset",
+        nb_class: int | None = None,
+        split_train_val: float = 0.0,
+        data_augmentation: list[str] | None = None,
+        batch_size: int = 64,
+        num_workers: int = 0,
+        device: torch.device = global_device(),
+        shuffle: bool = True,
 ):
     # load the dataset and create the dataloaders
     train_dataset, val_dataset, test_dataset = get_dataset(
@@ -44,7 +45,7 @@ def get_dataloaders(
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=batch_size,
-        shuffle=True,
+        shuffle=shuffle,
         pin_memory=pin_memory,
         num_workers=num_workers,
         persistent_workers=num_workers > 0,

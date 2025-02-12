@@ -11,12 +11,6 @@ from gromo.growing_mlp import GrowingMLP
 from gromo.utils.utils import global_device
 
 
-def topk_accuracy(y_pred, y, k=1):
-    result = y_pred.topk(k, dim=1).indices == y.unsqueeze(1)
-    return result.sum() / y.size(0)
-
-
-# Label smoothing
 class LabelSmoothingLoss(nn.Module):
     def __init__(self, smoothing=0.1, reduction="mean"):
         super(LabelSmoothingLoss, self).__init__()
@@ -38,62 +32,6 @@ class LabelSmoothingLoss(nn.Module):
             return loss
 
 
-def evaluate_model(
-        model: nn.Module,
-        dataloader: torch.utils.data.DataLoader,
-        loss_function: nn.Module = nn.MSELoss(reduction="mean"),
-        aux_loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
-        batch_limit: int = -1,
-        device: torch.device = global_device(),
-) -> tuple[float, float]:
-    """
-    /!/ The loss function should not be averaged over the batch
-    """
-    assert loss_function.reduction in [
-        "mean",
-        "sum",
-    ], "The loss function should be averaged over the batch"
-
-    model.eval()
-    loss_meter = AverageMeter()
-    aux_loss_meter = AverageMeter()
-    with torch.no_grad():
-        for i, (x, y) in enumerate(dataloader):
-            x, y = x.to(device), y.to(device)
-
-            y_pred = model(x)
-            loss = loss_function(y_pred, y)
-            loss_meter.update(loss.item(), x.size(0))
-            if aux_loss_function is not None:
-                aux_loss_meter.update(aux_loss_function(y_pred, y).item(), x.size(0))
-            if 0 <= batch_limit <= i:
-                break
-    return loss_meter.avg, aux_loss_meter.avg
-
-
-def extended_evaluate_model(
-        growing_model: "GrowingMLP",
-        dataloader: torch.utils.data.DataLoader,
-        loss_function: nn.Module = nn.MSELoss(reduction="sum"),
-        batch_limit: int = -1,
-        device: torch.device = global_device(),
-) -> float:
-    assert (
-            loss_function.reduction == "sum"
-    ), "The loss function should not be averaged over the batch"
-    growing_model.eval()
-    loss_meter = AverageMeter()
-    with torch.no_grad():
-        for i, (x, y) in enumerate(dataloader):
-            x, y = x.to(device), y.to(device)
-            y_pred = growing_model.extended_forward(x)
-            loss = loss_function(y_pred, y)
-            loss_meter.update(loss.item(), x.size(0))
-            if 0 <= batch_limit <= i - 1:
-                break
-    return loss_meter.avg
-
-
 class AverageMeter(object):
     """Computes and stores the average and current value"""
 
@@ -112,6 +50,11 @@ class AverageMeter(object):
             self.sum += val * n
             self.count += n
             self.avg = self.sum / self.count
+
+
+def topk_accuracy(y_pred, y, k=1):
+    result = y_pred.topk(k, dim=1).indices == y.unsqueeze(1)
+    return result.sum() / y.size(0)
 
 
 # CutMix function
@@ -150,23 +93,21 @@ def rand_bbox(size, lam):
 def train(
         model: nn.Module,
         train_dataloader: torch.utils.data.DataLoader,
-        loss_function=nn.MSELoss(reduction="mean"),
+        optimizer: torch.optim.Optimizer,
+        loss_function: nn.Module,
         aux_loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
-        optimizer=None,
-        lr: float = 1e-2,
-        weight_decay: float = 0,
-        show: bool = False,
+        scheduler=None,
         device: torch.device = global_device(),
+        show: bool = False,
         cutmix_beta: float = 1.0,
         cutmix_prob: float = 0.0,
-        scheduler=None,
+        batch_limit: int = -1,
 ):
-    assert (
-            loss_function.reduction == "mean"
-    ), "The loss function should be averaged over the batch"
+    """
+    Train the model on the train_dataloader
+    """
+    assert loss_function.reduction == "mean", "The loss function should be averaged over the batch"
 
-    if optimizer is None:
-        optimizer = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay)
     # metrics meters
     loss_meter = AverageMeter()
     accuracy_meter = AverageMeter()
@@ -176,7 +117,9 @@ def train(
     transfer_time_meter = AverageMeter()
 
     start_time = time()
-    for x, y in train_dataloader:
+    for i, (x, y) in enumerate(train_dataloader):
+        if 0 <= batch_limit <= i:
+            break
         data_time_meter.update(time() - start_time)
 
         x = x.to(device)
@@ -190,12 +133,10 @@ def train(
 
         y_pred = model(x)
         loss = lam * loss_function(y_pred, y) + (1 - lam) * loss_function(y_pred, y_shuffled)
-
         assert loss.isnan().sum() == 0, f"During training of {model}, loss is NaN: {loss}"
 
         loss.backward()
         optimizer.step()
-
         if scheduler is not None:
             scheduler.step()
 
@@ -211,8 +152,59 @@ def train(
         scheduler.epoch_step()
 
     if show:
-        print(f"Train: loss={loss_meter.avg:.3e}, accuracy={accuracy_meter.avg:.2f}")
+        print(f"Train: loss={loss_meter.avg:.3e}, accuracy={accuracy_meter.avg:.2f}, time={batch_time_meter.avg:.2f}s")
     return loss_meter.avg, accuracy_meter.avg
+
+
+def evaluate_model(
+        model: nn.Module,
+        dataloader: torch.utils.data.DataLoader,
+        loss_function: nn.Module,
+        aux_loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
+        batch_limit: int = -1,
+        device: torch.device = global_device(),
+) -> tuple[float, float]:
+    """
+    /!/ The loss function should not be averaged over the batch
+    """
+    assert loss_function.reduction == "mean", "The loss function should be averaged over the batch"
+
+    model.eval()
+    loss_meter = AverageMeter()
+    aux_loss_meter = AverageMeter()
+    with torch.no_grad():
+        for i, (x, y) in enumerate(dataloader):
+            if 0 <= batch_limit <= i:
+                break
+            x, y = x.to(device), y.to(device)
+            y_pred = model(x)
+            loss = loss_function(y_pred, y)
+            loss_meter.update(loss.item(), x.size(0))
+            if aux_loss_function is not None:
+                aux_loss_meter.update(aux_loss_function(y_pred, y).item(), x.size(0))
+    return loss_meter.avg, aux_loss_meter.avg
+
+
+def extended_evaluate_model(
+        growing_model: GrowingMLP,
+        dataloader: torch.utils.data.DataLoader,
+        loss_function: nn.Module,
+        batch_limit: int = -1,
+        device: torch.device = global_device(),
+) -> float:
+    assert loss_function.reduction == "sum", "The loss function should not be averaged over the batch"
+
+    growing_model.eval()
+    loss_meter = AverageMeter()
+    with torch.no_grad():
+        for i, (x, y) in enumerate(dataloader):
+            if 0 <= batch_limit <= i:
+                break
+            x, y = x.to(device), y.to(device)
+            y_pred = growing_model.extended_forward(x)
+            loss = loss_function(y_pred, y)
+            loss_meter.update(loss.item() / x.size(0), x.size(0))
+    return loss_meter.avg
 
 
 def compute_statistics(
@@ -246,9 +238,7 @@ def compute_statistics(
     show: bool
         If True, display a progress bar
     """
-    assert (
-            loss_function.reduction == "sum"
-    ), "The loss function should not be averaged over the batch"
+    assert loss_function.reduction == "sum", "The loss function should not be averaged over the batch"
 
     growing_model.init_computation()
     loss_meter = AverageMeter()
@@ -258,18 +248,18 @@ def compute_statistics(
         dataloader = tqdm(dataloader)
 
     for i, (x, y) in enumerate(dataloader):
+        if 0 <= batch_limit <= i:
+            break
         growing_model.zero_grad()
         x, y = x.to(device), y.to(device)
         y_pred = growing_model(x)
         loss = loss_function(y_pred, y)
         loss.backward()
         growing_model.update_computation()
-        loss_meter.update(loss.item() / x.size(0))
+        loss_meter.update(loss.item() / x.size(0), x.size(0))
         if aux_loss_function is not None:
             aux_loss = aux_loss_function(y_pred, y)
             aux_loss_meter.update(aux_loss.item(), x.size(0))
-        if 0 <= batch_limit <= i - 1:
-            break
     return loss_meter.avg, aux_loss_meter.avg
 
 

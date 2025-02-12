@@ -10,6 +10,7 @@ from warnings import warn
 
 from auxilliary_functions import evaluate_model, compute_statistics, line_search, topk_accuracy, train, \
     LabelSmoothingLoss
+from examples.plot_mlp_run import loss_func_mean
 from schedulers import get_scheduler
 from gromo.growing_mlp_mixer import GrowingMLPMixer
 from gromo.utils.datasets import get_dataloaders, known_datasets
@@ -555,7 +556,7 @@ def main(args: argparse.Namespace):
             optimizer=optimizer,
             num_epochs=args.nb_step,
             num_batches_per_epoch=len(train_dataloader),
-            lr=args.lr,
+            base_lr=args.lr,
             warmup_epochs=args.warmup_epochs,
         )
         print(f"Scheduler: {scheduler}")
@@ -659,7 +660,7 @@ def main(args: argparse.Namespace):
                 gamma, estimated_loss, gamma_history, loss_history = line_search(
                     model=model,
                     dataloader=train_dataloader,
-                    loss_function=growth_loss_fn,
+                    loss_function=loss_func_mean,
                     batch_limit=args.line_search_batch_limit,
                     initial_loss=train_loss,
                     first_order_improvement=model.currently_updated_block.first_order_improvement,

@@ -277,7 +277,7 @@ def main(args: argparse.Namespace):
         optimizer=optimizer,
         num_epochs=args.nb_step,
         num_batches_per_epoch=len(train_dataloader),
-        lr=args.lr,
+        base_lr=args.lr,
         warmup_epochs=args.warmup_epochs,
     )
     print(f"Scheduler: {scheduler}")

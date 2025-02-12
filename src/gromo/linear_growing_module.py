@@ -425,7 +425,8 @@ class LinearGrowingModule(GrowingModule):
                 "ij,ik->jk",
                 torch.flatten(self.input_extended, 0, -2),
                 torch.flatten(self.input_extended, 0, -2),
-            ), torch.tensor(self.input.shape[:-1]).prod().int().item(),
+            # ), self.input.shape[0],
+            ), torch.tensor(self.input_extended.shape[:-1]).prod().int().item(),
         )
 
     def compute_m_update(
@@ -456,7 +457,8 @@ class LinearGrowingModule(GrowingModule):
                 "ij,ik->jk",
                 torch.flatten(self.input_extended, 0, -2),
                 torch.flatten(desired_activation, 0, -2),
-            ), torch.tensor(self.input.shape[:-1]).prod().int().item(),
+            ), torch.tensor(self.input_extended.shape[:-1]).prod().int().item(),
+            # ), self.input.shape[0],
         )
 
     def compute_m_prev_update(
@@ -489,7 +491,8 @@ class LinearGrowingModule(GrowingModule):
                     "ij,ik->jk",
                     torch.flatten(self.previous_module.input_extended, 0, -2),
                     torch.flatten(desired_activation, 0, -2),
-                ), torch.tensor(self.input.shape[:-1]).prod().int().item(),
+                ), torch.tensor(desired_activation.shape[:-1]).prod().int().item(),
+                # ), self.input.shape[0],
             )
         elif isinstance(self.previous_module, LinearAdditionGrowingModule):
             if self.previous_module.number_of_successors > 1:
@@ -529,7 +532,8 @@ class LinearGrowingModule(GrowingModule):
                     "ij,ik->jk",
                     torch.flatten(self.previous_module.input_extended, 0, -2),
                     torch.flatten(self.input_extended, 0, -2),
-                ), torch.tensor(self.input.shape[:-1]).prod().int().item(),
+                # ), self.input.shape[0],
+                ), torch.tensor(self.input_extended.shape[:-1]).prod().int().item(),
             )
         elif isinstance(self.previous_module, LinearAdditionGrowingModule):
             return (
@@ -566,6 +570,7 @@ class LinearGrowingModule(GrowingModule):
                     torch.flatten(self.input, 0, -2),
                     torch.flatten(self.next_module.projected_desired_update(), 0, -2),
                 ), torch.tensor(self.input.shape[:-1]).prod().int().item(),
+                # ), self.input.shape[0],
             )
         else:
             raise TypeError("The next module must be a LinearGrowingModule.")
@@ -637,6 +642,7 @@ class LinearGrowingModule(GrowingModule):
             f"and {self.in_features + self.use_bias}."
             f"{self.name=}, {self.cross_covariance().shape=}"
         )
+        # Check dtype
         return -self.tensor_m_prev() - self.cross_covariance() @ self.delta_raw.T
 
     # Layer edition
@@ -930,7 +936,9 @@ class LinearGrowingModule(GrowingModule):
 
         if not force_pseudo_inverse:
             try:
+                # Check dtype
                 self.delta_raw = torch.linalg.solve(tensor_s, tensor_m).t()
+                print(f"Things went fine with torch.linalg.solve")
             except torch.linalg.LinAlgError:
                 force_pseudo_inverse = True
                 # self.delta_raw = torch.linalg.lstsq(tensor_s, tensor_m).solution.t()
@@ -965,7 +973,8 @@ class LinearGrowingModule(GrowingModule):
                     f"delta to zero."
                 )
                 self.delta_raw = torch.zeros_like(self.delta_raw)
-        self.delta_raw = self.delta_raw.to(dtype=torch.float32)
+        # self.delta_raw = self.delta_raw.to(dtype=torch.float32)
+        self.delta_raw = self.delta_raw.to(dtype=torch.get_default_dtype())
 
         if self.use_bias:
             delta_weight = self.delta_raw[:, :-1]
@@ -1042,9 +1051,9 @@ class LinearGrowingModule(GrowingModule):
         assert omega.shape == (self.out_features, k), (
             f"omega should have shape {(self.out_features, k)}, " f"but got {omega.shape}"
         )
-        alpha = alpha.to(dtype=torch.float32)
-        omega = omega.to(dtype=torch.float32)
-        self.eigenvalues_extension = self.eigenvalues_extension.to(dtype=torch.float32)
+        # alpha = alpha.to(dtype=torch.float32)
+        # omega = omega.to(dtype=torch.float32)
+        # self.eigenvalues_extension = self.eigenvalues_extension.to(dtype=torch.float32)
 
         if self.previous_module.use_bias:
             alpha_weight = alpha[:, :-1]

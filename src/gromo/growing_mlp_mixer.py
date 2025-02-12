@@ -243,6 +243,7 @@ class GrowingMLPBlock(nn.Module):
                 numerical_threshold=numerical_threshold,
                 statistical_threshold=statistical_threshold,
                 maximum_added_neurons=maximum_added_neurons,
+                update_previous=True,
                 dtype=dtype,
             )
             self.second_layer.optimal_delta_layer = None
@@ -598,7 +599,6 @@ class GrowingMLPMixer(nn.Module):
         num_patches = check_sizes(image_size, patch_size)
         super(GrowingMLPMixer, self).__init__()
         # per-patch fully-connected is equivalent to strided conv2d
-        print(f"in_channels: {in_channels}, num_features: {num_features}, patch_size: {patch_size}")
         self.patcher = nn.Conv2d(
             in_channels, num_features, kernel_size=patch_size, stride=patch_size, device=global_device(),
         )
@@ -757,14 +757,14 @@ class GrowingMLPMixer(nn.Module):
                     mixer.delete_update()
                 else:
                     mixer.channel_mixer.delete_update()
-                    self.currently_updated_block = mixer.token_mixer
+                    self.currently_updated_block = mixer.token_mixer.mlp.second_layer
                     print(f"Selected token mixer {i}")
             elif token_or_channels == "channel":
                 if i != best_channel_mixer_index:
                     mixer.delete_update()
                 else:
                     mixer.token_mixer.delete_update()
-                    self.currently_updated_block = mixer.channel_mixer
+                    self.currently_updated_block = mixer.channel_mixer.mlp.second_layer
                     print(f"Selected channel mixer {i}")
 
     @property

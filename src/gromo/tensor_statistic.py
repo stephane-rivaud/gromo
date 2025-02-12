@@ -66,7 +66,7 @@ class TensorStatistic:
         self.name = name if name is not None else "TensorStatistic"
         self._tensor: torch.Tensor | None = None
         self.samples = 0
-        self.updated = True
+        self.updated = False
         self.device = device if device else global_device()
 
     def __str__(self):

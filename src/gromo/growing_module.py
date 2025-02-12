@@ -724,13 +724,18 @@ class GrowingModule(torch.nn.Module):
             output tensor and extension tensor
         """
         pre_activity = self.layer(x)
+        if self._internal_store_pre_activity:
+            self._pre_activity_original = pre_activity.clone()
 
         # FIXME: should the scaling factor be squared with torch.sign?
         linear_factor = self.scaling_factor**2 * torch.sign(self.scaling_factor)
         sqrt_factor = self.scaling_factor
 
         if self.optimal_delta_layer is not None:
-            pre_activity -= linear_factor * self.optimal_delta_layer(x)
+            param_step_activity = -linear_factor * self.optimal_delta_layer(x)
+            pre_activity += param_step_activity
+            if self._internal_store_pre_activity:
+                self._param_step_pre_activity = param_step_activity.clone()
 
         if self.extended_input_layer:
             if x_ext is None:
@@ -738,7 +743,10 @@ class GrowingModule(torch.nn.Module):
                     f"x_ext must be provided got None for {self.name}."
                     f"As the input is extended, an extension is needed."
                 )
-            pre_activity += sqrt_factor * self.extended_input_layer(x_ext)
+            neuron_step_activity = sqrt_factor * self.extended_input_layer(x_ext)
+            if self._internal_store_pre_activity:
+                self._neuron_step_pre_activity = neuron_step_activity.clone()
+            pre_activity += neuron_step_activity
         else:
             if x_ext is not None:
                 warnings.warn(
@@ -746,11 +754,15 @@ class GrowingModule(torch.nn.Module):
                     UserWarning,
                 )
 
+        if self._internal_store_pre_activity:
+            self._pre_activity = pre_activity.clone()
+
         if self.extended_output_layer:
             supplementary_pre_activity = (
                 self._scaling_factor_next_module * self.extended_output_layer(x)
             )
-            supplementary_activity = self.post_layer_function(supplementary_pre_activity)
+            # supplementary_activity = self.post_layer_function(supplementary_pre_activity)
+            supplementary_activity = supplementary_pre_activity
         else:
             supplementary_activity = None
 
@@ -1285,6 +1297,7 @@ class GrowingModule(torch.nn.Module):
                 self.optimal_delta_layer.weight.data.zero_()
                 if self.optimal_delta_layer.bias is not None:
                     self.optimal_delta_layer.bias.data.zero_()
+            self.delta_raw.zero_()
 
         if self.previous_module is None:
             return  # FIXME: change the definition of the function
