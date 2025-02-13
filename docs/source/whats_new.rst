@@ -43,7 +43,7 @@ Bugs
 API changes
 ~~~~~~~~~~~
 
-- None
+- Added support for configuration files that override default class arguments (:gh:`38` by `Stella Douka`_)
 
 
 .. _Sylvain Chevallier: https://github.com/sylvchev
