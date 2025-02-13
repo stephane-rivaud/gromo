@@ -1,11 +1,16 @@
 import argparse
-from os.path import split
 from time import time
 from warnings import warn
 
 import mlflow
 import torch
-from auxilliary_functions import *
+from auxilliary_functions import (
+    compute_statistics,
+    evaluate_model,
+    line_search,
+    topk_accuracy,
+    train,
+)
 
 from gromo.growing_mlp import GrowingMLP
 from gromo.utils.datasets import get_dataloaders, known_datasets

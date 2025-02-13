@@ -29,28 +29,6 @@ def topk_accuracy(
     return result.sum() / y.size(0)
 
 
-class AxisMSELoss(nn.Module):
-    def __init__(self, reduction: str = "sum"):
-        super(AxisMSELoss, self).__init__()
-        assert reduction in [
-            "mean",
-            "sum",
-            "none",
-        ], "reduction should be in ['mean', 'sum', 'none']"
-        self.reduction = reduction
-
-    def forward(self, y_pred, y):
-        result = ((y_pred - y) ** 2).sum(dim=1)
-        if self.reduction == "none":
-            return result
-        elif self.reduction == "mean":
-            return result.mean()
-        elif self.reduction == "sum":
-            return result.sum()
-        else:
-            raise ValueError("reduction should be in ['mean', 'sum', 'none']")
-
-
 class SinDataloader:
     def __init__(
         self,
@@ -82,7 +60,7 @@ class SinDataloader:
 def evaluate_model(
     model: nn.Module,
     dataloader: torch.utils.data.DataLoader,
-    loss_function: nn.Module = AxisMSELoss(),
+    loss_function: nn.Module = nn.CrossEntropyLoss(reduction="mean"),
     aux_loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
     batch_limit: int = -1,
     device: torch.device = global_device(),
@@ -129,7 +107,7 @@ def evaluate_model(
 def extended_evaluate_model(
     growing_model: "GrowingMLP",
     dataloader: torch.utils.data.DataLoader,
-    loss_function: nn.Module = AxisMSELoss(),
+    loss_function: nn.Module = nn.CrossEntropyLoss(reduction="sum"),
     batch_limit: int = -1,
     device: torch.device = global_device(),
 ) -> float:
@@ -158,7 +136,7 @@ def train(
     model: nn.Module,
     train_dataloader: torch.utils.data.DataLoader,
     val_dataloader: torch.utils.data.DataLoader | None = None,
-    loss_function=AxisMSELoss(reduction="mean"),
+    loss_function: nn.Module = nn.CrossEntropyLoss(reduction="mean"),
     aux_loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
     optimizer=None,
     lr: float = 1e-2,
@@ -238,7 +216,7 @@ def train(
 def compute_statistics(
     growing_model: GrowingMLP,
     dataloader: torch.utils.data.DataLoader,
-    loss_function: nn.Module = AxisMSELoss(),
+    loss_function: nn.Module = nn.CrossEntropyLoss(reduction="sum"),
     aux_loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
     batch_limit: int = 1_000_000,
     device: torch.device = global_device(),
@@ -300,7 +278,7 @@ def compute_statistics(
 def line_search(
     model: nn.Module,
     dataloader: torch.utils.data.DataLoader,
-    loss_function: nn.Module = AxisMSELoss(),
+    loss_function: nn.Module = nn.CrossEntropyLoss(reduction="sum"),
     batch_limit: int = -1,
     initial_loss: float | None = None,
     first_order_improvement: float = 1,
