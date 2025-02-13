@@ -1,4 +1,5 @@
 from warnings import warn
+from typing import Callable, Tuple
 
 import numpy as np
 import torch
@@ -9,27 +10,23 @@ from gromo.growing_mlp import GrowingMLP
 from gromo.utils.utils import global_device
 
 
-class Accuracy(nn.Module):
-    def __init__(self, k: int = 1, reduction: str = "sum"):
-        super(Accuracy, self).__init__()
-        assert reduction in [
-            "mean",
-            "sum",
-            "none",
-        ], "reduction should be in ['mean', 'sum', 'none']"
-        self.reduction = reduction
-        self.k = k
+def topk_accuracy(
+        y_pred: torch.Tensor,
+        y: torch.Tensor,
+        k: int = 1,
+) -> torch.Tensor:
+    """
+    Compute the top-k accuracy of the model on the given data
+    Args:
+        y_pred: The predictions of the model
+        y: The true values
+        k: The number of top values to consider
 
-    def forward(self, y_pred, y):
-        result = y_pred.topk(self.k, dim=1).indices == y.unsqueeze(1)
-        if self.reduction == "none":
-            return result
-        elif self.reduction == "mean":
-            return result.mean()
-        elif self.reduction == "sum":
-            return result.sum()
-        else:
-            raise ValueError("reduction should be in ['mean', 'sum', 'none']")
+    Returns:
+        The top-k accuracy
+    """
+    result = y_pred.topk(k, dim=1).indices == y.unsqueeze(1)
+    return result.sum() / y.size(0)
 
 
 class AxisMSELoss(nn.Module):
@@ -56,11 +53,11 @@ class AxisMSELoss(nn.Module):
 
 class SinDataloader:
     def __init__(
-        self,
-        nb_sample: int = 1,
-        batch_size: int = 100,
-        seed: int = 0,
-        device=global_device(),
+            self,
+            nb_sample: int = 1,
+            batch_size: int = 100,
+            seed: int = 0,
+            device=global_device(),
     ):
         self.nb_sample = nb_sample
         self.batch_size = batch_size
@@ -83,25 +80,26 @@ class SinDataloader:
 
 
 def evaluate_model(
-    model: nn.Module,
-    dataloader: torch.utils.data.DataLoader,
-    loss_function: nn.Module = AxisMSELoss(),
-    aux_loss_function: nn.Module | None = Accuracy(k=1),
-    batch_limit: int = -1,
-    device: torch.device = global_device(),
+        model: nn.Module,
+        dataloader: torch.utils.data.DataLoader,
+        loss_function: nn.Module = AxisMSELoss(),
+        aux_loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
+        batch_limit: int = -1,
+        device: torch.device = global_device(),
 ) -> tuple[float, float]:
     """
-    /!/ The loss function should not be averaged over the batch
+    Evaluate the model on the dataloader with a limit of batch_limit batches.
+
+    Parameters
+    ----------
+    model: nn.Module
+        The model to evaluate
+    loss_function: nn.Module
+        The loss function to use.
+        /!/ The loss function should not be averaged over the batch
     """
-    assert loss_function.reduction in [
-        "mean",
-        "sum",
-    ], "The loss function should be averaged over the batch"
-    normalized_loss = loss_function.reduction == "mean"
-    # assert loss_function.reduction == "sum", "The loss function should not be averaged over the batch"
-    assert (
-        aux_loss_function is None or aux_loss_function.reduction == "sum"
-    ), "The aux loss function should not be averaged over the batch"
+    assert loss_function.reduction == "mean", "The loss function should not be averaged over the batch"
+
     model.eval()
     n_batch = 0
     nb_sample = 0
@@ -112,12 +110,10 @@ def evaluate_model(
 
         y_pred = model(x)
         loss = loss_function(y_pred, y)
-        if normalized_loss:
-            loss *= y.size(0)
-        total_loss += loss
+        total_loss += loss * x.size(0)
         if aux_loss_function is not None:
             aux_loss = aux_loss_function(y_pred, y)
-            aux_total_loss += aux_loss
+            aux_total_loss += aux_loss * x.size(0)
 
         nb_sample += x.size(0)
         n_batch += 1
@@ -129,15 +125,14 @@ def evaluate_model(
 
 
 def extended_evaluate_model(
-    growing_model: "GrowingMLP",
-    dataloader: torch.utils.data.DataLoader,
-    loss_function: nn.Module = AxisMSELoss(),
-    batch_limit: int = -1,
-    device: torch.device = global_device(),
+        growing_model: "GrowingMLP",
+        dataloader: torch.utils.data.DataLoader,
+        loss_function: nn.Module = AxisMSELoss(),
+        batch_limit: int = -1,
+        device: torch.device = global_device(),
 ) -> float:
-    assert (
-        loss_function.reduction == "sum"
-    ), "The loss function should not be averaged over the batch"
+    assert loss_function.reduction == "sum", "The loss function should not be averaged over the batch"
+
     growing_model.eval()
     n_batch = 0
     nb_sample = 0
@@ -156,26 +151,23 @@ def extended_evaluate_model(
 
 
 def train(
-    model: nn.Module,
-    train_dataloader: torch.utils.data.DataLoader,
-    val_dataloader: torch.utils.data.DataLoader | None = None,
-    loss_function=AxisMSELoss(reduction="mean"),
-    aux_loss_function: nn.Module | None = Accuracy(k=1),
-    optimizer=None,
-    lr: float = 1e-2,
-    weight_decay: float = 0,
-    nb_epoch: int = 10,
-    show: bool = False,
-    device: torch.device = global_device(),
+        model: nn.Module,
+        train_dataloader: torch.utils.data.DataLoader,
+        val_dataloader: torch.utils.data.DataLoader | None = None,
+        loss_function=AxisMSELoss(reduction="mean"),
+        aux_loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
+        optimizer=None,
+        lr: float = 1e-2,
+        weight_decay: float = 0,
+        nb_epoch: int = 10,
+        show: bool = False,
+        device: torch.device = global_device(),
 ):
-    assert (
-        loss_function.reduction == "mean"
-    ), "The loss function should be averaged over the batch"
-    assert (
-        aux_loss_function is None or aux_loss_function.reduction == "sum"
-    ), "The aux loss function should not be averaged over the batch"
+    assert loss_function.reduction == "mean", "The loss function should be averaged over the batch"
+
     if optimizer is None:
         optimizer = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay)
+
     epoch_loss_train = []
     epoch_accuracy_train = []
     epoch_loss_val = []
@@ -196,13 +188,13 @@ def train(
             y_pred = model(x)
             loss = loss_function(y_pred, y)
             assert (
-                loss.isnan().sum() == 0
+                    loss.isnan().sum() == 0
             ), f"During training of {model}, loss is NaN: {loss}"
             loss.backward()
             optimizer.step()
             this_epoch_loss_train += loss * y.shape[0]
             if aux_loss_function:
-                this_epoch_accuracy_train += aux_loss_function(y_pred, y)
+                this_epoch_accuracy_train += aux_loss_function(y_pred, y) * y.shape[0]
             nb_examples += y.shape[0]
 
         this_epoch_accuracy_train /= nb_examples
@@ -238,13 +230,13 @@ def train(
 
 
 def compute_statistics(
-    growing_model: GrowingMLP,
-    dataloader: torch.utils.data.DataLoader,
-    loss_function: nn.Module = AxisMSELoss(),
-    aux_loss_function: nn.Module | None = Accuracy(k=1),
-    batch_limit: int = 1_000_000,
-    device: torch.device = global_device(),
-    show: bool = False,
+        growing_model: GrowingMLP,
+        dataloader: torch.utils.data.DataLoader,
+        loss_function: nn.Module = AxisMSELoss(),
+        aux_loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
+        batch_limit: int = 1_000_000,
+        device: torch.device = global_device(),
+        show: bool = False,
 ) -> tuple[float, float]:
     """
     Compute the tensor of statistics of the model on the dataloader
@@ -268,13 +260,7 @@ def compute_statistics(
     show: bool
         If True, display a progress bar
     """
-    assert (
-        loss_function.reduction == "sum"
-    ), "The loss function should not be averaged over the batch"
-    if aux_loss_function is not None:
-        assert (
-            aux_loss_function.reduction == "sum"
-        ), "The loss function should not be averaged over the batch"
+    assert loss_function.reduction == "sum", "The loss function should not be averaged over the batch"
 
     growing_model.init_computation()
     n_batch = 0
@@ -304,20 +290,20 @@ def compute_statistics(
 
 
 def line_search(
-    model: nn.Module,
-    dataloader: torch.utils.data.DataLoader,
-    loss_function: nn.Module = AxisMSELoss(),
-    batch_limit: int = -1,
-    initial_loss: float | None = None,
-    first_order_improvement: float = 1,
-    alpha: float = 0.1,
-    beta: float = 0.5,
-    t0: float | None = None,
-    extended_search: bool = True,
-    max_iter: int = 100,
-    epsilon: float = 1e-7,
-    verbose: bool = False,
-    device: torch.device = global_device(),
+        model: nn.Module,
+        dataloader: torch.utils.data.DataLoader,
+        loss_function: nn.Module = AxisMSELoss(),
+        batch_limit: int = -1,
+        initial_loss: float | None = None,
+        first_order_improvement: float = 1,
+        alpha: float = 0.1,
+        beta: float = 0.5,
+        t0: float | None = None,
+        extended_search: bool = True,
+        max_iter: int = 100,
+        epsilon: float = 1e-7,
+        verbose: bool = False,
+        device: torch.device = global_device(),
 ) -> tuple[float, float, list[float], list[float]]:
     gammas = []
     losses = []
@@ -337,14 +323,14 @@ def line_search(
             batch_limit=batch_limit,
             device=device,
         )
-        gammas.append(sqrt_gamma**2)
+        gammas.append(sqrt_gamma ** 2)
         losses.append(loss)
         if verbose:
             print(f"gamma n° {len(gammas)}: {sqrt_gamma ** 2:.3e} -> Loss: {loss:.3e}")
         return loss
 
     def under_bound(sqrt_gamma: float, loss: float):
-        return loss < initial_loss - alpha * sqrt_gamma**2 * first_order_improvement
+        return loss < initial_loss - alpha * sqrt_gamma ** 2 * first_order_improvement
 
     if initial_loss is None:
         warn("Initial loss is not provided, computing it")
@@ -373,7 +359,7 @@ def line_search(
                 i += 1
             t *= beta
         model.amplitude_factor = t
-        return t**2, l0, gammas, losses
+        return t ** 2, l0, gammas, losses
     else:
         go = True
         while go:
@@ -381,26 +367,26 @@ def line_search(
             t *= beta
             l1 = test_gamma(t)
             go = (
-                ((not under_bound(t, l1)) or (l1 < l0 and extended_search))
-                and i < max_iter
-                and t > epsilon
+                    ((not under_bound(t, l1)) or (l1 < l0 and extended_search))
+                    and i < max_iter
+                    and t > epsilon
             )
             i += 1
         t /= beta
         model.amplitude_factor = t
-        return t**2, l0, gammas, losses
+        return t ** 2, l0, gammas, losses
 
 
 def full_search(
-    model: nn.Module,
-    loss: nn.Module,
-    dataloader: torch.utils.data.DataLoader,
-    batch_limit: int = 1_000_000,
-    initial_loss: float = None,
-    first_order_improvement: float = 1,
-    min_value: float = -100,
-    max_value: float = 100,
-    nb_points: int = 100,
+        model: nn.Module,
+        loss: nn.Module,
+        dataloader: torch.utils.data.DataLoader,
+        batch_limit: int = 1_000_000,
+        initial_loss: float = None,
+        first_order_improvement: float = 1,
+        min_value: float = -100,
+        max_value: float = 100,
+        nb_points: int = 100,
 ):
     xs = np.linspace(min_value, max_value, nb_points)
     values = []

@@ -360,7 +360,7 @@ def main(args: argparse.Namespace):
         else:
             loss_function_train = torch.nn.CrossEntropyLoss(reduction="mean")
             loss_function_growth = torch.nn.CrossEntropyLoss(reduction="sum")
-            top_1_accuracy = Accuracy(k=1)
+            top_1_accuracy = topk_accuracy
 
         # growing dtype
         growing_dtype = torch.float32
@@ -539,7 +539,7 @@ def main(args: argparse.Namespace):
 
             val_loss, val_accuracy = evaluate_model(
                 model=model,
-                loss_function=loss_function_growth,
+                loss_function=loss_function_train,
                 aux_loss_function=top_1_accuracy,
                 dataloader=test_loader,
                 device=device,
