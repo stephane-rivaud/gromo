@@ -423,7 +423,8 @@ class LinearGrowingModule(GrowingModule):
                 "ij,ik->jk",
                 torch.flatten(self.input_extended, 0, -2),
                 torch.flatten(self.input_extended, 0, -2),
-            ), torch.tensor(self.input.shape[:-1]).prod().int().item(),
+            ),
+            torch.tensor(self.input.shape[:-1]).prod().int().item(),
         )
 
     def compute_m_update(
@@ -454,7 +455,8 @@ class LinearGrowingModule(GrowingModule):
                 "ij,ik->jk",
                 torch.flatten(self.input_extended, 0, -2),
                 torch.flatten(desired_activation, 0, -2),
-            ), torch.tensor(self.input.shape[:-1]).prod().int().item(),
+            ),
+            torch.tensor(self.input.shape[:-1]).prod().int().item(),
         )
 
     def compute_m_prev_update(
@@ -487,7 +489,8 @@ class LinearGrowingModule(GrowingModule):
                     "ij,ik->jk",
                     torch.flatten(self.previous_module.input_extended, 0, -2),
                     torch.flatten(desired_activation, 0, -2),
-                ), torch.tensor(self.input.shape[:-1]).prod().int().item(),
+                ),
+                torch.tensor(self.input.shape[:-1]).prod().int().item(),
             )
         elif isinstance(self.previous_module, LinearAdditionGrowingModule):
             if self.previous_module.number_of_successors > 1:
@@ -527,7 +530,8 @@ class LinearGrowingModule(GrowingModule):
                     "ij,ik->jk",
                     torch.flatten(self.previous_module.input_extended, 0, -2),
                     torch.flatten(self.input_extended, 0, -2),
-                ), torch.tensor(self.input.shape[:-1]).prod().int().item(),
+                ),
+                torch.tensor(self.input.shape[:-1]).prod().int().item(),
             )
         elif isinstance(self.previous_module, LinearAdditionGrowingModule):
             return (
@@ -563,7 +567,8 @@ class LinearGrowingModule(GrowingModule):
                     "ij,ik->jk",
                     torch.flatten(self.input, 0, -2),
                     torch.flatten(self.next_module.projected_desired_update(), 0, -2),
-                ), torch.tensor(self.input.shape[:-1]).prod().int().item(),
+                ),
+                torch.tensor(self.input.shape[:-1]).prod().int().item(),
             )
         else:
             raise TypeError("The next module must be a LinearGrowingModule.")
