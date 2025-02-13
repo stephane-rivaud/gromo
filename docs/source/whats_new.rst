@@ -28,6 +28,8 @@ Enhancements
 - Updated Unit Tests (:gh:`14` by `Stella Douka`_)
 - Option to disable logging (:gh:`14` by `Stella Douka`_)
 - Add CI (:gh:`2` by `Sylvain Chevallier`_)
+- Add FahsionMNIST and SVHN datasets along with refactoring SinDataset (:gh:`61` by `Stéphane Rivaud`_)
+- Add AutoAugment and RandAugment data augmentation strategies (:gh:`61` by `Stéphane Rivaud`_)
 
 Bugs
 ~~~~
