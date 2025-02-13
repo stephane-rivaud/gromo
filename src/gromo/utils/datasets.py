@@ -1,7 +1,7 @@
 from math import ceil, floor
 from warnings import warn
-import numpy as np
 
+import numpy as np
 import torch
 from torch.utils import data
 from torchvision import datasets, transforms
@@ -33,15 +33,15 @@ known_datasets = {
 
 
 def get_dataloaders(
-        dataset_name: str = "cifar10",
-        dataset_path: str = "dataset",
-        nb_class: int | None = None,
-        split_train_val: float = 0.0,
-        data_augmentation: list[str] | None = None,
-        batch_size: int = 64,
-        num_workers: int = 0,
-        device: torch.device = global_device(),
-        shuffle: bool = True,
+    dataset_name: str = "cifar10",
+    dataset_path: str = "dataset",
+    nb_class: int | None = None,
+    split_train_val: float = 0.0,
+    data_augmentation: list[str] | None = None,
+    batch_size: int = 64,
+    num_workers: int = 0,
+    device: torch.device = global_device(),
+    shuffle: bool = True,
 ):
     # load the dataset and create the dataloaders
     train_dataset, val_dataset, test_dataset = get_dataset(
@@ -90,11 +90,11 @@ def get_dataloaders(
 
 
 def get_dataset(
-        dataset_name: str,
-        dataset_path: str,
-        nb_class: int | None = None,
-        split_train_val: float = 0.0,
-        data_augmentation: list[str] | None = None,
+    dataset_name: str,
+    dataset_path: str,
+    nb_class: int | None = None,
+    split_train_val: float = 0.0,
+    data_augmentation: list[str] | None = None,
 ) -> tuple[data.Dataset, data.Dataset, data.Dataset]:
     """
     Get the dataset
@@ -134,7 +134,9 @@ def get_dataset(
 
     # get the dataset
     dataset = known_datasets[dataset_name]
-    datasets_transforms, augmentation_transforms = get_transforms(dataset_name, data_augmentation)
+    datasets_transforms, augmentation_transforms = get_transforms(
+        dataset_name, data_augmentation
+    )
 
     # load the train and test datasets
     train_test_args = {
@@ -149,8 +151,12 @@ def get_dataset(
     test_data = dataset(**train_test_args, **test_split_args)
 
     # filter the classes
-    train_val_data = filter_classes(train_val_data, nb_class, "labels" if dataset_name == "svhn" else "targets")
-    test_data = filter_classes(test_data, nb_class, "labels" if dataset_name == "svhn" else "targets")
+    train_val_data = filter_classes(
+        train_val_data, nb_class, "labels" if dataset_name == "svhn" else "targets"
+    )
+    test_data = filter_classes(
+        test_data, nb_class, "labels" if dataset_name == "svhn" else "targets"
+    )
 
     # split the training set
     train_data, val_data = split_train_val_data(train_val_data, split_train_val)
@@ -199,7 +205,9 @@ def split_train_val_data(train_val_data, split_train_val):
     return train_data, val_data
 
 
-def get_transforms(dataset_name: str, data_augmentation: list[str] | None = None) -> tuple[list, list]:
+def get_transforms(
+    dataset_name: str, data_augmentation: list[str] | None = None
+) -> tuple[list, list]:
     datasets_transforms = {
         "mnist": [
             transforms.ToTensor(),
@@ -211,15 +219,21 @@ def get_transforms(dataset_name: str, data_augmentation: list[str] | None = None
         ],
         "cifar10": [
             transforms.ToTensor(),
-            transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010)),
+            transforms.Normalize(
+                mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010)
+            ),
         ],
         "cifar100": [
             transforms.ToTensor(),
-            transforms.Normalize(mean=(0.5071, 0.4867, 0.4408), std=(0.2675, 0.2565, 0.2761)),
+            transforms.Normalize(
+                mean=(0.5071, 0.4867, 0.4408), std=(0.2675, 0.2565, 0.2761)
+            ),
         ],
         "svhn": [
             transforms.ToTensor(),
-            transforms.Normalize(mean=(0.4377, 0.4438, 0.4728), std=(0.1980, 0.2010, 0.1970)),
+            transforms.Normalize(
+                mean=(0.4377, 0.4438, 0.4728), std=(0.1980, 0.2010, 0.1970)
+            ),
         ],
     }
 
@@ -241,9 +255,7 @@ def get_transforms(dataset_name: str, data_augmentation: list[str] | None = None
                     policy = transforms.AutoAugmentPolicy.SVHN
                 else:
                     raise ValueError(f"AutoAugment not available for {dataset_name}")
-                augmentation_transforms.append(
-                    transforms.AutoAugment(policy=policy)
-                )
+                augmentation_transforms.append(transforms.AutoAugment(policy=policy))
             elif aug == "randaugment":
                 augmentation_transforms.append(transforms.RandAugment())
             else:
