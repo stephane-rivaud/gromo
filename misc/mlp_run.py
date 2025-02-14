@@ -166,6 +166,18 @@ def create_parser() -> argparse.ArgumentParser:
         default=0,
         help="weight decay (default: 0)",
     )
+    training_group.add_argument(
+        "--cutmix-beta",
+        type=float,
+        default=1.0,
+        help="cutmix alpha (default: 1.0)",
+    )
+    training_group.add_argument(
+        "--cutmix-prob",
+        type=float,
+        default=0.0,
+        help="cutmix probability (default: 0.0)",
+    )
 
     # scheduler arguments
     scheduler_group = parser.add_argument_group("scheduler")
@@ -591,6 +603,10 @@ def main(args: argparse.Namespace):
                     aux_loss_function=top_1_accuracy,
                     optimizer=optimizer,
                     nb_epoch=1,
+                    cutmix_prob=args.cutmix_prob,
+                    cutmix_beta=args.cutmix_beta,
+                    scheduler=scheduler,
+                    device=device,
                 )
                 logs["train_loss"] = train_loss[-1]
                 logs["train_accuracy"] = train_accuracy[-1]

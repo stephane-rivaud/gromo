@@ -49,6 +49,39 @@ def topk_accuracy(
     return result.sum() / y.size(0)
 
 
+# CutMix function
+def cutmix_data(x, y, beta=1.0, cutmix_prob=0.5):
+    if np.random.rand() > cutmix_prob:
+        return x, y, y, 1.0  # No CutMix applied
+
+    indices = torch.randperm(x.size(0))
+    shuffled_x = x[indices]
+    shuffled_y = y[indices]
+
+    lam = np.random.beta(beta, beta)
+    bbx1, bby1, bbx2, bby2 = rand_bbox(x.size(), lam)
+    x[:, :, bbx1:bbx2, bby1:bby2] = shuffled_x[:, :, bbx1:bbx2, bby1:bby2]
+
+    return x, y, shuffled_y, lam
+
+def rand_bbox(size, lam):
+    W = size[2]
+    H = size[3]
+    cut_rat = np.sqrt(1. - lam)
+    cut_w = int(W * cut_rat)
+    cut_h = int(H * cut_rat)
+
+    cx = np.random.randint(W)
+    cy = np.random.randint(H)
+
+    bbx1 = np.clip(cx - cut_w // 2, 0, W)
+    bby1 = np.clip(cy - cut_h // 2, 0, H)
+    bbx2 = np.clip(cx + cut_w // 2, 0, W)
+    bby2 = np.clip(cy + cut_h // 2, 0, H)
+
+    return bbx1, bby1, bbx2, bby2
+
+
 def train(
     model: nn.Module,
     train_dataloader: torch.utils.data.DataLoader,
@@ -58,6 +91,8 @@ def train(
     aux_loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
     scheduler=None,
     nb_epoch: int = 10,
+    cutmix_beta: float = 1.0,
+    cutmix_prob: float = 0.0,
     show: bool = False,
     device: torch.device = global_device(),
 ):
@@ -80,10 +115,11 @@ def train(
         nb_examples = 0
         for x, y in train_dataloader:
             x, y = x.to(global_device()), y.to(global_device())
+            x, y, y_shuffled, lam = cutmix_data(x, y, beta=cutmix_beta, cutmix_prob=cutmix_prob)
 
             optimizer.zero_grad()
             y_pred = model(x)
-            loss = loss_function(y_pred, y)
+            loss = lam * loss_function(y_pred, y) + (1 - lam) * loss_function(y_pred, y_shuffled)
             assert (
                 loss.isnan().sum() == 0
             ), f"During training of {model}, loss is NaN: {loss}"
