@@ -64,10 +64,11 @@ def cutmix_data(x, y, beta=1.0, cutmix_prob=0.5):
 
     return x, y, shuffled_y, lam
 
+
 def rand_bbox(size, lam):
     W = size[2]
     H = size[3]
-    cut_rat = np.sqrt(1. - lam)
+    cut_rat = np.sqrt(1.0 - lam)
     cut_w = int(W * cut_rat)
     cut_h = int(H * cut_rat)
 
@@ -115,11 +116,15 @@ def train(
         nb_examples = 0
         for x, y in train_dataloader:
             x, y = x.to(global_device()), y.to(global_device())
-            x, y, y_shuffled, lam = cutmix_data(x, y, beta=cutmix_beta, cutmix_prob=cutmix_prob)
+            x, y, y_shuffled, lam = cutmix_data(
+                x, y, beta=cutmix_beta, cutmix_prob=cutmix_prob
+            )
 
             optimizer.zero_grad()
             y_pred = model(x)
-            loss = lam * loss_function(y_pred, y) + (1 - lam) * loss_function(y_pred, y_shuffled)
+            loss = lam * loss_function(y_pred, y) + (1 - lam) * loss_function(
+                y_pred, y_shuffled
+            )
             assert (
                 loss.isnan().sum() == 0
             ), f"During training of {model}, loss is NaN: {loss}"
