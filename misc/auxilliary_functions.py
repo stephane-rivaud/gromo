@@ -116,6 +116,8 @@ def train(
     data_time_meter = AverageMeter()
     transfer_time_meter = AverageMeter()
 
+    cutmix = CutMixAugmentation(beta=cutmix_beta, cutmix_prob=cutmix_prob)
+
     start_time = time()
     for i, (x, y) in enumerate(train_dataloader):
         if 0 <= batch_limit <= i:
