@@ -30,6 +30,7 @@ Enhancements
 - Option to disable logging (:gh:`14` by `Stella Douka`_)
 - Add CI (:gh:`2` by `Sylvain Chevallier`_)
 - Modify LinearGrowingModule to operate on the last dimension of an input tensor with arbitrary shape (:gh:`54` by `Stéphane Rivaud`_)
+- Integrate an MLP Mixer (:gh:`70` by `Stéphane Rivaud`_)
 
 Bugs
 ~~~~
