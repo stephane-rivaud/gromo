@@ -11,6 +11,7 @@ from auxilliary_functions import (
     topk_accuracy,
     train,
 )
+from schedulers import get_scheduler
 
 from gromo.growing_mlp import GrowingMLP
 from gromo.utils.datasets import get_dataloaders, known_datasets
@@ -164,6 +165,22 @@ def create_parser() -> argparse.ArgumentParser:
         type=float,
         default=0,
         help="weight decay (default: 0)",
+    )
+
+    # scheduler arguments
+    scheduler_group = parser.add_argument_group("scheduler")
+    scheduler_group.add_argument(
+        "--scheduler",
+        type=str,
+        default="none",
+        help="scheduler to use (default: step)",
+        choices=["cosine"],
+    )
+    scheduler_group.add_argument(
+        "--warmup-epochs",
+        type=int,
+        default=0,
+        help="number of warmup iterations (default: 0)",
     )
 
     # growing training arguments
@@ -390,6 +407,17 @@ def main(args: argparse.Namespace):
             }
         optimizer = known_optimizers[args.optimizer](model.parameters(), **optim_kwargs)
 
+        # scheduler
+        scheduler = get_scheduler(
+            scheduler_name=args.scheduler,
+            optimizer=optimizer,
+            num_epochs=args.nb_step,
+            num_batches_per_epoch=len(train_loader),
+            base_lr=args.lr,
+            warmup_epochs=args.warmup_epochs,
+        )
+        print(f"Scheduler: {scheduler}")
+
         # growing dtype
         growing_dtype = torch.float32
         if args.growing_computation_dtype == "float64":
@@ -548,11 +576,13 @@ def main(args: argparse.Namespace):
                 optimizer = known_optimizers[args.optimizer](
                     model.parameters(), **optim_kwargs
                 )
+                scheduler.optimizer = optimizer
 
                 # print(model)
             else:
                 logs["selected_update"] = -1
                 logs["epoch_type"] = "training"
+                scheduler.current_epoch = step - 1
                 train_loss, train_accuracy, _, _ = train(
                     model=model,
                     train_dataloader=train_loader,

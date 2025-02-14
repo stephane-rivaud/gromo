@@ -56,6 +56,7 @@ def train(
     loss_function: nn.Module = nn.CrossEntropyLoss(reduction="mean"),
     val_dataloader: torch.utils.data.DataLoader | None = None,
     aux_loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
+    scheduler=None,
     nb_epoch: int = 10,
     show: bool = False,
     device: torch.device = global_device(),
@@ -89,6 +90,9 @@ def train(
 
             loss.backward()
             optimizer.step()
+            if scheduler is not None:
+                scheduler.step()
+
             loss_meter.update(loss.item(), x.size(0))
             if aux_loss_function:
                 accuracy_meter.update(aux_loss_function(y_pred, y).item(), x.size(0))
@@ -108,6 +112,9 @@ def train(
             epoch_loss_val.append(val_loss)
             epoch_accuracy_val.append(val_accuracy)
             model.train()
+
+        if scheduler is not None:
+            scheduler.epoch_step()
 
         if show and epoch % max(1, (nb_epoch // 10)) == 0:
             print(
