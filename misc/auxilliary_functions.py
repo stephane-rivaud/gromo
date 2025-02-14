@@ -10,6 +10,26 @@ from gromo.growing_mlp import GrowingMLP
 from gromo.utils.utils import global_device
 
 
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        if val != np.nan and val != np.inf:
+            self.val = val
+            self.sum += val * n
+            self.count += n
+            self.avg = self.sum / self.count
+
+
 def topk_accuracy(
     y_pred: torch.Tensor,
     y: torch.Tensor,
@@ -29,34 +49,6 @@ def topk_accuracy(
     return result.sum() / y.size(0)
 
 
-class SinDataloader:
-    def __init__(
-        self,
-        nb_sample: int = 1,
-        batch_size: int = 100,
-        seed: int = 0,
-        device=global_device(),
-    ):
-        self.nb_sample = nb_sample
-        self.batch_size = batch_size
-        self.seed = seed
-        self.sample_index = 0
-        self.device = device
-
-    def __iter__(self):
-        torch.manual_seed(self.seed)
-        self.sample_index = 0
-        return self
-
-    def __next__(self):
-        if self.sample_index >= self.nb_sample:
-            raise StopIteration
-        self.sample_index += 1
-        x = torch.rand(self.batch_size, 1, device=self.device) * 2 * np.pi
-        y = torch.sin(x)
-        return x, y
-
-
 def evaluate_model(
     model: nn.Module,
     dataloader: torch.utils.data.DataLoader,
@@ -72,40 +64,47 @@ def evaluate_model(
     ----------
     model: nn.Module
         The model to evaluate
+    dataloader: DataLoader
+        The dataloader to use
     loss_function: nn.Module
         The loss function to use.
         /!/ The loss function should not be averaged over the batch
+    aux_loss_function: nn.Module | None
+        The auxiliary loss function to use.
+    batch_limit: int
+        The maximum number of batches to use
+    device: torch.device
+        The device to use
+
+    Returns
+    -------
+    tuple[float, float]
+        The average loss and the average auxiliary loss
     """
     assert (
         loss_function.reduction == "mean"
     ), "The loss function should not be averaged over the batch"
 
     model.eval()
-    n_batch = 0
-    nb_sample = 0
-    total_loss = torch.tensor(0.0, device=device)
-    aux_total_loss = torch.tensor(0.0, device=device)
-    for x, y in dataloader:
+    loss_meter = AverageMeter()
+    aux_loss_meter = AverageMeter()
+    for i, (x, y) in enumerate(dataloader):
+        if 0 <= batch_limit <= i:
+            break
         x, y = x.to(device), y.to(device)
 
         y_pred = model(x)
         loss = loss_function(y_pred, y)
-        total_loss += loss * x.size(0)
+        loss_meter.update(loss.item(), x.size(0))
         if aux_loss_function is not None:
             aux_loss = aux_loss_function(y_pred, y)
-            aux_total_loss += aux_loss * x.size(0)
+            aux_loss_meter.update(aux_loss.item(), x.size(0))
 
-        nb_sample += x.size(0)
-        n_batch += 1
-        if 0 <= batch_limit <= n_batch:
-            break
-    total_loss /= nb_sample
-    aux_total_loss /= nb_sample
-    return total_loss.item(), aux_total_loss.item()
+    return loss_meter.avg, aux_loss_meter.avg
 
 
 def extended_evaluate_model(
-    growing_model: "GrowingMLP",
+    growing_model: GrowingMLP,
     dataloader: torch.utils.data.DataLoader,
     loss_function: nn.Module = nn.CrossEntropyLoss(reduction="sum"),
     batch_limit: int = -1,
@@ -116,20 +115,16 @@ def extended_evaluate_model(
     ), "The loss function should not be averaged over the batch"
 
     growing_model.eval()
-    n_batch = 0
-    nb_sample = 0
-    total_loss = torch.tensor(0.0, device=device)
-    for x, y in dataloader:
+    loss_meter = AverageMeter()
+    for i, (x, y) in enumerate(dataloader):
+        if 0 <= batch_limit <= i:
+            break
         growing_model.zero_grad()
         x, y = x.to(device), y.to(device)
         y_pred = growing_model.extended_forward(x)
         loss = loss_function(y_pred, y)
-        total_loss += loss
-        nb_sample += x.size(0)
-        n_batch += 1
-        if 0 <= batch_limit <= n_batch:
-            break
-    return total_loss.item() / nb_sample
+        loss_meter.update(loss.item() / x.size(0), x.size(0))
+    return loss_meter.avg
 
 
 def train(
@@ -162,50 +157,47 @@ def train(
         iterator = tqdm(iterator)
 
     for epoch in iterator:
-        this_epoch_loss_train = torch.tensor(0.0, device=device)
-        this_epoch_accuracy_train = torch.tensor(0.0, device=device)
+        loss_meter = AverageMeter()
+        accuracy_meter = AverageMeter()
         nb_examples = 0
         for x, y in train_dataloader:
-            x = x.to(global_device())
-            y = y.to(global_device())
+            x, y = x.to(global_device()), y.to(global_device())
+
             optimizer.zero_grad()
             y_pred = model(x)
             loss = loss_function(y_pred, y)
             assert (
                 loss.isnan().sum() == 0
             ), f"During training of {model}, loss is NaN: {loss}"
+
             loss.backward()
             optimizer.step()
-            this_epoch_loss_train += loss * y.shape[0]
+            loss_meter.update(loss.item(), x.size(0))
             if aux_loss_function:
-                this_epoch_accuracy_train += aux_loss_function(y_pred, y) * y.shape[0]
+                accuracy_meter.update(aux_loss_function(y_pred, y).item(), x.size(0))
             nb_examples += y.shape[0]
 
-        this_epoch_accuracy_train /= nb_examples
-        this_epoch_loss_train /= nb_examples
-        epoch_loss_train.append(this_epoch_loss_train.item())
-        epoch_accuracy_train.append(this_epoch_accuracy_train.item())
+        epoch_loss_train.append(loss_meter.avg)
+        epoch_accuracy_train.append(accuracy_meter.avg)
 
-        this_epoch_loss_val = 0
-        this_epoch_accuracy_val = 0
         if val_dataloader is not None:
-            this_epoch_loss_val, this_epoch_accuracy_val = evaluate_model(
+            val_loss, val_accuracy = evaluate_model(
                 model=model,
                 dataloader=val_dataloader,
                 loss_function=loss_function,
                 aux_loss_function=aux_loss_function,
                 device=device,
             )
-            epoch_loss_val.append(this_epoch_loss_val)
-            epoch_accuracy_val.append(this_epoch_accuracy_val)
+            epoch_loss_val.append(val_loss)
+            epoch_accuracy_val.append(val_accuracy)
             model.train()
 
         if show and epoch % max(1, (nb_epoch // 10)) == 0:
             print(
                 f"Epoch {epoch}:\t",
-                f"Train: loss={this_epoch_loss_train:.3e}, accuracy={this_epoch_accuracy_train:.2f}\t",
+                f"Train: loss={epoch_loss_train[-1]:.3e}, accuracy={epoch_accuracy_train[-1]:.2f}",
                 (
-                    f"Val: loss={this_epoch_loss_val:.3e}, accuracy={this_epoch_accuracy_val:.2f}"
+                    f"Val: loss={epoch_loss_val[-1]:.3e}, accuracy={epoch_accuracy_val[-1]:.2f}"
                     if val_dataloader is not None
                     else ""
                 ),
@@ -249,30 +241,27 @@ def compute_statistics(
     ), "The loss function should not be averaged over the batch"
 
     growing_model.init_computation()
-    n_batch = 0
-    nb_sample = 0
-    total_loss = torch.tensor(0.0, device=device)
-    total_aux_loss = torch.tensor(0.0, device=device)
+    loss_meter = AverageMeter()
+    aux_loss_meter = AverageMeter()
 
     if show:
         dataloader = tqdm(dataloader)
 
-    for x, y in dataloader:
+    for i, (x, y) in enumerate(dataloader):
+        if 0 <= batch_limit <= i:
+            break
         growing_model.zero_grad()
         x, y = x.to(device), y.to(device)
         y_pred = growing_model(x)
         loss = loss_function(y_pred, y)
         loss.backward()
         growing_model.update_computation()
-        total_loss += loss
+        loss_meter.update(loss.item() / x.size(0), x.size(0))
         if aux_loss_function is not None:
             aux_loss = aux_loss_function(y_pred, y)
-            total_aux_loss += aux_loss
-        nb_sample += x.size(0)
-        n_batch += 1
-        if 0 <= batch_limit <= n_batch:
-            break
-    return total_loss.item() / nb_sample, total_aux_loss.item() / nb_sample
+            aux_loss_meter.update(aux_loss.item(), x.size(0))
+
+    return loss_meter.avg, aux_loss_meter.avg
 
 
 def line_search(
