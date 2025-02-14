@@ -49,6 +49,79 @@ def topk_accuracy(
     return result.sum() / y.size(0)
 
 
+def train(
+    model: nn.Module,
+    train_dataloader: torch.utils.data.DataLoader,
+    optimizer: torch.optim.Optimizer,
+    loss_function: nn.Module = nn.CrossEntropyLoss(reduction="mean"),
+    val_dataloader: torch.utils.data.DataLoader | None = None,
+    aux_loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
+    nb_epoch: int = 10,
+    show: bool = False,
+    device: torch.device = global_device(),
+):
+    assert (
+        loss_function.reduction == "mean"
+    ), "The loss function should be averaged over the batch"
+
+    epoch_loss_train = []
+    epoch_accuracy_train = []
+    epoch_loss_val = []
+    epoch_accuracy_val = []
+
+    iterator = range(nb_epoch)
+    if show:
+        iterator = tqdm(iterator)
+
+    for epoch in iterator:
+        loss_meter = AverageMeter()
+        accuracy_meter = AverageMeter()
+        nb_examples = 0
+        for x, y in train_dataloader:
+            x, y = x.to(global_device()), y.to(global_device())
+
+            optimizer.zero_grad()
+            y_pred = model(x)
+            loss = loss_function(y_pred, y)
+            assert (
+                loss.isnan().sum() == 0
+            ), f"During training of {model}, loss is NaN: {loss}"
+
+            loss.backward()
+            optimizer.step()
+            loss_meter.update(loss.item(), x.size(0))
+            if aux_loss_function:
+                accuracy_meter.update(aux_loss_function(y_pred, y).item(), x.size(0))
+            nb_examples += y.shape[0]
+
+        epoch_loss_train.append(loss_meter.avg)
+        epoch_accuracy_train.append(accuracy_meter.avg)
+
+        if val_dataloader is not None:
+            val_loss, val_accuracy = evaluate_model(
+                model=model,
+                dataloader=val_dataloader,
+                loss_function=loss_function,
+                aux_loss_function=aux_loss_function,
+                device=device,
+            )
+            epoch_loss_val.append(val_loss)
+            epoch_accuracy_val.append(val_accuracy)
+            model.train()
+
+        if show and epoch % max(1, (nb_epoch // 10)) == 0:
+            print(
+                f"Epoch {epoch}:\t",
+                f"Train: loss={epoch_loss_train[-1]:.3e}, accuracy={epoch_accuracy_train[-1]:.2f}",
+                (
+                    f"Val: loss={epoch_loss_val[-1]:.3e}, accuracy={epoch_accuracy_val[-1]:.2f}"
+                    if val_dataloader is not None
+                    else ""
+                ),
+            )
+    return epoch_loss_train, epoch_accuracy_train, epoch_loss_val, epoch_accuracy_val
+
+
 def evaluate_model(
     model: nn.Module,
     dataloader: torch.utils.data.DataLoader,
@@ -125,84 +198,6 @@ def extended_evaluate_model(
         loss = loss_function(y_pred, y)
         loss_meter.update(loss.item() / x.size(0), x.size(0))
     return loss_meter.avg
-
-
-def train(
-    model: nn.Module,
-    train_dataloader: torch.utils.data.DataLoader,
-    val_dataloader: torch.utils.data.DataLoader | None = None,
-    loss_function: nn.Module = nn.CrossEntropyLoss(reduction="mean"),
-    aux_loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
-    optimizer=None,
-    lr: float = 1e-2,
-    weight_decay: float = 0,
-    nb_epoch: int = 10,
-    show: bool = False,
-    device: torch.device = global_device(),
-):
-    assert (
-        loss_function.reduction == "mean"
-    ), "The loss function should be averaged over the batch"
-
-    if optimizer is None:
-        optimizer = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay)
-
-    epoch_loss_train = []
-    epoch_accuracy_train = []
-    epoch_loss_val = []
-    epoch_accuracy_val = []
-
-    iterator = range(nb_epoch)
-    if show:
-        iterator = tqdm(iterator)
-
-    for epoch in iterator:
-        loss_meter = AverageMeter()
-        accuracy_meter = AverageMeter()
-        nb_examples = 0
-        for x, y in train_dataloader:
-            x, y = x.to(global_device()), y.to(global_device())
-
-            optimizer.zero_grad()
-            y_pred = model(x)
-            loss = loss_function(y_pred, y)
-            assert (
-                loss.isnan().sum() == 0
-            ), f"During training of {model}, loss is NaN: {loss}"
-
-            loss.backward()
-            optimizer.step()
-            loss_meter.update(loss.item(), x.size(0))
-            if aux_loss_function:
-                accuracy_meter.update(aux_loss_function(y_pred, y).item(), x.size(0))
-            nb_examples += y.shape[0]
-
-        epoch_loss_train.append(loss_meter.avg)
-        epoch_accuracy_train.append(accuracy_meter.avg)
-
-        if val_dataloader is not None:
-            val_loss, val_accuracy = evaluate_model(
-                model=model,
-                dataloader=val_dataloader,
-                loss_function=loss_function,
-                aux_loss_function=aux_loss_function,
-                device=device,
-            )
-            epoch_loss_val.append(val_loss)
-            epoch_accuracy_val.append(val_accuracy)
-            model.train()
-
-        if show and epoch % max(1, (nb_epoch // 10)) == 0:
-            print(
-                f"Epoch {epoch}:\t",
-                f"Train: loss={epoch_loss_train[-1]:.3e}, accuracy={epoch_accuracy_train[-1]:.2f}",
-                (
-                    f"Val: loss={epoch_loss_val[-1]:.3e}, accuracy={epoch_accuracy_val[-1]:.2f}"
-                    if val_dataloader is not None
-                    else ""
-                ),
-            )
-    return epoch_loss_train, epoch_accuracy_train, epoch_loss_val, epoch_accuracy_val
 
 
 def compute_statistics(

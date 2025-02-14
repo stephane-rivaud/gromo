@@ -27,6 +27,7 @@ activation_functions = {
 known_optimizers = {
     "sgd": torch.optim.SGD,
     "adam": torch.optim.Adam,
+    "adamw": torch.optim.AdamW,
 }
 
 selection_methods = [
@@ -153,6 +154,7 @@ def create_parser() -> argparse.ArgumentParser:
         type=str,
         default="sgd",
         help="optimizer to use (default: sgd)",
+        choices=known_optimizers.keys(),
     )
     training_group.add_argument(
         "--lr", type=float, default=0.01, help="learning rate (default: 0.01)"
@@ -367,6 +369,27 @@ def main(args: argparse.Namespace):
             loss_function_growth = torch.nn.CrossEntropyLoss(reduction="sum")
             top_1_accuracy = topk_accuracy
 
+        # optimizer
+        if args.optimizer == "sgd":
+            optim_kwargs = {
+                "lr": args.lr,
+                "momentum": 0.9,
+                "weight_decay": args.weight_decay,
+            }
+        elif args.optimizer == "adamw":
+            optim_kwargs = {
+                "lr": args.lr,
+                "betas": (0.9, 0.99),
+                "weight_decay": args.weight_decay,
+            }
+        elif args.optimizer == "adam":
+            optim_kwargs = {
+                "lr": args.lr,
+                "betas": (0.9, 0.99),
+                "weight_decay": args.weight_decay,
+            }
+        optimizer = known_optimizers[args.optimizer](model.parameters(), **optim_kwargs)
+
         # growing dtype
         growing_dtype = torch.float32
         if args.growing_computation_dtype == "float64":
@@ -521,13 +544,15 @@ def main(args: argparse.Namespace):
                         model.weights_statistics()
                     )
 
+                # redefine the optimizer
+                optimizer = known_optimizers[args.optimizer](
+                    model.parameters(), **optim_kwargs
+                )
+
                 # print(model)
             else:
                 logs["selected_update"] = -1
                 logs["epoch_type"] = "training"
-                optimizer = known_optimizers[args.optimizer](
-                    model.parameters(), lr=args.lr, weight_decay=args.weight_decay
-                )
                 train_loss, train_accuracy, _, _ = train(
                     model=model,
                     train_dataloader=train_loader,
