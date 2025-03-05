@@ -1,32 +1,47 @@
 from math import ceil, floor
 from warnings import warn
 
+import numpy as np
 import torch
 from torch.utils import data
 from torchvision import datasets, transforms
 
 from gromo.utils.utils import global_device
 
+
+class SinDataset(torch.utils.data.Dataset):
+    def __init__(self):
+        self.nb_sample = 1_000
+
+    def __len__(self):
+        return self.nb_sample
+
+    def __getitem__(self, _):
+        data = torch.rand(1) * 2 * torch.pi
+        target = torch.sin(data)
+        return data, target
+
+
 known_datasets = {
-    # "sin": misc.auxilliary_functions.SinDataset,
+    "sin": SinDataset,
     "mnist": datasets.MNIST,
-    # "fashion-mnist": datasets.FashionMNIST, # not used, but can be added with the right augmentation
+    "fashion-mnist": datasets.FashionMNIST,
     "cifar10": datasets.CIFAR10,
     "cifar100": datasets.CIFAR100,
-    # "svhn": datasets.SVHN, # not used, but can be added with the right augmentation
+    "svhn": datasets.SVHN,
 }
 
 
 def get_dataloaders(
-        dataset_name: str = "cifar10",
-        dataset_path: str = "dataset",
-        nb_class: int | None = None,
-        split_train_val: float = 0.0,
-        data_augmentation: list[str] | None = None,
-        batch_size: int = 64,
-        num_workers: int = 0,
-        device: torch.device = global_device(),
-        shuffle: bool = True,
+    dataset_name: str = "cifar10",
+    dataset_path: str = "dataset",
+    nb_class: int | None = None,
+    split_train_val: float = 0.0,
+    data_augmentation: list[str] | None = None,
+    batch_size: int = 64,
+    num_workers: int = 0,
+    device: torch.device = global_device(),
+    shuffle: bool = True,
 ):
     # load the dataset and create the dataloaders
     train_dataset, val_dataset, test_dataset = get_dataset(
@@ -36,8 +51,8 @@ def get_dataloaders(
         split_train_val=split_train_val,
         data_augmentation=data_augmentation,
     )
-    print(f"Input shape: {train_dataset[0][0].shape}")
-    in_channels, image_size, _ = train_dataset[0][0].shape
+    # print(f"Input shape: {train_dataset[0][0].shape}")
+    data_shape = train_dataset[0][0].shape
 
     pin_memory = device != torch.device("cpu")
     num_workers = num_workers if pin_memory else 0
@@ -50,7 +65,17 @@ def get_dataloaders(
         num_workers=num_workers,
         persistent_workers=num_workers > 0,
     )
+
     val_dataloader = torch.utils.data.DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        pin_memory=pin_memory,
+        num_workers=num_workers,
+        persistent_workers=num_workers > 0,
+    )
+
+    test_loader = torch.utils.data.DataLoader(
         test_dataset,
         batch_size=batch_size,
         shuffle=False,
@@ -60,16 +85,15 @@ def get_dataloaders(
     )
 
     del train_dataset, val_dataset, test_dataset
-
-    return train_dataloader, val_dataloader, in_channels, image_size
+    return train_dataloader, val_dataloader, test_loader, data_shape
 
 
 def get_dataset(
-        dataset_name: str,
-        dataset_path: str,
-        nb_class: int | None = None,
-        split_train_val: float = 0.0,
-        data_augmentation: list[str] | None = None,
+    dataset_name: str,
+    dataset_path: str,
+    nb_class: int | None = None,
+    split_train_val: float = 0.0,
+    data_augmentation: list[str] | None = None,
 ) -> tuple[data.Dataset, data.Dataset, data.Dataset]:
     """
     Get the dataset
@@ -100,104 +124,68 @@ def get_dataset(
     if dataset_name not in known_datasets:
         raise ValueError(f"Unknown dataset {dataset_name}")
 
-    # sin dataset
+    # sin dataset (special case)
     if dataset_name == "sin":
         train_data = known_datasets[dataset_name]()
         val_data = known_datasets[dataset_name]()
         test_data = known_datasets[dataset_name]()
         return train_data, val_data, test_data
 
-    # other datasets
-    datasets_transforms = {
-        "mnist": [
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=(0.1307,), std=(0.3081,)
-            ),
-        ],
-        "cifar10": [
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010)
-            ),
-        ],
-        "cifar100": [
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=(0.5071, 0.4867, 0.4408), std=(0.2675, 0.2565, 0.2761)
-            ),
-        ],
-
-    }
-    augmentation_transforms = []
-    if data_augmentation:
-        for aug in data_augmentation:
-            if aug == "horizontal_flip":
-                augmentation_transforms.append(transforms.RandomHorizontalFlip())
-            elif aug == "rotation":
-                augmentation_transforms.append(transforms.RandomRotation(10))
-            elif aug == "crop":
-                augmentation_transforms.append(
-                    transforms.RandomCrop(32, padding=4, padding_mode="reflect")
-                )
-            elif aug == "autoaugment":
-                if dataset_name == "cifar10":
-                    policy = transforms.AutoAugmentPolicy.CIFAR10
-                elif dataset_name == "cifar100":
-                    policy = transforms.AutoAugmentPolicy.CIFAR100
-                else:
-                    raise ValueError(f"AutoAugment not available for {dataset_name}")
-                augmentation_transforms.append(
-                    transforms.AutoAugment(policy=policy)
-                )
-            elif aug == "randaugment":
-                augmentation_transforms.append(transforms.RandAugment())
-            else:
-                warn(f"Unknown augmentation {aug}")
-            # Add more augmentations as needed
-
+    # get the dataset
     dataset = known_datasets[dataset_name]
-    datasets_transform = datasets_transforms[dataset_name]
-
-    train_val_data = dataset(
-        root=dataset_path,
-        train=True,
-        download=True,
-        transform=None,
+    datasets_transforms, augmentation_transforms = get_transforms(
+        dataset_name, data_augmentation
     )
 
-    test_data = dataset(
-        root=dataset_path,
-        train=False,
-        download=True,
-        transform=transforms.Compose(datasets_transform),
+    # load the train and test datasets
+    train_test_args = {
+        "root": dataset_path,
+        "download": True,
+        "transform": transforms.Compose(datasets_transforms),
+    }
+    train_split_args = {"train": True} if dataset_name != "svhn" else {"split": "train"}
+    test_split_args = {"train": False} if dataset_name != "svhn" else {"split": "test"}
+
+    train_val_data = dataset(**train_test_args, **train_split_args)
+    test_data = dataset(**train_test_args, **test_split_args)
+
+    # filter the classes
+    train_val_data = filter_classes(
+        train_val_data, nb_class, "labels" if dataset_name == "svhn" else "targets"
+    )
+    test_data = filter_classes(
+        test_data, nb_class, "labels" if dataset_name == "svhn" else "targets"
     )
 
-    # Keep only the first nb_class classes
+    # split the training set
+    train_data, val_data = split_train_val_data(train_val_data, split_train_val)
+    train_data.dataset.transform = transforms.Compose(
+        augmentation_transforms + datasets_transforms
+    )
+    val_data.dataset.transform = transforms.Compose(datasets_transforms)
+
+    return train_data, val_data, test_data
+
+
+def filter_classes(dataset, nb_class, field_name):
     if nb_class is not None and nb_class <= 1:
         warn(f"{nb_class=} should be greater than 1")
     if nb_class is not None:
-        targets = train_val_data.targets
+        targets = getattr(dataset, field_name)
         if isinstance(targets, list):
+            targets = torch.tensor(targets)
+        elif isinstance(targets, np.ndarray):
             targets = torch.tensor(targets)
         assert isinstance(targets, torch.Tensor)
         assert targets.ndim == 1
         assert targets.min() == 0
-        train_idx = targets <= (nb_class - 1)
-        train_val_data.data = train_val_data.data[train_idx]
-        train_val_data.targets = targets[train_idx]
+        idx = targets <= (nb_class - 1)
+        dataset.data = dataset.data[idx]
+        setattr(dataset, field_name, targets[idx])
+    return dataset
 
-        targets = test_data.targets
-        if isinstance(targets, list):
-            targets = torch.tensor(targets)
-        assert isinstance(targets, torch.Tensor)
-        assert targets.ndim == 1
-        assert targets.min() == 0
-        test_idx = targets <= (nb_class - 1)
-        test_data.data = test_data.data[test_idx]
-        test_data.targets = targets[test_idx]
 
-    # Split the training set into training and validation sets
+def split_train_val_data(train_val_data, split_train_val):
     if split_train_val < 0 or split_train_val > 1:
         raise ValueError(f"{split_train_val=} should be in [0, 1]")
     if split_train_val > 0.5:
@@ -213,22 +201,63 @@ def get_dataset(
     train_data, val_data = torch.utils.data.random_split(
         train_val_data, [train_size, val_size]
     )
-    train_data.dataset.transform = transforms.Compose(
-        augmentation_transforms + datasets_transform
-    )
-    # val_data.dataset.transform = transforms.Compose(datasets_transform)
-
-    return train_data, val_data, test_data
+    return train_data, val_data
 
 
-class SinDataset(torch.utils.data.Dataset):
-    def __init__(self, device):
-        self.nb_sample = 1_000
+def get_transforms(
+    dataset_name: str, data_augmentation: list[str] | None = None
+) -> tuple[list, list]:
+    datasets_transforms = {
+        "mnist": [
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.1307,), std=(0.3081,)),
+        ],
+        "fashion-mnist": [
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.2860,), std=(0.3530,)),
+        ],
+        "cifar10": [
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010)
+            ),
+        ],
+        "cifar100": [
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=(0.5071, 0.4867, 0.4408), std=(0.2675, 0.2565, 0.2761)
+            ),
+        ],
+        "svhn": [
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=(0.4377, 0.4438, 0.4728), std=(0.1980, 0.2010, 0.1970)
+            ),
+        ],
+    }
 
-    def __len__(self):
-        return self.nb_sample
-
-    def __getitem__(self, _):
-        data = torch.rand(1, 1) * 2 * torch.pi
-        target = torch.sin(data)
-        return data, target
+    augmentation_transforms = []
+    if data_augmentation:
+        for aug in data_augmentation:
+            if aug == "horizontal_flip":
+                augmentation_transforms.append(transforms.RandomHorizontalFlip())
+            elif aug == "rotation":
+                augmentation_transforms.append(transforms.RandomRotation(10))
+            elif aug == "crop":
+                augmentation_transforms.append(
+                    transforms.RandomCrop(32, padding=4, padding_mode="reflect")
+                )
+            elif aug == "autoaugment":
+                if dataset_name in ["cifar10", "cifar100"]:
+                    policy = transforms.AutoAugmentPolicy.CIFAR10
+                elif dataset_name == "svhn":
+                    policy = transforms.AutoAugmentPolicy.SVHN
+                else:
+                    raise ValueError(f"AutoAugment not available for {dataset_name}")
+                augmentation_transforms.append(transforms.AutoAugment(policy=policy))
+            elif aug == "randaugment":
+                augmentation_transforms.append(transforms.RandAugment())
+            else:
+                warn(f"Unknown augmentation {aug}")
+            # Add more augmentations as needed
+    return datasets_transforms[dataset_name], augmentation_transforms
