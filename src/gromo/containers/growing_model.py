@@ -77,10 +77,11 @@ class GrowingModel(torch.nn.Module):
 
     def select_best_update(self, verbose: bool = False) -> int:
         """Select the best update for growth procedure"""
-        max_update = max(self.updates_values)
-        for i, layer in enumerate(self.layers):
+        update_values = [layer.first_order_improvement for layer in self.growing_layers]
+        max_update = max(update_values)
+        for i, layer in enumerate(self.growing_layers):
             if verbose:
-                print(f"Layer {i} update: {self.updates_values[i]}")
+                print(f"Layer {i} update: {update_values[i]}")
                 print(
                     f"Layer {i} parameter improvement: {layer.parameter_update_decrease}"
                 )
@@ -96,43 +97,18 @@ class GrowingModel(torch.nn.Module):
 
     def apply_update(self):
         self.currently_updated_layer.apply_change()
+        self.currently_updated_layer.delete_update()
+        self.currently_updated_layer = None
+        self.currently_updated_layer_index = None
 
     @property
-    def amplitude_factor(self):
+    def scaling_factor(self):
+        assert self.currently_updated_layer is not None, "No layer is currently updated"
         return self.currently_updated_layer.scaling_factor
 
     def __setattr__(self, key, value):
-        if key == "amplitude_factor":
+        if key == "scaling_factor":
             for layer in self.layers:
                 layer.scaling_factor = value
         else:
             nn.Module.__setattr__(self, key, value)
-            # super(GrowingMLP, self).__setattr__(key, value)
-
-    @staticmethod
-    def tensor_statistics(tensor) -> dict[str, float]:
-        min_value = tensor.min().item()
-        max_value = tensor.max().item()
-        mean_value = tensor.mean().item()
-        if tensor.numel() > 1:
-            std_value = tensor.std().item()
-        else:
-            std_value = -1
-        return {
-            "min": min_value,
-            "max": max_value,
-            "mean": mean_value,
-            "std": std_value,
-        }
-
-    def weights_statistics(self) -> dict[int, dict[str, dict[str, float]]]:
-        statistics = {}
-        for i, layer in enumerate(self.layers):
-            statistics[i] = {
-                "weight": self.tensor_statistics(layer.weight),
-            }
-            if layer.bias is not None:
-                statistics[i]["bias"] = self.tensor_statistics(layer.bias)
-            statistics[i]["input_shape"] = layer.in_features
-            statistics[i]["output_shape"] = layer.out_features
-        return statistics
