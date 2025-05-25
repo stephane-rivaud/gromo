@@ -40,7 +40,7 @@ class TransformerBlock(nn.Module):
         self.ln1 = nn.LayerNorm(d_e, eps=1e-5, bias=bias)
         self.attn = MultiHeadAttention(d_e, d_k, d_v, num_heads, bias)
         self.ln2 = nn.LayerNorm(d_e, eps=1e-5, bias=bias)
-        width_factor = 2
+        width_factor = 1
         self.mlp = nn.Sequential(
             nn.Linear(d_e, width_factor * d_e, bias=bias),
             nn.GELU(),
