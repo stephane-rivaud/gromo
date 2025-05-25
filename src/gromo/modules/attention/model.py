@@ -1,9 +1,11 @@
 import math
 from dataclasses import dataclass
+
 import torch
 import torch.nn as nn
-from torch.nn import functional as F
 from torch.nn import LayerNorm
+from torch.nn import functional as F
+
 from gromo.modules.attention.my_utils import my_svd_low_rank
 
 
@@ -15,7 +17,7 @@ class ModelConfig:
     d_k_max: int = 8
     d_v: int = 8
     bias: bool = False
-    assert bias is False, "The growing algorithm is not implemented with bias"
+    # assert bias is False, "The growing algorithm is not implemented with bias"
 
 
 class SelfAttentionBaseline(nn.Module):
@@ -34,9 +36,9 @@ class SelfAttentionBaseline(nn.Module):
 
     def get_S_grad(self) -> torch.Tensor:
         """Return the gradient of S from the last backward pass"""
-        assert self.S_grad is not None, (
-            "S_grad is not available. Make sure to call forward() first."
-        )
+        assert (
+            self.S_grad is not None
+        ), "S_grad is not available. Make sure to call forward() first."
         return self.S_grad
 
     def forward(self, X, scaling_test: None | float = None):
@@ -138,7 +140,9 @@ class Block(nn.Module):
         acc_x_grad = self.frozen_S_grad  # (b,s,s)
         self.P_stat[("small_f", "out_e")] = (
             acc_x @ acc_x_grad @ acc_x.transpose(-2, -1)
-        ).mean(dim=0)  # (e,e)
+        ).mean(
+            dim=0
+        )  # (e,e)
 
         return self.P_stat
 

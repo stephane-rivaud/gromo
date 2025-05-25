@@ -1,8 +1,9 @@
-import torch
-import torch.nn as nn
 from typing import Optional
 
-from gromo.modules.attention.model import SelfAttentionBaseline, ModelConfig
+import torch
+import torch.nn as nn
+
+from gromo.modules.attention.model import ModelConfig, SelfAttentionBaseline
 
 
 class MultiHeadAttention(nn.Module):
@@ -15,11 +16,13 @@ class MultiHeadAttention(nn.Module):
         bias: bool = False,
     ) -> None:
         super(MultiHeadAttention, self).__init__()
-        self.heads = nn.ModuleList([
-            SelfAttentionBaseline(ModelConfig(d_e=d_e, d_k=d_k, d_v=d_v, bias=bias))
-            for _ in range(num_heads)
-        ])
-    
+        self.heads = nn.ModuleList(
+            [
+                SelfAttentionBaseline(ModelConfig(d_e=d_e, d_k=d_k, d_v=d_v, bias=bias))
+                for _ in range(num_heads)
+            ]
+        )
+
     def forward(self, x):
         return sum(head(x) for head in self.heads)
 
@@ -31,7 +34,7 @@ class TransformerBlock(nn.Module):
         d_k: int,
         d_v: int,
         num_heads: int,
-        bias: bool = False,
+        bias: bool = True,
     ) -> None:
         super(TransformerBlock, self).__init__()
         self.ln1 = nn.LayerNorm(d_e, eps=1e-5, bias=bias)
@@ -43,7 +46,7 @@ class TransformerBlock(nn.Module):
             nn.GELU(),
             nn.Linear(width_factor * d_e, d_e, bias=bias),
         )
-    
+
     def forward(self, x):
         x = self.ln1(x)
         x = x + self.attn(x)
@@ -75,10 +78,17 @@ class GrowingTransformer(nn.Module):
             device=self.device,
         )
         num_patches = in_features[1] // patch_size * in_features[2] // patch_size
-        self.pos_emb = nn.Parameter(torch.randn(1, num_patches, num_features, device=self.device))
-        self.blocks = nn.ModuleList([TransformerBlock(num_features, dim_k, dim_v, n_heads, bias=False) for _ in range(num_blocks)])
+        self.pos_emb = nn.Parameter(
+            torch.randn(1, num_patches, num_features, device=self.device)
+        )
+        self.blocks = nn.ModuleList(
+            [
+                TransformerBlock(num_features, dim_k, dim_v, n_heads, bias=True)
+                for _ in range(num_blocks)
+            ]
+        )
         self.projection = nn.Linear(num_features, out_features, device=self.device)
-    
+
     def forward(self, x):
         patches = self.patcher(x)
         batch_size, num_features, _, _ = patches.shape
