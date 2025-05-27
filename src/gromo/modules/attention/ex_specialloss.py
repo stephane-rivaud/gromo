@@ -1,15 +1,15 @@
 """Test Loss(S - gamma * grad_S) instead of Loss(S)"""
 
 import os
+
 import matplotlib.pyplot as plt
 import numpy as np
-
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
 
 from gromo.modules.attention.model import Block, ModelConfig
-from gromo.modules.attention.my_utils import generate_teacher_dataset, AttentionDataset
+from gromo.modules.attention.my_utils import AttentionDataset, generate_teacher_dataset
 from gromo.utils.utils import global_device
 
 

@@ -1,15 +1,18 @@
+import os
+
+import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
-import os
 from torch.utils.data import DataLoader, random_split
-import matplotlib.pyplot as plt
-from gromo.utils.utils import global_device
+
 from gromo.modules.attention.attention_modules import (
     AttentionBaselineModule,
-    AttentionGrowingModule,
     AttentionDataset,
+    AttentionGrowingModule,
     generate_teacher_dataset,
 )
+from gromo.utils.utils import global_device
+
 
 # TODO: Old file mostly obsolete, to refactor/delete a lot of stuff
 

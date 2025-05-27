@@ -3,7 +3,7 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, random_split, Dataset
+from torch.utils.data import DataLoader, Dataset, random_split
 
 from gromo.modules.attention.my_utils import assert_2Dtensor_shape, my_svd_low_rank
 from gromo.utils.utils import global_device
@@ -201,9 +201,9 @@ class AttentionGrowingModule(nn.Module):
 
     def get_S_grad(self) -> torch.Tensor:
         """Return the gradient of S (b, d_s, d_s) from the last backward pass"""
-        assert self.S_grad is not None, (
-            "S_grad is not available. Make sure to call forward() first."
-        )
+        assert (
+            self.S_grad is not None
+        ), "S_grad is not available. Make sure to call forward() first."
         return self.S_grad
 
     @staticmethod
@@ -289,18 +289,14 @@ class AttentionGrowingModule(nn.Module):
         self.W_Q_new = self.breve_W_Q[:, self.d_k :]  # (d_e (+1), p)
         assert torch.equal(
             torch.cat((self.W_Q_temp, self.W_Q_new), dim=1), self.breve_W_Q
-        ), (
-            "Concatenation of W_Q_temp and W_Q_new does not match breve_W_Q"
-        )  # OPTIMIZE: Put the assertion in a test?
+        ), "Concatenation of W_Q_temp and W_Q_new does not match breve_W_Q"  # OPTIMIZE: Put the assertion in a test?
 
         self.W_K_temp = self.breve_W_K[:, : self.d_k]  # (d_e (+1), d_k)
         self.dW_K = self.W_K_temp - self.W_K  # (d_e (+1), d_k)
         self.W_K_new = self.breve_W_K[:, self.d_k :]  # (d_e (+1), p)
         assert torch.equal(
             torch.cat((self.W_K_temp, self.W_K_new), dim=1), self.breve_W_K
-        ), (
-            "Concatenation of W_K_temp and W_K_new does not match breve_W_K"
-        )  # OPTIMIZE: Put the assertion in a test?
+        ), "Concatenation of W_K_temp and W_K_new does not match breve_W_K"  # OPTIMIZE: Put the assertion in a test?
 
     @staticmethod
     def _compute_reconstruction_error(
@@ -361,12 +357,12 @@ class AttentionGrowingModule(nn.Module):
         else:
             X_pinv = torch.linalg.pinv(X)  # (b, d_e, d_s)
 
-        assert self.S is not None, (
-            "S is not available. Make sure to call forward() first."
-        )
-        assert self.S_grad is not None, (
-            "S_grad is not available. Make sure to call forward() first."
-        )
+        assert (
+            self.S is not None
+        ), "S is not available. Make sure to call forward() first."
+        assert (
+            self.S_grad is not None
+        ), "S_grad is not available. Make sure to call forward() first."
 
         Z = self.S_grad + self.S * self.scale  # (b, d_s, d_s)
         Z = torch.matmul(X_pinv, Z)  # (b, d_e (+1), d_s)
@@ -430,9 +426,9 @@ class AttentionGrowingModule(nn.Module):
         Pass the current optimizer so its parameter list is refreshed.
         """
         # --- Sanity checks
-        assert hasattr(self, "breve_W_Q") and hasattr(self, "breve_W_K"), (
-            "Call grow_WQ_WK() before update_WQ_WK()."
-        )
+        assert hasattr(self, "breve_W_Q") and hasattr(
+            self, "breve_W_K"
+        ), "Call grow_WQ_WK() before update_WQ_WK()."
         d_k_new = self.d_k + p
         device = self.W_Q.weight.device
         dtype = self.W_Q.weight.dtype
@@ -591,8 +587,8 @@ if __name__ == "__main__":
                 loss.backward()
 
                 optimizer_growing.step()
-                running_train += (
-                    loss.item() * xb.size(0)
+                running_train += loss.item() * xb.size(
+                    0
                 )  # WARN: Need to do a running loss also with the growing iteration or not?
 
             flag_first_batch_of_epoch = False

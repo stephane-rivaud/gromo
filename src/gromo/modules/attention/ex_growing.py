@@ -1,10 +1,10 @@
-import matplotlib.pyplot as plt
-from scipy.optimize import minimize_scalar
 import os
 
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
+from scipy.optimize import minimize_scalar
 from torch.utils.data import DataLoader, random_split
 
 from gromo.modules.attention.model import Block, ModelConfig
@@ -116,18 +116,18 @@ for epoch in range(1, num_epochs + 1):
                         )
                         y_pred_search = model.forward(xb)
                         loss_search = loss_fn(y_pred_search, yb)
-                        running_lbds_train_losses_dif[lbd] += (
-                            loss_search.item() * xb.size(0)
-                        )
+                        running_lbds_train_losses_dif[
+                            lbd
+                        ] += loss_search.item() * xb.size(0)
                     for lbd in lbds:
                         model.update_WQ_WK(
                             config, lbd=lbd, choice_P_stat=("big_f", "in_e"), dif=False
                         )
                         y_pred_search = model.forward(xb)
                         loss_search = loss_fn(y_pred_search, yb)
-                        running_lbds_train_losses_dif2[lbd] += (
-                            loss_search.item() * xb.size(0)
-                        )
+                        running_lbds_train_losses_dif2[
+                            lbd
+                        ] += loss_search.item() * xb.size(0)
                 model.reset_layers_WQt_WKt(config)
 
         else:
