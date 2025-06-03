@@ -19,13 +19,13 @@ class SelfAttention(nn.Module):
         self.d_e = d_e
         self.d_k = d_k
         self.d_v = d_v
-        self.scale = d_k ** -0.5
+        self.scale = d_k**-0.5
 
         # Linear projections for Q, K, V
         self.query = nn.Linear(d_e, d_k, bias=bias)
         self.key = nn.Linear(d_e, d_k, bias=bias)
         self.value = nn.Linear(d_e, d_v, bias=bias)
-        
+
         # Output projection
         self.proj = nn.Linear(d_v, d_e, bias=bias)
         # TODO: check how the initialization of the bias affects performance (compared to growing_transformer)
@@ -56,41 +56,41 @@ class SelfAttention(nn.Module):
         self.tensor_b.updated = False
         if self.store_input:
             self.input = x
-        
+
         batch_size, seq_len, _ = x.size()
-        
+
         # Project and split into multiple heads
         q = self.query(x).view(batch_size, seq_len, self.d_k)
         k = self.key(x).view(batch_size, seq_len, self.d_k)
         v = self.value(x).view(batch_size, seq_len, self.d_v)
-        
+
         # Scaled dot-product
         scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
-        
+
         # Store the scores
         if self.store_attn_scores:
             self.attn_scores = scores
             self.attn_scores.retain_grad()
-        
+
         # Softmax
         attn = torch.softmax(scores, dim=-1)
-        
+
         # Apply attention to values
         out = torch.matmul(attn, v)
-        
+
         # Project
         out = self.proj(out)
-        
+
         return out
-    
+
     def extended_forward(self, x):
         batch_size, seq_len, _ = x.size()
-        
+
         # Project and split into multiple heads
         q = self.query(x).view(batch_size, seq_len, self.d_k)
         k = self.key(x).view(batch_size, seq_len, self.d_k)
         v = self.value(x).view(batch_size, seq_len, self.d_v)
-        
+
         # Scaled dot-product
         scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
 
@@ -98,24 +98,24 @@ class SelfAttention(nn.Module):
         if self.tensor_dz is not None:
             ds = torch.einsum("nab,bd,ncd->nac", x, self.tensor_dz, x)
             scores += ds * self.scaling_factor
-        
+
         # Softmax
         attn = torch.softmax(scores, dim=-1)
-        
+
         # Apply attention to values
         out = torch.matmul(attn, v)
-        
+
         # Project
         out = self.proj(out)
-        
+
         return out
-    
+
     def init_computation(self):
         self.store_input = True
         self.store_attn_scores = True
         self.tensor_sigma.init()
         self.tensor_b.init()
-    
+
     def update_computation(self):
         self.tensor_sigma.update()
         self.tensor_b.update()
@@ -139,12 +139,14 @@ class SelfAttention(nn.Module):
         """
         assert (
             self.store_input
-        ), f"The input must be stored to compute the update of S. (error in {self.name})"
+        ), f"The input must be stored to compute the update of sigma. (error in {self.name})"
         assert (
             self.input is not None
-        ), f"The input must be stored to compute the update of S. (error in {self.name})"
+        ), f"The input must be stored to compute the update of sigma. (error in {self.name})"
         cross_covariance = torch.matmul(self.input.transpose(-2, -1), self.input)
-        kronecker = torch.einsum('iab,icd->iacbd', cross_covariance, cross_covariance).sum(dim=0)
+        kronecker = torch.einsum(
+            "iab,icd->iacbd", cross_covariance, cross_covariance
+        ).sum(dim=0)
         kronecker = kronecker.view(self.d_e**2, self.d_e**2)
         return kronecker, self.input.shape[0]
 
@@ -161,15 +163,15 @@ class SelfAttention(nn.Module):
         """
         assert (
             self.store_input
-        ), f"The input must be stored to compute the update of S. (error in {self.name})"
+        ), f"The input must be stored to compute the update of b. (error in {self.name})"
         assert (
             self.input is not None
-        ), f"The input must be stored to compute the update of S. (error in {self.name})"
+        ), f"The input must be stored to compute the update of b. (error in {self.name})"
         input_x = self.input
         scores_grad = self.attn_scores.grad
         b = torch.einsum("nab,nap,npq->bq", input_x, scores_grad, input_x).ravel()
         return b, self.input.shape[0]
-    
+
     def compute_optimal_update(self):
         """
         Compute the optimal update for the tensor Z.
@@ -181,8 +183,9 @@ class SelfAttention(nn.Module):
         """
         sigma = self.tensor_sigma()
         b = self.tensor_b()
-        sigma_pinv = torch.linalg.pinv(sigma)
-        self.tensor_dz = torch.matmul(sigma_pinv, b).view(self.d_e, self.d_e)
+        self.tensor_dz = torch.linalg.lstsq(sigma, b).solution.view(self.d_e, self.d_e)
+        # sigma_pinv = torch.linalg.pinv(sigma)
+        # self.tensor_dz = torch.matmul(sigma_pinv, b).view(self.d_e, self.d_e)
 
 
 class MultiHeadAttention(nn.Module):
@@ -197,18 +200,15 @@ class MultiHeadAttention(nn.Module):
     ) -> None:
         super(MultiHeadAttention, self).__init__()
         self.heads = nn.ModuleList(
-            [
-                SelfAttention(d_e, d_k, d_v, bias, device=device)
-                for _ in range(num_heads)
-            ]
+            [SelfAttention(d_e, d_k, d_v, bias, device=device) for _ in range(num_heads)]
         )
-    
+
         self._growing_layers = list(self.heads)
 
     def forward(self, x):
         out = sum(attn(x) for attn in self.heads)
         return out
-    
+
     def extended_forward(self, x):
         out = sum(attn.extended_forward(x) for attn in self.heads)
         return out
@@ -234,14 +234,14 @@ class TransformerBlock(nn.Module):
             nn.GELU(),
             nn.Linear(width_factor * d_e, d_e, bias=bias),
         )
-    
+
         self._growing_layers = self.attn._growing_layers
 
     def forward(self, x):
         x = x + self.attn(self.ln1(x))
         x = x + self.mlp(self.ln2(x))
         return x
-    
+
     def extended_forward(self, x):
         x = x + self.attn.extended_forward(self.ln1(x))
         x = x + self.mlp(self.ln2(x))
@@ -278,7 +278,15 @@ class GrowingTransformer(nn.Module):
         )
         self.blocks = nn.ModuleList(
             [
-                TransformerBlock(dim_e, dim_k, dim_v, n_heads, width_factor=width_factor, bias=use_bias, device=self.device)
+                TransformerBlock(
+                    dim_e,
+                    dim_k,
+                    dim_v,
+                    n_heads,
+                    width_factor=width_factor,
+                    bias=use_bias,
+                    device=self.device,
+                )
                 for _ in range(num_blocks)
             ]
         )
@@ -287,7 +295,7 @@ class GrowingTransformer(nn.Module):
         self._growing_layers = []
         for block in self.blocks:
             self._growing_layers.extend(block._growing_layers)
-    
+
     def embedding(self, x):
         patches = self.patcher(x)
         batch_size, dim_e, _, _ = patches.shape
@@ -300,35 +308,34 @@ class GrowingTransformer(nn.Module):
         for block in self.blocks:
             embedding = block(embedding)
         return self.projection(embedding.mean(dim=1))
-    
+
     def extended_forward(self, x):
         embedding = self.embedding(x)
         for block in self.blocks:
             embedding = block.extended_forward(embedding)
         return self.projection(embedding.mean(dim=1))
-    
+
     def init_computation(self):
         for layer in self._growing_layers:
             layer.init_computation()
-    
+
     def update_computation(self):
         for layer in self._growing_layers:
             layer.update_computation()
-    
+
     def reset_computation(self):
         for layer in self._growing_layers:
             layer.reset_computation()
-    
+
     def compute_optimal_update(self):
         for layer in self._growing_layers:
             layer.compute_optimal_update()
 
 
-
 if __name__ == "__main__":
-    import torch.nn.functional as F
     import torch
-    
+    import torch.nn.functional as F
+
     torch.manual_seed(0)
 
     # Create model
@@ -344,7 +351,7 @@ if __name__ == "__main__":
         width_factor=1,
         use_bias=True,
     )
-    
+
     # Test the forward
     x = torch.randn(1, 3, 32, 32)
     y = model(x)
@@ -362,7 +369,7 @@ if __name__ == "__main__":
         loss.backward()
         model.blocks[0].attn.heads[0].update_computation()
     model.blocks[0].attn.heads[0].compute_optimal_update()
-    
+
     # Test the extended forward
     x = torch.randn(1, 3, 32, 32)
     model.blocks[0].attn.heads[0].scaling_factor = 1.0

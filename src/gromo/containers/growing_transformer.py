@@ -18,35 +18,47 @@ class MultiHeadAttention(nn.Module):
         self.d_k = d_k
         self.d_v = d_v
         self.num_heads = num_heads
-        self.scale = d_k ** -0.5
+        self.scale = d_k**-0.5
 
         # Linear projections for Q, K, V
         self.query = nn.Linear(d_e, d_k * num_heads, bias=bias)
         self.key = nn.Linear(d_e, d_k * num_heads, bias=bias)
         self.value = nn.Linear(d_e, d_v * num_heads, bias=bias)
-        
+
         # Output projection
         self.proj = nn.Linear(d_v * num_heads, d_e, bias=bias)
 
     def forward(self, x):
         batch_size, seq_len, _ = x.size()
-        
+
         # Project and split into multiple heads
-        q = self.query(x).view(batch_size, seq_len, self.num_heads, self.d_k).transpose(1, 2)
-        k = self.key(x).view(batch_size, seq_len, self.num_heads, self.d_k).transpose(1, 2)
-        v = self.value(x).view(batch_size, seq_len, self.num_heads, self.d_v).transpose(1, 2)
-        
+        q = (
+            self.query(x)
+            .view(batch_size, seq_len, self.num_heads, self.d_k)
+            .transpose(1, 2)
+        )
+        k = (
+            self.key(x)
+            .view(batch_size, seq_len, self.num_heads, self.d_k)
+            .transpose(1, 2)
+        )
+        v = (
+            self.value(x)
+            .view(batch_size, seq_len, self.num_heads, self.d_v)
+            .transpose(1, 2)
+        )
+
         # Scaled dot-product attention
         scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
         attn = torch.softmax(scores, dim=-1)
-        
+
         # Apply attention to values
         out = torch.matmul(attn, v)
-        
+
         # Concatenate heads and project
         out = out.transpose(1, 2).contiguous().view(batch_size, seq_len, -1)
         out = self.proj(out)
-        
+
         return out
 
 
@@ -108,12 +120,14 @@ class GrowingTransformer(nn.Module):
         )
         self.blocks = nn.ModuleList(
             [
-                TransformerBlock(dim_e, dim_k, dim_v, n_heads, width_factor=width_factor, bias=use_bias)
+                TransformerBlock(
+                    dim_e, dim_k, dim_v, n_heads, width_factor=width_factor, bias=use_bias
+                )
                 for _ in range(num_blocks)
             ]
         )
         self.projection = nn.Linear(dim_e, out_features, device=self.device)
-    
+
     def embedding(self, x):
         patches = self.patcher(x)
         batch_size, dim_e, _, _ = patches.shape
