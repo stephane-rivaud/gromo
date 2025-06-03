@@ -13,6 +13,7 @@ class SelfAttention(nn.Module):
         d_k: int,
         d_v: int,
         bias: bool = True,
+        device: torch.device | str | None = None,
     ) -> None:
         super(SelfAttention, self).__init__()
         self.d_e = d_e
@@ -27,6 +28,7 @@ class SelfAttention(nn.Module):
         
         # Output projection
         self.proj = nn.Linear(d_v, d_e, bias=bias)
+        # TODO: check how the initialization of the bias affects performance (compared to growing_transformer)
 
         # Growth attributes
         self.store_input = False
@@ -38,14 +40,16 @@ class SelfAttention(nn.Module):
         self.tensor_sigma = TensorStatistic(
             shape=(d_e**2, d_e**2),
             update_function=self.compute_sigma_update,
+            device=device,
         )
 
         self.tensor_b = TensorStatistic(
             shape=(d_e**2,),
             update_function=self.compute_b_update,
+            device=device,
         )
 
-        self.tensor_dz: torch.Tensor = torch.empty((d_e, d_e))
+        self.tensor_dz: torch.Tensor = torch.empty((d_e, d_e), device=device)
 
     def forward(self, x):
         self.tensor_sigma.updated = False
@@ -177,8 +181,8 @@ class SelfAttention(nn.Module):
         """
         sigma = self.tensor_sigma()
         b = self.tensor_b()
-        dz = torch.linalg.solve(sigma, b).view(self.d_e, self.d_e)
-        return dz
+        sigma_pinv = torch.linalg.pinv(sigma)
+        self.tensor_dz = torch.matmul(sigma_pinv, b).view(self.d_e, self.d_e)
 
 
 class MultiHeadAttention(nn.Module):
@@ -189,14 +193,17 @@ class MultiHeadAttention(nn.Module):
         d_v: int,
         num_heads: int,
         bias: bool = True,
+        device: torch.device | str | None = None,
     ) -> None:
         super(MultiHeadAttention, self).__init__()
         self.heads = nn.ModuleList(
             [
-                SelfAttention(d_e, d_k, d_v, bias)
+                SelfAttention(d_e, d_k, d_v, bias, device=device)
                 for _ in range(num_heads)
             ]
         )
+    
+        self._growing_layers = list(self.heads)
 
     def forward(self, x):
         out = sum(attn(x) for attn in self.heads)
@@ -216,16 +223,19 @@ class TransformerBlock(nn.Module):
         num_heads: int,
         bias: bool = True,
         width_factor: int = 1,
+        device: torch.device | str | None = None,
     ) -> None:
         super(TransformerBlock, self).__init__()
         self.ln1 = nn.LayerNorm(d_e, eps=1e-5, bias=bias)
-        self.attn = MultiHeadAttention(d_e, d_k, d_v, num_heads, bias)
+        self.attn = MultiHeadAttention(d_e, d_k, d_v, num_heads, bias, device=device)
         self.ln2 = nn.LayerNorm(d_e, eps=1e-5, bias=bias)
         self.mlp = nn.Sequential(
             nn.Linear(d_e, width_factor * d_e, bias=bias),
             nn.GELU(),
             nn.Linear(width_factor * d_e, d_e, bias=bias),
         )
+    
+        self._growing_layers = self.attn._growing_layers
 
     def forward(self, x):
         x = x + self.attn(self.ln1(x))
@@ -268,11 +278,15 @@ class GrowingTransformer(nn.Module):
         )
         self.blocks = nn.ModuleList(
             [
-                TransformerBlock(dim_e, dim_k, dim_v, n_heads, width_factor=width_factor, bias=use_bias)
+                TransformerBlock(dim_e, dim_k, dim_v, n_heads, width_factor=width_factor, bias=use_bias, device=self.device)
                 for _ in range(num_blocks)
             ]
         )
         self.projection = nn.Linear(dim_e, out_features, device=self.device)
+
+        self._growing_layers = []
+        for block in self.blocks:
+            self._growing_layers.extend(block._growing_layers)
     
     def embedding(self, x):
         patches = self.patcher(x)
@@ -292,6 +306,23 @@ class GrowingTransformer(nn.Module):
         for block in self.blocks:
             embedding = block.extended_forward(embedding)
         return self.projection(embedding.mean(dim=1))
+    
+    def init_computation(self):
+        for layer in self._growing_layers:
+            layer.init_computation()
+    
+    def update_computation(self):
+        for layer in self._growing_layers:
+            layer.update_computation()
+    
+    def reset_computation(self):
+        for layer in self._growing_layers:
+            layer.reset_computation()
+    
+    def compute_optimal_update(self):
+        for layer in self._growing_layers:
+            layer.compute_optimal_update()
+
 
 
 if __name__ == "__main__":
