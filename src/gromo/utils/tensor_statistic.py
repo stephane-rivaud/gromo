@@ -72,6 +72,18 @@ class TensorStatistic:
     def __str__(self):
         return f"{self.name} tensor of shape {self._shape} with {self.samples} samples"
 
+    def to(
+        self,
+        device: torch.device | str | None = None,
+        dtype: torch.dtype | None = None,
+        non_blocking: bool = False,
+    ):
+        if self._tensor is not None:
+            self._tensor.to(device=device, dtype=dtype, non_blocking=non_blocking)
+        if device:
+            self.device = torch.device(device)
+        return self
+
     def update(self, **kwargs):
         assert (
             not self._shape or self._tensor is not None

@@ -63,6 +63,15 @@ class MergeGrowingModule(torch.nn.Module):
         self.next_modules: list[MergeGrowingModule | GrowingModule] = []
         self.set_next_modules(next_modules)
 
+    def to(self, *args, **kwargs):
+        self.post_merge_function.to(*args, **kwargs)
+        self.tensor_s.to(*args, **kwargs)
+        if self.previous_tensor_s:
+            self.previous_tensor_s.to(*args, **kwargs)
+        if self.previous_tensor_m:
+            self.previous_tensor_m.to(*args, **kwargs)
+        return self
+
     @property
     def number_of_successors(self):
         return len(self.next_modules)
@@ -529,6 +538,24 @@ class GrowingModule(torch.nn.Module):
                 device=self.device,
                 name=f"S_growth({name})",
             )
+
+    def to(
+        self,
+        device: torch.device | str | None = None,
+        dtype: torch.dtype | None = None,
+        non_blocking: bool = False,
+    ):
+        super().to(device=device, dtype=dtype, non_blocking=non_blocking)
+        if device:
+            self.device = device
+        # Manually move statistics to device
+        if self._tensor_s is not None:
+            self._tensor_s.to(device=device, dtype=dtype, non_blocking=non_blocking)
+        self.tensor_m.to(device=device, dtype=dtype, non_blocking=non_blocking)
+        self.tensor_m_prev.to(device=device, dtype=dtype, non_blocking=non_blocking)
+        self.cross_covariance.to(device=device, dtype=dtype, non_blocking=non_blocking)
+        if self.s_growth_is_needed:
+            self.tensor_s_growth.to(device=device, dtype=dtype, non_blocking=non_blocking)
 
     # Information functions
     @property
@@ -1200,6 +1227,15 @@ class GrowingModule(torch.nn.Module):
         if tensor_m.dtype != dtype:
             tensor_m = tensor_m.to(dtype=dtype)
 
+        device = tensor_s.device
+        assert (
+            tensor_m.device == device
+        ), "tensor_s and tensor_m should be on the same device."
+        if device.type == "mps":
+            # fallback on CPU
+            tensor_s = tensor_s.to(device="cpu")
+            tensor_m = tensor_m.to(device="cpu")
+
         if not force_pseudo_inverse:
             try:
                 self.delta_raw = torch.linalg.solve(tensor_s, tensor_m).t()
@@ -1213,6 +1249,11 @@ class GrowingModule(torch.nn.Module):
                 )
         if force_pseudo_inverse:
             self.delta_raw = (torch.linalg.pinv(tensor_s) @ tensor_m).t()
+
+        if device.type == "mps":
+            # move back to mps
+            self.delta_raw = self.delta_raw.to(device=device)
+            tensor_m = tensor_m.to(device=device)
 
         assert self.delta_raw is not None, "self.delta_raw should be computed by now."
         assert (

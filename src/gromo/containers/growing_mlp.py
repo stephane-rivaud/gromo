@@ -57,6 +57,7 @@ class GrowingMLP(GrowingContainer):
                 hidden_size,
                 post_layer_function=activation,
                 use_bias=use_bias,
+                device=device,
                 name="Layer 0",
             )
         )
@@ -68,6 +69,7 @@ class GrowingMLP(GrowingContainer):
                     post_layer_function=activation,
                     previous_module=self.layers[-1],
                     use_bias=use_bias,
+                    device=device,
                     name=f"Layer {i + 1}",
                 )
             )
@@ -77,6 +79,7 @@ class GrowingMLP(GrowingContainer):
                 self.out_features,
                 previous_module=self.layers[-1],
                 use_bias=use_bias,
+                device=device,
                 name=f"Layer {number_hidden_layers}",
             )
         )

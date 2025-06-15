@@ -33,6 +33,13 @@ def sqrt_inverse_matrix_semi_positive(
 
     if preferred_linalg_library is not None:
         torch.backends.cuda.preferred_linalg_library(preferred_linalg_library)
+
+    device = matrix.device
+    if device.type == "mps":
+        # MPS does not support torch.linalg.eigh
+        # Fall back to CPU
+        matrix = matrix.cpu()
+
     try:
         eigenvalues, eigenvectors = torch.linalg.eigh(matrix)
     except torch.linalg.LinAlgError as e:
@@ -43,6 +50,12 @@ def sqrt_inverse_matrix_semi_positive(
             )
         else:
             raise e
+    
+    if device.type == "mps":
+        # Move back to MPS
+        eigenvalues = eigenvalues.to(device)
+        eigenvectors = eigenvectors.to(device)
+    
     selected_eigenvalues = eigenvalues > threshold
     eigenvalues = torch.rsqrt(eigenvalues[selected_eigenvalues])  # inverse square root
     eigenvectors = eigenvectors[:, selected_eigenvalues]

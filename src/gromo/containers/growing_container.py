@@ -44,7 +44,28 @@ class GrowingContainer(torch.nn.Module):
         self.out_features = out_features
 
         self._growing_layers = list()
-        self.currently_updated_layer_index = None
+        self.currently_updated_layer_index: int | None = None
+
+    def to(
+        self,
+        device: torch.device | str | None = None,
+        dtype: torch.dtype | None = None,
+        non_blocking: bool = False,
+    ):
+        # Call native pytorch method to move all supported pytorch objects to the device
+        super().to(device=device, dtype=dtype, non_blocking=non_blocking)
+        # Update device attribute
+        if device:
+            self.device = torch.device(device)
+        # Move all growing modules to the device
+        for i, layer in enumerate(self.modules()):
+            if layer == self:
+                print(f"Skipping self at index {i}")
+                continue
+            if i > 0 and isinstance(
+                layer, (GrowingModule, MergeGrowingModule, GrowingContainer)
+            ):
+                layer.to(device=device, dtype=dtype, non_blocking=non_blocking)
 
     def set_growing_layers(self):
         """
@@ -64,25 +85,25 @@ class GrowingContainer(torch.nn.Module):
     def init_computation(self):
         """Initialize statistics computations for growth procedure"""
         for layer in self._growing_layers:
-            if isinstance(layer, (GrowingModule, MergeGrowingModule)):
+            if isinstance(layer, (GrowingModule, MergeGrowingModule, GrowingContainer)):
                 layer.init_computation()
 
     def update_computation(self):
         """Update statistics computations for growth procedure"""
         for layer in self._growing_layers:
-            if isinstance(layer, (GrowingModule, MergeGrowingModule)):
+            if isinstance(layer, (GrowingModule, MergeGrowingModule, GrowingContainer)):
                 layer.update_computation()
 
     def reset_computation(self):
         """Reset statistics computations for growth procedure"""
         for layer in self._growing_layers:
-            if isinstance(layer, (GrowingModule, MergeGrowingModule)):
+            if isinstance(layer, (GrowingModule, MergeGrowingModule, GrowingContainer)):
                 layer.reset_computation()
 
     def compute_optimal_updates(self, *args, **kwargs):
         """Compute optimal updates for growth procedure"""
         for layer in self._growing_layers:
-            if isinstance(layer, (GrowingModule, MergeGrowingModule)):
+            if isinstance(layer, (GrowingModule, MergeGrowingModule, GrowingContainer)):
                 layer.compute_optimal_updates(*args, **kwargs)
 
     def select_best_update(self):
