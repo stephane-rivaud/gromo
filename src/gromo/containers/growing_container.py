@@ -1,6 +1,5 @@
 import torch
 
-from gromo.config.loader import load_config
 from gromo.modules.growing_module import GrowingModule, MergeGrowingModule
 from gromo.utils.utils import get_correct_device, global_device
 
@@ -37,14 +36,38 @@ class GrowingContainer(torch.nn.Module):
         device: torch.device | str | None = None,
     ) -> None:
         super(GrowingContainer, self).__init__()
-        self._config_data, _ = load_config()
-        self.device = get_correct_device(self, device)
+        self.device = get_correct_device(device)
 
         self.in_features = in_features
         self.out_features = out_features
 
         self._growing_layers = list()
         self.currently_updated_layer_index = None
+
+    def to(
+        self,
+        device: torch.device | str | None = None,
+        dtype: torch.dtype | None = None,
+        non_blocking: bool = False,
+    ):
+        # Update device attribute
+        if device:
+            self.device = torch.device(device)
+        # Update dtype attribute
+        if dtype:
+            self.dtype = dtype
+
+        # Call native pytorch method to move all supported pytorch objects to the device
+        super().to(device=device, dtype=dtype, non_blocking=non_blocking)
+
+        # Move all growing modules to the device
+        for i, layer in enumerate(self.modules()):
+            if layer == self:
+                continue
+            if i > 0 and isinstance(
+                layer, (GrowingModule, MergeGrowingModule, GrowingContainer)
+            ):
+                layer.to(device=device, dtype=dtype, non_blocking=non_blocking)
 
     def set_growing_layers(self):
         """

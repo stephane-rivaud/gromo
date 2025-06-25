@@ -29,6 +29,7 @@ class GrowingResidualBlock(GrowingContainer):
         hidden_features: int = 0,
         activation: Optional[nn.Module] = None,
         name: str = "block",
+        device: Optional[torch.device] = None,
         kwargs_layer: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
@@ -50,7 +51,7 @@ class GrowingResidualBlock(GrowingContainer):
         if kwargs_layer is None:
             kwargs_layer = {}
 
-        super().__init__(in_features=num_features, out_features=num_features)
+        super().__init__(in_features=num_features, out_features=num_features, device=device)
         self.name = name
         self.num_features = num_features
         self.hidden_features = hidden_features
@@ -64,6 +65,7 @@ class GrowingResidualBlock(GrowingContainer):
             hidden_features,
             post_layer_function=self.activation,
             name="first_layer",
+            device=self.device,
             **kwargs_layer,
         )
         self.second_layer = LinearGrowingModule(
@@ -72,6 +74,7 @@ class GrowingResidualBlock(GrowingContainer):
             post_layer_function=nn.Identity(),
             previous_module=self.first_layer,
             name="second_layer",
+            device=self.device,
             **kwargs_layer,
         )
 
@@ -202,6 +205,7 @@ class GrowingResidualMLP(GrowingContainer):
                     hidden_features,
                     activation=activation,
                     name=f"block {i}",
+                    device=self.device,
                 )
                 for i in range(num_blocks)
             ]

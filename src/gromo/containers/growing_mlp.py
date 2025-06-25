@@ -58,6 +58,7 @@ class GrowingMLP(GrowingContainer):
                 post_layer_function=activation,
                 use_bias=use_bias,
                 name="Layer 0",
+                device=self.device,
             )
         )
         for i in range(number_hidden_layers - 1):
@@ -69,6 +70,7 @@ class GrowingMLP(GrowingContainer):
                     previous_module=self.layers[-1],
                     use_bias=use_bias,
                     name=f"Layer {i + 1}",
+                    device=self.device,
                 )
             )
         self.layers.append(
@@ -78,6 +80,7 @@ class GrowingMLP(GrowingContainer):
                 previous_module=self.layers[-1],
                 use_bias=use_bias,
                 name=f"Layer {number_hidden_layers}",
+                device=self.device,
             )
         )
 

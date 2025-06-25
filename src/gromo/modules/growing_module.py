@@ -34,8 +34,7 @@ class MergeGrowingModule(torch.nn.Module):
             if name is None
             else f"{self.__class__.__name__}({name})"
         )
-        self._config_data, _ = load_config()
-        self.device = get_correct_device(self, device)
+        self.device = get_correct_device(device)
 
         self.post_merge_function: torch.nn.Module = post_merge_function
         if self.post_merge_function:
@@ -443,8 +442,7 @@ class GrowingModule(torch.nn.Module):
             if name is None
             else f"{self.__class__.__name__}({name})"
         )
-        self._config_data, _ = load_config()
-        self.device = get_correct_device(self, device)
+        self.device = get_correct_device(device)
 
         self.layer: torch.nn.Module = layer.to(self.device)
         self.post_layer_function: torch.nn.Module = post_layer_function.to(self.device)
@@ -529,6 +527,25 @@ class GrowingModule(torch.nn.Module):
                 device=self.device,
                 name=f"S_growth({name})",
             )
+    
+    def to(
+        self,
+        device: torch.device | str | None = None,
+        dtype: torch.dtype | None = None,
+        non_blocking: bool = False,
+    ):
+        super().to(device=device, dtype=dtype, non_blocking=non_blocking)
+        if device:
+            self.device = device
+        if dtype:
+            self.dtype = dtype
+        # Manually move statistics to device
+        self.tensor_s.to(device=device, dtype=dtype, non_blocking=non_blocking)
+        self.tensor_m.to(device=device, dtype=dtype, non_blocking=non_blocking)
+        self.tensor_m_prev.to(device=device, dtype=dtype, non_blocking=non_blocking)
+        self.cross_covariance.to(device=device, dtype=dtype, non_blocking=non_blocking)
+        if self.s_growth_is_needed:
+            self.tensor_s_growth.to(device=device, dtype=dtype, non_blocking=non_blocking)
 
     # Information functions
     @property

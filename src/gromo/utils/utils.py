@@ -3,9 +3,30 @@ from typing import Any, Callable, Iterable, Optional
 import numpy as np
 import torch
 import torch.nn as nn
+import warnings
+
+from gromo.config.loader import load_config
 
 
-__global_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def default_device() -> torch.device:
+    default_device = 'cpu'
+    config, _ = load_config()
+    device = config.get('device', default_device)
+    
+    # Check if device is available
+    if device == 'cuda' and not torch.cuda.is_available():
+        device = 'cpu'
+        warnings.warn(f"Config file specified 'cuda' device but CUDA is not available, using CPU instead.")
+    elif device == 'mps' and not torch.backends.mps.is_available():
+        device = 'cpu'
+        warnings.warn(f"Config file specified 'mps' device but MPS is not available, using CPU instead.")
+    
+    device = torch.device(device)
+    torch.set_default_device(device)
+    return device
+
+
+__global_device = default_device()
 
 
 def set_device(device: str | torch.device) -> None:
@@ -18,12 +39,12 @@ def set_device(device: str | torch.device) -> None:
     """
     global __global_device
     __global_device = torch.device(device)
+    torch.set_default_device(device)
 
 
 def reset_device() -> None:
     """Reset global device"""
-    global __global_device
-    __global_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    set_device(default_device())
 
 
 def global_device() -> torch.device:
@@ -38,10 +59,10 @@ def global_device() -> torch.device:
     return __global_device
 
 
-def get_correct_device(self, device: torch.device | str | None) -> torch.device:
+def get_correct_device(device: torch.device | str | None) -> torch.device:
     """Get and set the correct device as global
     Precedence works as follows:
-        argument > config file > global_device
+        argument > global_device > default_device (from config file)
 
     Parameters
     ----------
@@ -56,7 +77,7 @@ def get_correct_device(self, device: torch.device | str | None) -> torch.device:
     device = torch.device(
         device
         if device is not None
-        else set_from_conf(self, "device", global_device(), setter=False)
+        else default_device()
     )
     set_device(device)
     return device
@@ -131,12 +152,12 @@ def set_from_conf(self, name: str, default: Any = None, setter: bool = True) -> 
     return value
 
 
-def activation_fn(fn_name: str) -> nn.Module:
+def activation_fn(fn_name: str | None) -> nn.Module:
     """Create activation function module by name
 
     Parameters
     ----------
-    fn_name : str
+    fn_name : str | None
         name of activation function
 
     Returns
