@@ -9,7 +9,7 @@ from gromo.config.loader import load_config
 
 
 def default_device() -> torch.device:
-    default_device = 'cpu'
+    default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
     config, _ = load_config()
     device = config.get('device', default_device)
     
