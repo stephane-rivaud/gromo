@@ -4,10 +4,9 @@ from typing import Iterator
 import numpy as np
 import torch
 
-from gromo.config.loader import load_config
 from gromo.utils.tensor_statistic import TensorStatistic
 from gromo.utils.tools import compute_optimal_added_parameters
-from gromo.utils.utils import get_correct_device
+from gromo.utils.utils import global_device, global_dtype
 
 
 class MergeGrowingModule(torch.nn.Module):
@@ -24,6 +23,7 @@ class MergeGrowingModule(torch.nn.Module):
         allow_growing: bool = False,
         tensor_s_shape: tuple[int, int] = None,
         device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
         name: str = None,
     ) -> None:
 
@@ -34,12 +34,12 @@ class MergeGrowingModule(torch.nn.Module):
             if name is None
             else f"{self.__class__.__name__}({name})"
         )
-        self._config_data, _ = load_config()
-        self.device = get_correct_device(self, device)
+        self.device = device if device else global_device()
+        self.dtype = dtype if dtype else global_dtype()
 
         self.post_merge_function: torch.nn.Module = post_merge_function
         if self.post_merge_function:
-            self.post_merge_function = self.post_merge_function.to(self.device)
+            self.post_merge_function = self.post_merge_function.to(self.device, self.dtype)
         self._allow_growing = allow_growing
 
         self.store_input = 0
@@ -52,6 +52,7 @@ class MergeGrowingModule(torch.nn.Module):
             tensor_s_shape,
             update_function=self.compute_s_update,
             device=self.device,
+            dtype=self.dtype,
             name=f"S({self.name})",
         )
 
@@ -312,6 +313,7 @@ class MergeGrowingModule(torch.nn.Module):
                         self.total_in_features,
                     ),
                     device=self.device,
+                    dtype=self.dtype,
                     name=f"S[-1]({self.name})",
                     update_function=self.compute_previous_s_update,
                 )
@@ -322,6 +324,7 @@ class MergeGrowingModule(torch.nn.Module):
                 self.previous_tensor_m = TensorStatistic(
                     (self.total_in_features, self.in_features),
                     device=self.device,
+                    dtype=self.dtype,
                     name=f"M[-1]({self.name})",
                     update_function=self.compute_previous_m_update,
                 )
@@ -400,6 +403,7 @@ class GrowingModule(torch.nn.Module):
         previous_module: torch.nn.Module | None = None,
         next_module: torch.nn.Module | None = None,
         device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
         name: str | None = None,
         s_growth_is_needed: bool = True,
     ) -> None:
@@ -424,6 +428,8 @@ class GrowingModule(torch.nn.Module):
             next module
         device: torch.device | None
             device to use
+        dtype: torch.dtype | None
+            dtype to use
         name: str | None
             name of the module
         s_growth_is_needed: bool
@@ -452,11 +458,12 @@ class GrowingModule(torch.nn.Module):
             if name is None
             else f"{self.__class__.__name__}({name})"
         )
-        self._config_data, _ = load_config()
-        self.device = get_correct_device(self, device)
 
-        self.layer: torch.nn.Module = layer.to(self.device)
-        self.post_layer_function: torch.nn.Module = post_layer_function.to(self.device)
+        self.device = device if device else global_device()
+        self.dtype = dtype if dtype else global_dtype()
+
+        self.layer: torch.nn.Module = layer.to(self.device, self.dtype)
+        self.post_layer_function: torch.nn.Module = post_layer_function.to(self.device, self.dtype)
         self._allow_growing = allow_growing
         assert not self._allow_growing or isinstance(
             previous_module, (GrowingModule, MergeGrowingModule)
@@ -484,23 +491,24 @@ class GrowingModule(torch.nn.Module):
             tensor_s_shape,
             update_function=self.compute_s_update,
             device=self.device,
+            dtype=self.dtype,
             name=f"S({self.name})",
         )
         self.tensor_m = TensorStatistic(
             tensor_m_shape,
             update_function=self.compute_m_update,
             device=self.device,
+            dtype=self.dtype,
             name=f"M({self.name})",
         )
         # self.tensor_n = TensorStatistic(output_shape, update_function=self.compute_n_update)
 
         # the optimal update used to compute v_projected
         self.optimal_delta_layer: torch.nn.Module | None = None
-        self.scaling_factor: torch.Tensor = torch.zeros(1, device=self.device)
-        self.scaling_factor.requires_grad = True
+        self.scaling_factor: torch.Tensor = torch.zeros(1, device=self.device, dtype=self.dtype, requires_grad=True)
         # to avoid having to link to the next module we get a copy of the scaling factor
         # of the next module to use it in the extended_forward
-        self._scaling_factor_next_module = torch.zeros(1, device=self.device)
+        self._scaling_factor_next_module = torch.zeros(1, device=self.device, dtype=self.dtype)
 
         self.extended_input_layer: torch.nn.Module | None = None
         self.extended_output_layer: torch.nn.Module | None = None
@@ -521,12 +529,14 @@ class GrowingModule(torch.nn.Module):
             None,
             update_function=self.compute_m_prev_update,
             device=self.device,
+            dtype=self.dtype,
             name=f"M_prev({self.name})",
         )
         self.cross_covariance = TensorStatistic(
             None,
             update_function=self.compute_cross_covariance_update,
             device=self.device,
+            dtype=self.dtype,
             name=f"C({self.name})",
         )
 
@@ -536,6 +546,7 @@ class GrowingModule(torch.nn.Module):
                 None,
                 update_function=self.compute_s_growth_update,
                 device=self.device,
+                dtype=self.dtype,
                 name=f"S_growth({name})",
             )
 
@@ -548,9 +559,10 @@ class GrowingModule(torch.nn.Module):
         super().to(device=device, dtype=dtype, non_blocking=non_blocking)
         if device:
             self.device = device
+        if dtype:
+            self.dtype = dtype
         # Manually move statistics to device
-        if self._tensor_s is not None:
-            self._tensor_s.to(device=device, dtype=dtype, non_blocking=non_blocking)
+        self.tensor_s.to(device=device, dtype=dtype, non_blocking=non_blocking)
         self.tensor_m.to(device=device, dtype=dtype, non_blocking=non_blocking)
         self.tensor_m_prev.to(device=device, dtype=dtype, non_blocking=non_blocking)
         self.cross_covariance.to(device=device, dtype=dtype, non_blocking=non_blocking)
@@ -1097,7 +1109,7 @@ class GrowingModule(torch.nn.Module):
             scaling_factor = self._scaling_factor_next_module
         else:
             if isinstance(scaling_factor, (int, float, np.number)):
-                scaling_factor = torch.tensor(scaling_factor, device=self.device)
+                scaling_factor = torch.tensor(scaling_factor, device=self.device, dtype=self.dtype)
             if not (
                 abs(scaling_factor.item() - self._scaling_factor_next_module.item())
                 < 1e-4
@@ -1191,7 +1203,8 @@ class GrowingModule(torch.nn.Module):
     def compute_optimal_delta(
         self,
         update: bool = True,
-        dtype: torch.dtype = torch.float32,
+        device: torch.device | str | None = None,
+        dtype: torch.dtype | None = None,
         force_pseudo_inverse: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | float]:
         """
@@ -1218,23 +1231,29 @@ class GrowingModule(torch.nn.Module):
         tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | float]
             optimal delta for the weights, the biases if needed and the first order decrease
         """
-        tensor_s = self.tensor_s()
-        tensor_m = self.tensor_m()
-
-        saved_dtype = tensor_s.dtype
-        if tensor_s.dtype != dtype:
-            tensor_s = tensor_s.to(dtype=dtype)
-        if tensor_m.dtype != dtype:
-            tensor_m = tensor_m.to(dtype=dtype)
-
-        device = tensor_s.device
-        assert (
-            tensor_m.device == device
-        ), "tensor_s and tensor_m should be on the same device."
-        if device.type == "mps":
-            # fallback on CPU
-            tensor_s = tensor_s.to(device="cpu")
-            tensor_m = tensor_m.to(device="cpu")
+        assert device != 'mps', "MPS is not supported for the computation of the optimal delta."
+        
+        # Set the device and dtype
+        if device is None:
+            device = self.device
+        if dtype is None:
+            dtype = self.dtype
+        
+        if device.type == 'mps':
+            device = torch.device('cpu')
+            warnings.warn(
+                f"MPS is not supported for the computation of the optimal delta for {self.name}. "
+                "Using CPU instead."
+            )
+        if dtype == torch.float16:
+            dtype = torch.float32
+            warnings.warn(
+                f"Dtype float16 is not supported for the computation of the optimal delta for {self.name}. "
+                "Using float32 instead."
+            )
+        
+        tensor_s = self.tensor_s().to(device=device, dtype=dtype)
+        tensor_m = self.tensor_m().to(device=device, dtype=dtype)
 
         if not force_pseudo_inverse:
             try:
@@ -1249,11 +1268,6 @@ class GrowingModule(torch.nn.Module):
                 )
         if force_pseudo_inverse:
             self.delta_raw = (torch.linalg.pinv(tensor_s) @ tensor_m).t()
-
-        if device.type == "mps":
-            # move back to mps
-            self.delta_raw = self.delta_raw.to(device=device)
-            tensor_m = tensor_m.to(device=device)
 
         assert self.delta_raw is not None, "self.delta_raw should be computed by now."
         assert (
@@ -1278,7 +1292,8 @@ class GrowingModule(torch.nn.Module):
                     f"delta to zero."
                 )
                 self.delta_raw = torch.zeros_like(self.delta_raw)
-        self.delta_raw = self.delta_raw.to(dtype=saved_dtype)
+        
+        self.delta_raw = self.delta_raw.to(device=self.device, dtype=self.dtype)
 
         if self.use_bias:
             delta_weight = self.delta_raw[:, :-1]
@@ -1291,6 +1306,7 @@ class GrowingModule(torch.nn.Module):
 
         if update:
             self.optimal_delta_layer = self.layer_of_tensor(delta_weight, delta_bias)
+        
         return delta_weight, delta_bias, self.parameter_update_decrease
 
     def _auxiliary_compute_alpha_omega(
@@ -1298,7 +1314,8 @@ class GrowingModule(torch.nn.Module):
         numerical_threshold: float = 1e-15,
         statistical_threshold: float = 1e-3,
         maximum_added_neurons: int | None = None,
-        dtype: torch.dtype = torch.float32,
+        device: torch.device | str | None = None,
+        dtype: torch.dtype | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Auxiliary function to compute the optimal added parameters (alpha, omega, k)
@@ -1319,7 +1336,20 @@ class GrowingModule(torch.nn.Module):
         tuple[torch.Tensor, torch.Tensor, torch.Tensor]
             optimal added weights alpha, omega and eigenvalues lambda
         """
-        matrix_n = self.tensor_n
+        # Set the device and dtype
+        if dtype is None:
+            dtype = self.dtype
+        if device is None:
+            device = self.device
+        
+        if dtype == torch.float16:
+            dtype = torch.float32
+            warnings.warn(
+                f"Dtype float16 is not supported for the computation of the optimal added parameters for {self.name}. "
+                "Using float32 instead."
+            )
+
+        matrix_n = self.tensor_n.to(device=device, dtype=dtype)
         # It seems that sometimes the tensor N is not accessible.
         # I have no idea why this occurs sometimes.
 
@@ -1327,13 +1357,8 @@ class GrowingModule(torch.nn.Module):
             f"No previous module for {self.name}."
             "Therefore neuron addition is not possible."
         )
-        matrix_s = self.tensor_s_growth()
+        matrix_s = self.tensor_s_growth().to(device=device, dtype=dtype)
 
-        saved_dtype = matrix_s.dtype
-        if matrix_n.dtype != dtype:
-            matrix_n = matrix_n.to(dtype=dtype)
-        if matrix_s.dtype != dtype:
-            matrix_s = matrix_s.to(dtype=dtype)
         alpha, omega, eigenvalues_extension = compute_optimal_added_parameters(
             matrix_s=matrix_s,
             matrix_n=matrix_n,
@@ -1342,9 +1367,9 @@ class GrowingModule(torch.nn.Module):
             maximum_added_neurons=maximum_added_neurons,
         )
 
-        alpha = alpha.to(dtype=saved_dtype)
-        omega = omega.to(dtype=saved_dtype)
-        eigenvalues_extension = eigenvalues_extension.to(dtype=saved_dtype)
+        alpha = alpha.to(device=self.device, dtype=self.dtype)
+        omega = omega.to(device=self.device, dtype=self.dtype)
+        eigenvalues_extension = eigenvalues_extension.to(device=self.device, dtype=self.dtype)
 
         return alpha, omega, eigenvalues_extension
 
@@ -1354,7 +1379,8 @@ class GrowingModule(torch.nn.Module):
         statistical_threshold: float = 1e-3,
         maximum_added_neurons: int | None = None,
         update_previous: bool = True,
-        dtype: torch.dtype = torch.float32,
+        dtype: torch.dtype | None = None,
+        device: torch.device | str | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
         """
         Compute the optimal added parameters to extend the input layer.
@@ -1370,8 +1396,10 @@ class GrowingModule(torch.nn.Module):
             maximum number of added neurons, if None all significant neurons are kept
         update_previous: bool
             whether to change the previous layer extended_output_layer
-        dtype: torch.dtype
+        dtype: torch.dtype | None
             dtype for S and N during the computation
+        device: torch.device | str | None
+            device for S and N during the computation
 
         Returns
         -------
@@ -1409,7 +1437,8 @@ class GrowingModule(torch.nn.Module):
         maximum_added_neurons: int | None = None,
         update_previous: bool = True,
         zero_delta: bool = False,
-        dtype: torch.dtype = torch.float32,
+        dtype: torch.dtype | None = None,
+        device: torch.device | str | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """
         Compute the optimal update  and additional neurons.
@@ -1428,13 +1457,15 @@ class GrowingModule(torch.nn.Module):
             if True, compute the optimal added neurons without performing the natural gradient step.
         dtype: torch.dtype
             dtype for the computation of the optimal delta and added parameters
+        device: torch.device | str | None
+            device for the computation of the optimal delta and added parameters
 
         Returns
         -------
         tuple[torch.Tensor, torch.Tensor | None]
             optimal extension for the previous layer (weights and biases)
         """
-        self.compute_optimal_delta(dtype=dtype)
+        self.compute_optimal_delta(dtype=dtype, device=device)
         if zero_delta:
             if self.optimal_delta_layer is not None:
                 self.optimal_delta_layer.weight.data.zero_()
@@ -1451,6 +1482,7 @@ class GrowingModule(torch.nn.Module):
                 maximum_added_neurons=maximum_added_neurons,
                 update_previous=update_previous,
                 dtype=dtype,
+                device=device,
             )
             return alpha_weight, alpha_bias
         elif isinstance(self.previous_module, MergeGrowingModule):

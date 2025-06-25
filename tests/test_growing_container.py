@@ -5,6 +5,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from gromo.containers.growing_mlp import Perceptron
+from gromo.utils.utils import reset_device, reset_dtype
 
 
 # Create synthetic data
@@ -22,7 +23,7 @@ def create_synthetic_data(
 
 def gather_statistics(dataloader, model, loss):
     model.init_computation()
-    for i, (x, y) in enumerate(dataloader):
+    for _, (x, y) in enumerate(dataloader):
         model.zero_grad()
         loss(model(x), y).backward()
         model.update_computation()
@@ -36,6 +37,10 @@ class TestGrowingContainer(unittest.TestCase):
     """
 
     def setUp(self):
+        # Reset device and dtype to ensure that the tests are not affected by previous tests.
+        reset_device()
+        reset_dtype()
+
         # Create synthetic data
         self.in_features = 2
         self.out_features = 1
@@ -51,7 +56,6 @@ class TestGrowingContainer(unittest.TestCase):
             in_features=self.in_features,
             out_features=self.out_features,
             hidden_feature=self.hidden_features,
-            device=torch.device("cpu"),
         )
         self.loss = nn.MSELoss()
 

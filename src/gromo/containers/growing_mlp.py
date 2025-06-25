@@ -21,6 +21,7 @@ class GrowingMLP(GrowingContainer):
         activation: nn.Module = nn.SELU(),
         use_bias: bool = True,
         device: Optional[torch.device] = None,
+        dtype: Optional[torch.dtype] = None,
     ) -> None:
         """
         Initialize the growing MLP.
@@ -41,9 +42,11 @@ class GrowingMLP(GrowingContainer):
             Whether to use bias in layers.
         device : Optional[torch.device]
             Device to use for computation.
+        dtype : Optional[torch.dtype]
+            Data type to use for computation.
         """
         super().__init__(
-            in_features=in_features, out_features=out_features, device=device
+            in_features=in_features, out_features=out_features, device=device, dtype=dtype
         )
 
         self.num_features = torch.tensor(self.in_features).prod().int().item()
@@ -57,7 +60,8 @@ class GrowingMLP(GrowingContainer):
                 hidden_size,
                 post_layer_function=activation,
                 use_bias=use_bias,
-                device=device,
+                device=self.device,
+                dtype=self.dtype,
                 name="Layer 0",
             )
         )
@@ -69,7 +73,8 @@ class GrowingMLP(GrowingContainer):
                     post_layer_function=activation,
                     previous_module=self.layers[-1],
                     use_bias=use_bias,
-                    device=device,
+                    device=self.device,
+                    dtype=self.dtype,
                     name=f"Layer {i + 1}",
                 )
             )
@@ -79,7 +84,8 @@ class GrowingMLP(GrowingContainer):
                 self.out_features,
                 previous_module=self.layers[-1],
                 use_bias=use_bias,
-                device=device,
+                device=self.device,
+                dtype=self.dtype,
                 name=f"Layer {number_hidden_layers}",
             )
         )
@@ -218,6 +224,7 @@ class Perceptron(GrowingMLP):
         activation: nn.Module = nn.Sigmoid(),
         use_bias: bool = True,
         device: Optional[torch.device] = None,
+        dtype: Optional[torch.dtype] = None,
     ) -> None:
         super().__init__(
             in_features=in_features,
@@ -227,6 +234,7 @@ class Perceptron(GrowingMLP):
             activation=activation,
             use_bias=use_bias,
             device=device,
+            dtype=dtype,
         )
 
 

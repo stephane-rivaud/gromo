@@ -5,7 +5,6 @@ import torch
 
 from gromo.containers.growing_dag import Expansion, GrowingDAG
 from gromo.containers.growing_graph_network import GrowingGraphNetwork
-from gromo.utils.utils import global_device
 
 
 class TestGrowingGraphNetwork(unittest.TestCase):
@@ -26,31 +25,30 @@ class TestGrowingGraphNetwork(unittest.TestCase):
         )
         self.x = torch.rand(
             (self.batch_size, self.in_features),
-            device=global_device(),
             requires_grad=True,
         )
         self.y = torch.randint(
-            0, self.out_features, (self.batch_size,), device=global_device()
+            0, self.out_features, (self.batch_size,)
         )
 
         self.x_test = torch.rand(
-            (self.batch_size, self.in_features), device=global_device()
+            (self.batch_size, self.in_features)
         )
         self.y_test = torch.randint(
-            0, self.out_features, (self.batch_size,), device=global_device()
+            0, self.out_features, (self.batch_size,)
         )
 
         self.bottleneck = {
             "end": torch.rand(
-                (self.batch_size, self.out_features), device=global_device()
+                (self.batch_size, self.out_features)
             ),
-            "1": torch.rand((self.batch_size, self.net.neurons), device=global_device()),
+            "1": torch.rand((self.batch_size, self.net.neurons)),
         }
         self.input_B = {
             "start": torch.rand(
-                (self.batch_size, self.in_features), device=global_device()
+                (self.batch_size, self.in_features)
             ),
-            "1": torch.rand((self.batch_size, self.net.neurons), device=global_device()),
+            "1": torch.rand((self.batch_size, self.net.neurons)),
         }
 
         self.actions = self.net.dag.define_next_actions()
@@ -171,19 +169,16 @@ class TestGrowingGraphNetwork(unittest.TestCase):
         # # self.net.dag.get_edge_module("start", "1").optimal_delta_layer = torch.nn.Linear(
         # #     in_features=self.in_features,
         # #     out_features=self.net.neurons,
-        # #     device=global_device(),
         # # )
         # # self.net.dag.get_edge_module("start", "1").extended_output_layer = torch.nn.Linear(
         # #     in_features=self.in_features,
         # #     out_features=self.net.neurons,
-        # #     device=global_device(),
         # # )
         # edge_module = self.net.dag.get_edge_module("1", "end")
-        # edge_module.weight.data = torch.zeros((self.out_features, self.net.neurons), device=global_device())
+        # edge_module.weight.data = torch.zeros((self.out_features, self.net.neurons))
         # edge_module.optimal_delta_layer = torch.nn.Linear(
         #     in_features=self.net.neurons,
         #     out_features=self.out_features,
-        #     device=global_device(),
         # )
         # # edge_module.optimal_delta_layer.weight.data *= 100
         # # edge_module.optimal_delta_layer.bias.data += 10
@@ -191,7 +186,6 @@ class TestGrowingGraphNetwork(unittest.TestCase):
         # # self.net.dag.get_edge_module("1", "end").extended_input_layer = torch.nn.Linear(
         # #     in_features=self.net.neurons,
         # #     out_features=self.out_features,
-        # #     device=global_device(),
         # # )
 
         # node_module = self.net.dag.get_node_module("end")

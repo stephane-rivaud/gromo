@@ -3,9 +3,50 @@ from typing import Any, Callable, Iterable, Optional
 import numpy as np
 import torch
 import torch.nn as nn
+import warnings
+from gromo.config.loader import load_config
 
 
-__global_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+__supported_dtypes = ['float16', 'bfloat16', 'float32', 'float64']
+
+
+def config_device() -> torch.device:
+    default_device = 'cpu'
+    config, _ = load_config()
+    device = config.get('device', default_device)
+    
+    # Check if device is available
+    if device == 'cuda' and not torch.cuda.is_available():
+        device = 'cpu'
+        warnings.warn(f"Config file specified 'cuda' device but CUDA is not available, using CPU instead.")
+    elif device == 'mps' and not torch.backends.mps.is_available():
+        device = 'cpu'
+        warnings.warn(f"Config file specified 'mps' device but MPS is not available, using CPU instead.")
+    
+    device = torch.device(device)
+    torch.set_default_device(device)
+    return device
+
+
+__global_device = config_device()
+
+
+def config_dtype() -> torch.dtype:
+    default_dtype = 'float32'
+    config, _ = load_config()
+    dtype = config.get('dtype', default_dtype)
+    
+    # Check if dtype is supported
+    if dtype not in __supported_dtypes:
+        dtype = default_dtype
+        warnings.warn(f"Config file specified '{dtype}' dtype but it is not supported, using '{default_dtype}' instead.")
+    
+    dtype = getattr(torch, dtype)
+    torch.set_default_dtype(dtype)
+    return dtype
+
+
+__global_dtype = config_dtype()
 
 
 def set_device(device: str | torch.device) -> None:
@@ -18,12 +59,12 @@ def set_device(device: str | torch.device) -> None:
     """
     global __global_device
     __global_device = torch.device(device)
+    torch.set_default_device(__global_device)
 
 
 def reset_device() -> None:
     """Reset global device"""
-    global __global_device
-    __global_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    set_device(config_device())
 
 
 def global_device() -> torch.device:
@@ -56,10 +97,67 @@ def get_correct_device(self, device: torch.device | str | None) -> torch.device:
     device = torch.device(
         device
         if device is not None
-        else set_from_conf(self, "device", global_device(), setter=False)
+        else global_device()
+        # else set_from_conf(self, "device", global_device(), setter=False)
     )
-    set_device(device)
     return device
+
+
+def set_dtype(dtype: torch.dtype) -> None:
+    """Set default global dtype
+
+    Parameters
+    ----------
+    dtype : torch.dtype
+        dtype choice
+    """
+    global __global_dtype
+    __global_dtype = dtype
+    torch.set_default_dtype(__global_dtype)
+
+
+def reset_dtype() -> None:
+    """Reset global dtype"""
+    set_dtype(config_dtype())
+
+
+def global_dtype() -> torch.dtype:
+    """Get global dtype for whole codebase
+
+    Returns
+    -------
+    torch.dtype
+        global dtype
+    """
+    global __global_dtype
+    return __global_dtype
+
+
+def get_correct_dtype(self, dtype: torch.dtype | None) -> torch.dtype:
+    """Get and set the correct dtype as global
+    Precedence works as follows:
+        argument > config file > global_dtype
+
+    Parameters
+    ----------
+    dtype : torch.dtype | None
+        chosen dtype argument, leave empty to use config file
+
+    Returns
+    -------
+    torch.dtype
+        selected correct dtype
+    """
+    dtype = (
+        dtype
+        if dtype is not None
+        else global_dtype()
+        # else set_from_conf(self, "dtype", global_dtype(), setter=False)
+    )
+    if isinstance(dtype, str):
+        assert dtype in __supported_dtypes, f"{dtype=} is not a valid dtype"
+        dtype = getattr(torch, dtype)
+    return dtype
 
 
 def torch_zeros(*size: tuple[int, int], **kwargs) -> torch.Tensor:
@@ -131,12 +229,12 @@ def set_from_conf(self, name: str, default: Any = None, setter: bool = True) -> 
     return value
 
 
-def activation_fn(fn_name: str) -> nn.Module:
+def activation_fn(fn_name: str | None) -> nn.Module:
     """Create activation function module by name
 
     Parameters
     ----------
-    fn_name : str
+    fn_name : str | None
         name of activation function
 
     Returns

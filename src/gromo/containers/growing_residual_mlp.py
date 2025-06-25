@@ -30,6 +30,7 @@ class GrowingResidualBlock(GrowingContainer):
         activation: Optional[nn.Module] = None,
         name: str = "block",
         device: torch.device | None = None,
+        dtype: Optional[torch.dtype] = None,
         kwargs_layer: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
@@ -38,7 +39,7 @@ class GrowingResidualBlock(GrowingContainer):
         Parameters
         ----------
         num_features : int
-            Number of input and output features, in case of convolutional layer, the number of channels.
+            Number of input and output features.
         hidden_features : int
             Number of hidden features, if zero the block is the zero function.
         activation : Optional[nn.Module]
@@ -52,21 +53,22 @@ class GrowingResidualBlock(GrowingContainer):
             kwargs_layer = {}
 
         super().__init__(
-            in_features=num_features, out_features=num_features, device=device
+            in_features=num_features, out_features=num_features, device=device, dtype=dtype
         )
         self.name = name
         self.num_features = num_features
         self.hidden_features = hidden_features
 
         self.norm = nn.LayerNorm(
-            num_features, elementwise_affine=False, device=self.device
+            num_features, elementwise_affine=False, device=self.device, dtype=self.dtype
         )
         self.activation = activation if activation is not None else nn.Identity()
         self.first_layer = LinearGrowingModule(
             num_features,
             hidden_features,
             post_layer_function=self.activation,
-            device=device,
+            device=self.device,
+            dtype=self.dtype,
             name="first_layer",
             **kwargs_layer,
         )
@@ -75,12 +77,12 @@ class GrowingResidualBlock(GrowingContainer):
             num_features,
             post_layer_function=nn.Identity(),
             previous_module=self.first_layer,
-            device=device,
+            device=self.device,
+            dtype=self.dtype,
             name="second_layer",
             **kwargs_layer,
         )
 
-        self.enable_extended_forward = False
         self.set_growing_layers()
 
     def set_growing_layers(self) -> None:
@@ -181,6 +183,7 @@ class GrowingResidualMLP(GrowingContainer):
         num_blocks: int,
         activation: torch.nn.Module = torch.nn.ReLU(),
         device: torch.device = None,
+        dtype: Optional[torch.dtype] = None,
     ) -> None:
 
         in_features = torch.tensor(in_features).prod().int().item()
@@ -188,6 +191,7 @@ class GrowingResidualMLP(GrowingContainer):
             in_features=in_features,
             out_features=out_features,
             device=device,
+            dtype=dtype,
         )
         self.num_features = num_features
         self.hidden_features = hidden_features
@@ -196,7 +200,7 @@ class GrowingResidualMLP(GrowingContainer):
         # embedding
         self.embedding = nn.Sequential(
             nn.Flatten(start_dim=1),
-            nn.Linear(in_features, num_features, device=self.device),
+            nn.Linear(in_features, num_features, device=self.device, dtype=self.dtype),
         )
 
         # blocks
@@ -207,14 +211,15 @@ class GrowingResidualMLP(GrowingContainer):
                     hidden_features,
                     activation=activation,
                     name=f"block {i}",
-                    device=device,
+                    device=self.device,
+                    dtype=self.dtype,
                 )
                 for i in range(num_blocks)
             ]
         )
 
         # final projection
-        self.projection = nn.Linear(num_features, out_features, device=self.device)
+        self.projection = nn.Linear(num_features, out_features, device=self.device, dtype=self.dtype)
         self.set_growing_layers()
 
     def set_growing_layers(self):

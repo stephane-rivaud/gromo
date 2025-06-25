@@ -44,6 +44,7 @@ class TensorStatistic:
             | Callable[[], tuple[torch.Tensor, int]]
         ),
         device: torch.device | str | None = None,
+        dtype: torch.dtype | None = None,
         name: str | None = None,
     ) -> None:
         """
@@ -68,6 +69,7 @@ class TensorStatistic:
         self.samples = 0
         self.updated = True
         self.device = device if device else global_device()
+        self.dtype = dtype
 
     def __str__(self):
         return f"{self.name} tensor of shape {self._shape} with {self.samples} samples"
@@ -79,10 +81,11 @@ class TensorStatistic:
         non_blocking: bool = False,
     ):
         if self._tensor is not None:
-            self._tensor.to(device=device, dtype=dtype, non_blocking=non_blocking)
+            self._tensor = self._tensor.to(device=device, dtype=dtype, non_blocking=non_blocking)
         if device:
             self.device = torch.device(device)
-        return self
+        if dtype:
+            self.dtype = dtype
 
     def update(self, **kwargs):
         assert (
@@ -108,7 +111,7 @@ class TensorStatistic:
         if self._shape is None:
             self._tensor = None
         else:
-            self._tensor = torch.zeros(self._shape, device=self.device)
+            self._tensor = torch.zeros(self._shape, device=self.device, dtype=self.dtype)
         self.samples = 0
 
     def reset(self):

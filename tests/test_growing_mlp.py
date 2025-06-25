@@ -5,10 +5,15 @@ import torch.nn as nn
 
 from gromo.containers.growing_mlp import GrowingMLP
 from tests.test_growing_container import create_synthetic_data, gather_statistics
+from gromo.utils.utils import reset_device, reset_dtype
 
 
 class TestGrowingMLP(unittest.TestCase):
     def setUp(self):
+        # Reset device and dtype to ensure that the tests are not affected by previous tests.
+        reset_device()
+        reset_dtype()
+
         # Create synthetic data
         self.in_features = 2
         self.out_features = 1

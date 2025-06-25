@@ -126,3 +126,11 @@ def load_config() -> tuple[dict, str]:
     config_data = gromo_config.get(env, {})
 
     return config_data, method
+
+
+if __name__ == "__main__":
+    config_data, method = load_config()
+    print(f"Method: {method}")
+    print("Config:")
+    for key, value in config_data.items():
+        print(f"\t{key}: {value}")

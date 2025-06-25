@@ -8,7 +8,7 @@ from gromo.modules.linear_growing_module import (
     LinearGrowingModule,
     LinearMergeGrowingModule,
 )
-from gromo.utils.utils import global_device
+from gromo.utils.utils import reset_device, reset_dtype
 
 
 # torch.set_default_tensor_type(torch.DoubleTensor)
@@ -16,6 +16,10 @@ from gromo.utils.utils import global_device
 
 class TestGrowingDAG(unittest.TestCase):
     def setUp(self) -> None:
+        # Reset device and dtype to ensure that the tests are not affected by previous tests.
+        reset_device()
+        reset_dtype()
+
         self.in_features = 10
         self.hidden_size = 5
         self.out_features = 2
@@ -280,8 +284,8 @@ class TestGrowingDAG(unittest.TestCase):
             )
         ]
 
-        x = torch.rand((50, self.in_features), device=global_device())
-        y = torch.rand((50, self.out_features), device=global_device())
+        x = torch.rand((50, self.in_features))
+        y = torch.rand((50, self.out_features))
 
         bottleneck, input_B = self.dag.calculate_bottleneck(
             actions=expansions,
@@ -493,7 +497,7 @@ class TestGrowingDAG(unittest.TestCase):
             "start", "1", "end", node_attributes=self.single_node_attributes
         )
 
-        x = torch.rand((50, self.in_features), device=global_device())
+        x = torch.rand((50, self.in_features))
         x_a = self.dag.get_edge_module("start", "end")(x)
         x_b = self.dag.get_edge_module("start", "1")(x)
         x_b = self.dag.get_node_module("1")(x_b)
@@ -509,7 +513,6 @@ class TestGrowingDAG(unittest.TestCase):
         self.dag.get_edge_module("start", "end").optimal_delta_layer = torch.nn.Linear(
             in_features=self.in_features,
             out_features=self.out_features,
-            device=global_device(),
         )
         self.dag.add_node_with_two_edges(
             "start", "1", "end", node_attributes=self.single_node_attributes
@@ -517,15 +520,13 @@ class TestGrowingDAG(unittest.TestCase):
         self.dag.get_edge_module("start", "1").extended_output_layer = torch.nn.Linear(
             in_features=self.in_features,
             out_features=self.hidden_size,
-            device=global_device(),
         )
         self.dag.get_edge_module("1", "end").extended_input_layer = torch.nn.Linear(
             in_features=self.hidden_size,
             out_features=self.out_features,
-            device=global_device(),
         )
 
-        x = torch.rand((50, self.in_features), device=global_device())
+        x = torch.rand((50, self.in_features))
         x_a = self.dag.get_edge_module("start", "end").extended_forward(x)[0]
         x_b = self.dag.get_edge_module("start", "1").extended_forward(x)
         x_b = self.dag.get_node_module("1")(x_b)
@@ -540,18 +541,18 @@ class TestGrowingDAG(unittest.TestCase):
         in_features = 0
         out_features = 2
         batch_size = 5
-        linear = torch.nn.Linear(in_features, out_features, device=global_device())
-        x = torch.rand((batch_size, in_features), device=global_device())
+        linear = torch.nn.Linear(in_features, out_features)
+        x = torch.rand((batch_size, in_features))
         self.assertTrue(
             torch.all(
                 linear(x)
-                == torch.zeros((batch_size, out_features), device=global_device())
+                == torch.zeros((batch_size, out_features))
             )
         )
 
         in_features = 3
-        linear = torch.nn.Linear(in_features, out_features, device=global_device())
-        x = torch.rand((batch_size, in_features), device=global_device())
+        linear = torch.nn.Linear(in_features, out_features)
+        x = torch.rand((batch_size, in_features))
         self.assertTrue(
             torch.all(
                 linear(x) == torch.nn.functional.linear(x, linear.weight, linear.bias)
@@ -601,7 +602,6 @@ class TestGrowingDAG(unittest.TestCase):
         self.dag.get_edge_module("start", "end").optimal_delta_layer = torch.nn.Linear(
             in_features=self.in_features,
             out_features=self.out_features,
-            device=global_device(),
         )
         self.dag.add_node_with_two_edges(
             "start", "1", "end", node_attributes=self.single_node_attributes
@@ -609,16 +609,14 @@ class TestGrowingDAG(unittest.TestCase):
         self.dag.get_edge_module("start", "1").extended_output_layer = torch.nn.Linear(
             in_features=self.in_features,
             out_features=self.hidden_size,
-            device=global_device(),
         )
         self.dag.get_edge_module("1", "end").extended_input_layer = torch.nn.Linear(
             in_features=self.hidden_size,
             out_features=self.out_features,
-            device=global_device(),
         )
 
-        x = torch.rand((50, self.in_features), device=global_device())
-        y = torch.rand((50, self.out_features), device=global_device()).argmax(axis=1)
+        x = torch.rand((50, self.in_features))
+        y = torch.rand((50, self.out_features)).argmax(axis=1)
         loss_fn = torch.nn.CrossEntropyLoss()
         actual_out = self.dag.extended_forward(x)
         actual_loss = loss_fn(actual_out, y).item()
@@ -642,7 +640,6 @@ class TestGrowingDAG(unittest.TestCase):
         dag.get_edge_module("start", "end").optimal_delta_layer = torch.nn.Linear(
             in_features=self.in_features,
             out_features=1,
-            device=global_device(),
         )
         dag.add_node_with_two_edges(
             "start", "1", "end", node_attributes=self.single_node_attributes
@@ -650,14 +647,12 @@ class TestGrowingDAG(unittest.TestCase):
         dag.get_edge_module("start", "1").extended_output_layer = torch.nn.Linear(
             in_features=self.in_features,
             out_features=self.hidden_size,
-            device=global_device(),
         )
         dag.get_edge_module("1", "end").extended_input_layer = torch.nn.Linear(
             in_features=self.hidden_size,
             out_features=1,
-            device=global_device(),
         )
-        y = torch.rand((50, 1), device=global_device())
+        y = torch.rand((50, 1))
         loss_fn = torch.nn.MSELoss()
         actual_out = dag.extended_forward(x)
         actual_loss = loss_fn(actual_out, y).item()

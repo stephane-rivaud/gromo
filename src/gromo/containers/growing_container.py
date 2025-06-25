@@ -1,8 +1,7 @@
 import torch
 
-from gromo.config.loader import load_config
 from gromo.modules.growing_module import GrowingModule, MergeGrowingModule
-from gromo.utils.utils import get_correct_device, global_device
+from gromo.utils.utils import global_device, global_dtype
 
 
 def safe_forward(self, input: torch.Tensor) -> torch.Tensor:
@@ -24,7 +23,7 @@ def safe_forward(self, input: torch.Tensor) -> torch.Tensor:
     ), f"Input shape {input.shape} must match the input feature size. Expected: {self.in_features}, Found: {input.shape[1]}"
     if self.in_features == 0:
         return torch.zeros(
-            input.shape[0], self.out_features, device=global_device(), requires_grad=True
+            input.shape[0], self.out_features, device=global_device(), dtype=global_dtype(), requires_grad=True
         )  # TODO: change to self.device?
     return torch.nn.functional.linear(input, self.weight, self.bias)
 
@@ -35,10 +34,11 @@ class GrowingContainer(torch.nn.Module):
         in_features: int,
         out_features: int,
         device: torch.device | str | None = None,
+        dtype: torch.dtype | None = None,
     ) -> None:
         super(GrowingContainer, self).__init__()
-        self._config_data, _ = load_config()
-        self.device = get_correct_device(self, device)
+        self.device = device if device else global_device()
+        self.dtype = dtype if dtype else global_dtype()
 
         self.in_features = in_features
         self.out_features = out_features
@@ -52,15 +52,19 @@ class GrowingContainer(torch.nn.Module):
         dtype: torch.dtype | None = None,
         non_blocking: bool = False,
     ):
-        # Call native pytorch method to move all supported pytorch objects to the device
-        super().to(device=device, dtype=dtype, non_blocking=non_blocking)
         # Update device attribute
         if device:
             self.device = torch.device(device)
+        # Update dtype attribute
+        if dtype:
+            self.dtype = dtype
+
+        # Call native pytorch method to move all supported pytorch objects to the device
+        super().to(device=device, dtype=dtype, non_blocking=non_blocking)
+
         # Move all growing modules to the device
         for i, layer in enumerate(self.modules()):
             if layer == self:
-                print(f"Skipping self at index {i}")
                 continue
             if i > 0 and isinstance(
                 layer, (GrowingModule, MergeGrowingModule, GrowingContainer)

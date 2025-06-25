@@ -26,6 +26,7 @@ class GrowingMLPBlock(GrowingContainer):
         dropout: float = 0.0,
         name: Optional[str] = None,
         device: Optional[torch.device] = None,
+        dtype: Optional[torch.dtype] = None,
         kwargs_layer: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
@@ -48,7 +49,7 @@ class GrowingMLPBlock(GrowingContainer):
             kwargs_layer = {}
 
         super().__init__(
-            in_features=num_features, out_features=num_features, device=device
+            in_features=num_features, out_features=num_features, device=device, dtype=dtype
         )
         self.name = name
 
@@ -56,7 +57,8 @@ class GrowingMLPBlock(GrowingContainer):
             num_features,
             hidden_features,
             post_layer_function=nn.GELU(),
-            device=device,
+            device=self.device,
+            dtype=self.dtype,
             **kwargs_layer,
         )
         self.dropout = nn.Dropout(dropout)
@@ -65,7 +67,8 @@ class GrowingMLPBlock(GrowingContainer):
             num_features,
             post_layer_function=nn.Identity(),
             previous_module=self.first_layer,
-            device=device,
+            device=self.device,
+            dtype=self.dtype,
             **kwargs_layer,
         )
         self.enable_extended_forward = False
@@ -177,6 +180,7 @@ class GrowingTokenMixer(GrowingContainer):
         hidden_features: int,
         dropout: float,
         device: Optional[torch.device] = None,
+        dtype: Optional[torch.dtype] = None,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -196,10 +200,10 @@ class GrowingTokenMixer(GrowingContainer):
             Name of the token mixer.
         """
         super().__init__(
-            in_features=num_features, out_features=num_features, device=device
+            in_features=num_features, out_features=num_features, device=device, dtype=dtype 
         )
-        self.norm = nn.LayerNorm(num_features, device=device)
-        self.mlp = GrowingMLPBlock(num_patches, hidden_features, dropout, device=device)
+        self.norm = nn.LayerNorm(num_features, device=self.device, dtype=self.dtype)
+        self.mlp = GrowingMLPBlock(num_patches, hidden_features, dropout, device=self.device, dtype=self.dtype)
         self.set_growing_layers()
 
     def set_growing_layers(self) -> None:
@@ -267,6 +271,7 @@ class GrowingChannelMixer(GrowingContainer):
         hidden_features: int,
         dropout: float,
         device: Optional[torch.device] = None,
+        dtype: Optional[torch.dtype] = None,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -284,10 +289,10 @@ class GrowingChannelMixer(GrowingContainer):
             Name of the channel mixer.
         """
         super().__init__(
-            in_features=num_features, out_features=num_features, device=device
+            in_features=num_features, out_features=num_features, device=device, dtype=dtype
         )
-        self.norm = nn.LayerNorm(num_features, device=device)
-        self.mlp = GrowingMLPBlock(num_features, hidden_features, dropout, device=device)
+        self.norm = nn.LayerNorm(num_features, device=self.device, dtype=self.dtype)
+        self.mlp = GrowingMLPBlock(num_features, hidden_features, dropout, device=self.device, dtype=self.dtype)
         self.set_growing_layers()
 
     def set_growing_layers(self) -> None:
@@ -353,6 +358,7 @@ class GrowingMixerLayer(GrowingContainer):
         hidden_dim_channel: int,
         dropout: float,
         device: Optional[torch.device] = None,
+        dtype: Optional[torch.dtype] = None,
         name: Optional[str] = "Mixer Layer",
     ) -> None:
         """
@@ -374,13 +380,13 @@ class GrowingMixerLayer(GrowingContainer):
             Name of the mixer layer.
         """
         super().__init__(
-            in_features=num_features, out_features=num_features, device=device
+            in_features=num_features, out_features=num_features, device=device, dtype=dtype
         )
         self.token_mixer = GrowingTokenMixer(
-            num_patches, num_features, hidden_dim_token, dropout, device=device
+            num_patches, num_features, hidden_dim_token, dropout, device=self.device, dtype=self.dtype
         )
         self.channel_mixer = GrowingChannelMixer(
-            num_features, hidden_dim_channel, dropout, device=device
+            num_features, hidden_dim_channel, dropout, device=self.device, dtype=self.dtype
         )
         self.set_growing_layers()
 
@@ -462,6 +468,7 @@ class GrowingMLPMixer(GrowingContainer):
         num_blocks: int = 8,
         dropout: float = 0.0,
         device: Optional[torch.device] = None,
+        dtype: Optional[torch.dtype] = None,
     ) -> None:
         """
         Initialize the growing MLP mixer.
@@ -493,6 +500,7 @@ class GrowingMLPMixer(GrowingContainer):
             in_features=torch.tensor(in_features).prod().int().item(),
             out_features=out_features,
             device=device,
+            dtype=dtype,
         )
         self.device = device
         self.patcher = nn.Conv2d(
@@ -501,6 +509,7 @@ class GrowingMLPMixer(GrowingContainer):
             kernel_size=patch_size,
             stride=patch_size,
             device=self.device,
+            dtype=self.dtype,
         )
         self.mixers: nn.ModuleList[GrowingMixerLayer] = nn.ModuleList(
             [
@@ -510,12 +519,13 @@ class GrowingMLPMixer(GrowingContainer):
                     hidden_dim_token,
                     hidden_dim_channel,
                     dropout,
-                    device=device,
+                    device=self.device,
+                    dtype=self.dtype,
                 )
                 for _ in range(num_blocks)
             ]
         )
-        self.classifier = nn.Linear(num_features, self.out_features, device=device)
+        self.classifier = nn.Linear(num_features, self.out_features, device=self.device, dtype=self.dtype)
         self.set_growing_layers()
 
     def set_growing_layers(self) -> None:

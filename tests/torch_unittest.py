@@ -13,7 +13,7 @@ import torch
 def indicator_batch(
     tensor_shape: tuple[int, ...],
     device: torch.device | None = None,
-    dtype: torch.dtype = torch.float32,
+    dtype: torch.dtype | None = None,
 ) -> torch.Tensor:
     """
     Return a batch of tensors of shape tensor_shape where each tensor has a 1 at a

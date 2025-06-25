@@ -5,10 +5,15 @@ import torch.nn as nn
 
 from gromo.containers.growing_mlp_mixer import GrowingMLPMixer
 from tests.test_growing_container import create_synthetic_data, gather_statistics
+from gromo.utils.utils import reset_device, reset_dtype
 
 
 class TestGrowingMLPMixer(unittest.TestCase):
     def setUp(self):
+        # Reset device and dtype to ensure that the tests are not affected by previous tests.
+        reset_device()
+        reset_dtype()
+
         # Create synthetic data
         self.in_features = (3, 32, 32)
         self.out_features = 10
@@ -32,7 +37,6 @@ class TestGrowingMLPMixer(unittest.TestCase):
             hidden_dim_token=self.hidden_dim_token,
             hidden_dim_channel=self.hidden_dim_channel,
             num_blocks=self.num_blocks,
-            device=torch.device("cpu"),
         )
 
         # Create a loss

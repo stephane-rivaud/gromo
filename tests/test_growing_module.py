@@ -3,26 +3,37 @@ from unittest import TestCase, main
 import torch
 
 from gromo.modules.growing_module import GrowingModule
-from gromo.utils.utils import global_device
+from gromo.utils.utils import reset_device, reset_dtype
 from tests.torch_unittest import TorchTestCase
 from tests.unittest_tools import unittest_parametrize
 
 
 class TestGrowingModule(TorchTestCase):
     def setUp(self):
+        # Reset device and dtype to ensure that the tests are not affected by previous tests.
+        reset_device()
+        reset_dtype()
+
+        # Set random seed for reproducibility
         torch.manual_seed(0)
-        self.x = torch.randn(2, 3, device=global_device())
-        self.x_ext = torch.randn(2, 7, device=global_device())
-        self.layer = torch.nn.Linear(3, 5, bias=False, device=global_device())
+
+        # Initialize test
+        self.x = torch.randn(2, 3)
+        self.x_ext = torch.randn(2, 7)
+        self.layer = torch.nn.Linear(3, 5, bias=False)
         self.layer_in_extension = torch.nn.Linear(
-            7, 5, bias=False, device=global_device()
+            7, 5, bias=False
         )
         self.layer_out_extension = torch.nn.Linear(
-            3, 7, bias=False, device=global_device()
+            3, 7, bias=False
         )
         self.model = GrowingModule(
             self.layer, tensor_s_shape=(3, 3), tensor_m_shape=(3, 5), allow_growing=False
         )
+        print(f"[DEBUG] setUp {self.model.dtype=}")
+        print(f"[DEBUG] setUp {self.model.weight.dtype=}")
+        print(f"[DEBUG] setUp {self.x.dtype=}")
+        print(f"[DEBUG] setUp {self.x_ext.dtype=}")
 
     def test_weight(self):
         self.assertTrue(torch.equal(self.model.weight, self.layer.weight))
@@ -73,14 +84,14 @@ class TestGrowingModule(TorchTestCase):
     def test_init(self):
         with self.assertRaises(AssertionError):
             l1 = GrowingModule(
-                torch.nn.Linear(3, 5, bias=False, device=global_device()),
+                torch.nn.Linear(3, 5, bias=False),
                 tensor_s_shape=(3, 3),
                 tensor_m_shape=(3, 5),
                 allow_growing=True,
             )
 
         l1 = GrowingModule(
-            torch.nn.Linear(3, 5, bias=False, device=global_device()),
+            torch.nn.Linear(3, 5, bias=False),
             tensor_s_shape=(3, 3),
             tensor_m_shape=(3, 5),
             allow_growing=False,
@@ -89,7 +100,7 @@ class TestGrowingModule(TorchTestCase):
         self.assertIsInstance(l1, GrowingModule)
 
         l2 = GrowingModule(
-            torch.nn.Linear(5, 7, bias=False, device=global_device()),
+            torch.nn.Linear(5, 7, bias=False),
             tensor_s_shape=(5, 5),
             tensor_m_shape=(5, 7),
             allow_growing=True,
@@ -101,13 +112,13 @@ class TestGrowingModule(TorchTestCase):
 
     def test_delete_update(self):
         l1 = GrowingModule(
-            torch.nn.Linear(3, 5, bias=False, device=global_device()),
+            torch.nn.Linear(3, 5, bias=False),
             tensor_s_shape=(3, 3),
             tensor_m_shape=(3, 5),
             allow_growing=False,
         )
         l2 = GrowingModule(
-            torch.nn.Linear(5, 7, bias=False, device=global_device()),
+            torch.nn.Linear(5, 7, bias=False),
             tensor_s_shape=(5, 5),
             tensor_m_shape=(5, 7),
             allow_growing=True,

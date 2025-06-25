@@ -1,14 +1,13 @@
+from typing import override
 from unittest import TestCase, main
 
 import torch
 
 from gromo.utils.tensor_statistic import TensorStatistic
-from gromo.utils.utils import reset_device, set_device
 
 
 class TestTensorStatistic(TestCase):
     def test_mean(self):
-        set_device("cpu")
         x = None
         n_samples = 0
         f = lambda: (x.sum(dim=0), x.size(0))
@@ -47,10 +46,6 @@ class TestTensorStatistic(TestCase):
             t.reset()
             self.assertIsNone(t._tensor)
             self.assertEqual(t.samples, 0)
-
-    def tearDown(self) -> None:
-        reset_device()
-
 
 if __name__ == "__main__":
     main()

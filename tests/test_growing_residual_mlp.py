@@ -5,10 +5,15 @@ import torch.nn as nn
 
 from gromo.containers.growing_residual_mlp import GrowingResidualMLP
 from tests.test_growing_container import create_synthetic_data, gather_statistics
+from gromo.utils.utils import reset_device, reset_dtype
 
 
 class TestGrowingResidualMLP(unittest.TestCase):
     def setUp(self):
+        # Reset device and dtype to ensure that the tests are not affected by previous tests.
+        reset_device()
+        reset_dtype()
+
         # Create synthetic data
         self.in_features = (3, 32, 32)
         self.out_features = 10
@@ -30,7 +35,6 @@ class TestGrowingResidualMLP(unittest.TestCase):
             hidden_features=self.hidden_features,
             num_blocks=self.num_blocks,
             activation=nn.ReLU(),
-            device=torch.device("cpu"),
         )
 
         # Create a loss
@@ -48,7 +52,6 @@ class TestGrowingResidualMLP(unittest.TestCase):
             hidden_features=self.hidden_features,
             num_blocks=self.num_blocks,
             activation=nn.ReLU(),
-            device=torch.device("cpu"),
         )
 
         self.assertIsInstance(l1, GrowingResidualMLP)

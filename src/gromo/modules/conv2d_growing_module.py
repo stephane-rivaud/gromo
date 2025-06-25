@@ -66,10 +66,10 @@ class Conv2dGrowingModule(GrowingModule):
         next_module: GrowingModule | MergeGrowingModule | None = None,
         allow_growing: bool = False,
         device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
         name: str | None = None,
         s_growth_is_needed: bool = False,
     ) -> None:
-        device = device if device is not None else global_device()
         self.in_channels = in_channels
         self.out_channels = out_channels
         if isinstance(kernel_size, int):
@@ -83,7 +83,6 @@ class Conv2dGrowingModule(GrowingModule):
                 padding=padding,
                 dilation=dilation,
                 bias=use_bias,
-                device=device,
             ),
             post_layer_function=post_layer_function,
             previous_module=previous_module,
@@ -98,6 +97,7 @@ class Conv2dGrowingModule(GrowingModule):
                 out_channels,
             ),
             device=device,
+            dtype=dtype,
             name=name,
             s_growth_is_needed=s_growth_is_needed,
         )
@@ -147,6 +147,7 @@ class Conv2dGrowingModule(GrowingModule):
                         1,
                         unfolded_input.shape[2],
                         device=self.device,
+                        dtype=self.dtype,
                     ),
                 ),
                 dim=1,
@@ -281,6 +282,7 @@ class Conv2dGrowingModule(GrowingModule):
             weight.shape[0],
             bias=self.use_bias,
             device=self.device,
+            dtype=self.dtype,
             kernel_size=self.layer.kernel_size,
             stride=self.layer.stride,
             padding=self.layer.padding,
@@ -513,6 +515,7 @@ class RestrictedConv2dGrowingModule(Conv2dGrowingModule):
         next_module: GrowingModule | MergeGrowingModule | None = None,
         allow_growing: bool = False,
         device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
         name: str | None = None,
     ) -> None:
         super(RestrictedConv2dGrowingModule, self).__init__(
@@ -529,6 +532,7 @@ class RestrictedConv2dGrowingModule(Conv2dGrowingModule):
             next_module=next_module,
             allow_growing=allow_growing,
             device=device,
+            dtype=dtype,
             name=name,
             s_growth_is_needed=False,
         )
@@ -597,6 +601,7 @@ class RestrictedConv2dGrowingModule(Conv2dGrowingModule):
             self.kernel_size[0],
             self.kernel_size[1],
             device=self.device,
+            dtype=self.dtype,
         )
         mid = (self.kernel_size[0] // 2, self.kernel_size[1] // 2)
         full_weight[:, :, mid[0] : mid[0] + 1, mid[1] : mid[1] + 1] = weight
@@ -606,6 +611,7 @@ class RestrictedConv2dGrowingModule(Conv2dGrowingModule):
             weight.shape[0],
             bias=self.use_bias,
             device=self.device,
+            dtype=self.dtype,
             kernel_size=self.layer.kernel_size,
             stride=self.layer.stride,
             padding=self.layer.padding,
@@ -857,7 +863,7 @@ class RestrictedConv2dGrowingModule(Conv2dGrowingModule):
         self.extended_input_layer = self.linear_layer_of_tensor(
             omega,
             bias=(
-                torch.zeros(self.out_channels, device=self.device)
+                torch.zeros(self.out_channels, device=self.device, dtype=self.dtype)
                 if self.use_bias
                 else None
             ),
@@ -901,6 +907,7 @@ class FullConv2dGrowingModule(Conv2dGrowingModule):
         next_module: GrowingModule | MergeGrowingModule | None = None,
         allow_growing: bool = False,
         device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
         name: str | None = None,
     ) -> None:
         super(FullConv2dGrowingModule, self).__init__(
@@ -917,6 +924,7 @@ class FullConv2dGrowingModule(Conv2dGrowingModule):
             next_module=next_module,
             allow_growing=allow_growing,
             device=device,
+            dtype=dtype,
             name=name,
             s_growth_is_needed=True,
         )
@@ -939,7 +947,7 @@ class FullConv2dGrowingModule(Conv2dGrowingModule):
         self.layer: torch.nn.Conv2d  # CHECK: why do we need to specify the type here?
         if self._mask_tensor_t is None:
             self._mask_tensor_t = compute_mask_tensor_t(self.input_size, self.layer).to(
-                self.device
+                self.device, self.dtype
             )
         return self._mask_tensor_t
 
@@ -1195,7 +1203,7 @@ class FullConv2dGrowingModule(Conv2dGrowingModule):
         self.extended_input_layer = self.layer_of_tensor(
             omega,
             bias=(
-                torch.zeros(self.out_channels, device=self.device)
+                torch.zeros(self.out_channels, device=self.device, dtype=self.dtype)
                 if self.use_bias
                 else None
             ),

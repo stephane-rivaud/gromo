@@ -1,6 +1,6 @@
-import pytest
 import torch
 import torch.nn as nn
+import warnings
 from typing import Type, Any, Dict, Tuple, List
 
 from gromo.containers.growing_mlp import GrowingMLP
@@ -10,15 +10,20 @@ from gromo.modules.linear_growing_module import LinearGrowingModule
 from gromo.modules.conv2d_growing_module import Conv2dGrowingModule
 from tests.torch_unittest import TorchTestCase
 from tests.unittest_tools import unittest_parametrize
+from gromo.utils.utils import (
+    reset_device, global_device, set_device,
+    reset_dtype, global_dtype, set_dtype,
+)
 
 
 def get_available_devices() -> List[Dict[str, str]]:
     """Get list of available devices for testing."""
-    devices = [{"device": "cpu"}]
+    devices = []
     if torch.backends.mps.is_available():
         devices.append({"device": "mps"})
     if torch.cuda.is_available():
         devices.append({"device": "cuda"})
+    devices.append({"device": "cpu"})
     return devices
 
 # Get available devices once at module level
@@ -35,12 +40,20 @@ class TestDeviceManagement(TorchTestCase):
     hidden_size = 8
     num_blocks = 2
     
-    @pytest.fixture(autouse=True)
-    def setup(self):
+    def setUp(self):
         """Set up test fixtures."""
         # Set random seed for reproducibility
         torch.manual_seed(42)
-        
+
+        # Reset device and dtype to ensure that the tests are not affected by previous tests.
+        reset_device()
+        reset_dtype()
+
+        if {"device": "mps"} in AVAILABLE_DEVICES and global_dtype() in [torch.float64, torch.float16]:
+            # MPS does not support float64 and float16
+            set_dtype(torch.float32)
+            warnings.warn(f"MPS does not support {global_dtype()}. Using torch.float32 instead.")
+
     def _test_module_operations(
         self, 
         module_class: Type[nn.Module], 
@@ -133,6 +146,7 @@ class TestDeviceManagement(TorchTestCase):
     @unittest_parametrize(AVAILABLE_DEVICES)
     def test_linear_growing_module(self, device):
         """Test LinearGrowingModule on all available devices."""
+        print(f"[TestDeviceManagement] Testing LinearGrowingModule on {device} with dtype {global_dtype()}")
         self._test_module_operations(
             LinearGrowingModule,
             input_shape=(self.in_features,),
@@ -155,3 +169,7 @@ class TestDeviceManagement(TorchTestCase):
             padding=1,
             input_size=(32, 32),
         )
+    
+    def tearDown(self):
+        reset_device()
+        reset_dtype()

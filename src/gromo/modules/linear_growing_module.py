@@ -16,9 +16,9 @@ class LinearMergeGrowingModule(MergeGrowingModule):
         allow_growing: bool = False,
         in_features: int = None,
         device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
         name: str = None,
     ) -> None:
-        device = device if device is not None else global_device()
         self.use_bias = True
         self.total_in_features: int = -1
         self.in_features = in_features
@@ -33,8 +33,9 @@ class LinearMergeGrowingModule(MergeGrowingModule):
                 in_features + self.use_bias,
                 in_features + self.use_bias,
             ),  # FIXME: +1 for the bias
-            device=device,
             name=name,
+            device=device,
+            dtype=dtype,
         )
 
     def set_next_modules(
@@ -324,12 +325,12 @@ class LinearGrowingModule(GrowingModule):
         next_module: GrowingModule | MergeGrowingModule | None = None,
         allow_growing: bool = False,
         device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
         name: str | None = None,
     ) -> None:
-        device = device if device is not None else global_device()
         super(LinearGrowingModule, self).__init__(
             layer=torch.nn.Linear(
-                in_features, out_features, bias=use_bias, device=device
+                in_features, out_features, bias=use_bias, device=device, dtype=dtype
             ),
             post_layer_function=post_layer_function,
             previous_module=previous_module,
@@ -338,6 +339,7 @@ class LinearGrowingModule(GrowingModule):
             tensor_s_shape=(in_features + use_bias, in_features + use_bias),
             tensor_m_shape=(in_features + use_bias, out_features),
             device=device,
+            dtype=dtype,
             name=name,
             s_growth_is_needed=False,
         )
@@ -383,7 +385,7 @@ class LinearGrowingModule(GrowingModule):
         if self.use_bias:
             # TODO (optimize this): we could directly store the extended input
             return torch.cat(
-                (self.input, torch.ones(*self.input.shape[:-1], 1, device=self.device)),
+                (self.input, torch.ones(*self.input.shape[:-1], 1, device=self.device, dtype=self.dtype)),
                 dim=-1,
             )
         else:
@@ -682,7 +684,7 @@ class LinearGrowingModule(GrowingModule):
             f"the main layer bias ({self.use_bias =}) is not None."
         )
         new_layer = torch.nn.Linear(
-            weight.shape[1], weight.shape[0], bias=self.use_bias, device=self.device
+            weight.shape[1], weight.shape[0], bias=self.use_bias, device=self.device, dtype=self.dtype
         )
         new_layer.weight = torch.nn.Parameter(weight)
         if self.use_bias:
@@ -728,7 +730,7 @@ class LinearGrowingModule(GrowingModule):
         if added_in_features > 0:
             if matrix_extension is None:
                 matrix_extension = torch.zeros(
-                    self.out_features, added_in_features, device=self.device
+                    self.out_features, added_in_features, device=self.device, dtype=self.dtype
                 )
             else:
                 assert matrix_extension.shape == (self.out_features, added_in_features), (
@@ -743,7 +745,7 @@ class LinearGrowingModule(GrowingModule):
         if added_out_features > 0:
             if matrix_extension is None:
                 matrix_extension = torch.zeros(
-                    added_out_features, self.in_features, device=self.device
+                    added_out_features, self.in_features, device=self.device, dtype=self.dtype
                 )
             else:
                 assert matrix_extension.shape == (added_out_features, self.in_features), (
@@ -752,7 +754,7 @@ class LinearGrowingModule(GrowingModule):
                     f"but got {matrix_extension.shape}"
                 )
             if bias_extension is None:
-                bias_extension = torch.zeros(added_out_features, device=self.device)
+                bias_extension = torch.zeros(added_out_features, device=self.device, dtype=self.dtype)
             else:
                 assert bias_extension.shape == (
                     self.out_features + added_out_features,
@@ -786,7 +788,7 @@ class LinearGrowingModule(GrowingModule):
             weight.shape[0] == self.out_features
         ), f"{weight.shape[0]=} should be equal to {self.out_features=}"
         self.layer = self.layer_of_tensor(
-            weight=torch.cat((self.weight, weight), dim=1), bias=self.bias
+            weight=torch.cat((self.weight, weight), dim=1), bias=self.bias,
         )
 
         self.in_features += weight.shape[1]
@@ -915,6 +917,7 @@ class LinearGrowingModule(GrowingModule):
         maximum_added_neurons: int | None = None,
         update_previous: bool = True,
         dtype: torch.dtype = torch.float32,
+        device: torch.device | str | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
         """
         Compute the optimal added parameters to extend the input layer.
@@ -942,6 +945,7 @@ class LinearGrowingModule(GrowingModule):
             statistical_threshold=statistical_threshold,
             maximum_added_neurons=maximum_added_neurons,
             dtype=dtype,
+            device=device,
         )
         k = self.eigenvalues_extension.shape[0]
         assert alpha.shape[0] == omega.shape[1], (
@@ -965,7 +969,7 @@ class LinearGrowingModule(GrowingModule):
         self.extended_input_layer = self.layer_of_tensor(
             omega,
             bias=(
-                torch.zeros(self.out_features, device=self.device)
+                torch.zeros(self.out_features, device=self.device, dtype=self.dtype)
                 if self.use_bias
                 else None
             ),

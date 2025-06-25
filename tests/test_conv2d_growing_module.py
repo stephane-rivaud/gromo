@@ -9,7 +9,7 @@ from gromo.modules.conv2d_growing_module import (
     RestrictedConv2dGrowingModule,
 )
 from gromo.utils.tools import compute_output_shape_conv
-from gromo.utils.utils import global_device
+from gromo.utils.utils import reset_device, reset_dtype
 from tests.torch_unittest import TorchTestCase, indicator_batch
 from tests.unittest_tools import unittest_parametrize
 
@@ -18,8 +18,12 @@ class TestConv2dGrowingModule(TorchTestCase):
     _tested_class = Conv2dGrowingModule
 
     def setUp(self):
+        # Reset device and dtype to ensure that the tests are not affected by previous tests.
+        reset_device()
+        reset_dtype()
+
         self.demo_layer = torch.nn.Conv2d(
-            2, 7, (3, 5), bias=False, device=global_device()
+            2, 7, (3, 5), bias=False,
         )
         self.demo = self._tested_class(
             in_channels=2, out_channels=7, kernel_size=(3, 5), use_bias=False
@@ -27,7 +31,7 @@ class TestConv2dGrowingModule(TorchTestCase):
         self.demo.layer = self.demo_layer
 
         self.demo_layer_b = torch.nn.Conv2d(
-            2, 7, 3, padding=1, bias=True, device=global_device()
+            2, 7, 3, padding=1, bias=True,
         )
         self.demo_b = self._tested_class(
             in_channels=2, out_channels=7, kernel_size=3, padding=1, use_bias=True
@@ -35,7 +39,7 @@ class TestConv2dGrowingModule(TorchTestCase):
         self.demo_b.layer = self.demo_layer_b
 
         torch.manual_seed(0)
-        self.input_x = torch.randn(5, 2, 10, 10, device=global_device())
+        self.input_x = torch.randn(5, 2, 10, 10)
 
         self.bias_demos = {True: self.demo_b, False: self.demo}
 
@@ -47,7 +51,6 @@ class TestConv2dGrowingModule(TorchTestCase):
                 kernel_size=(3, 3),
                 padding=1,
                 use_bias=bias,
-                device=global_device(),
             )
             demo_out = self._tested_class(
                 in_channels=5,
@@ -55,7 +58,6 @@ class TestConv2dGrowingModule(TorchTestCase):
                 kernel_size=(5, 5),
                 use_bias=bias,
                 previous_module=demo_in,
-                device=global_device(),
             )
             self.demo_couple[bias] = (demo_in, demo_out)
 
@@ -125,12 +127,12 @@ class TestConv2dGrowingModule(TorchTestCase):
             )
 
     def test_layer_in_extension(self):
-        in_extension = torch.nn.Conv2d(3, 7, (3, 5), bias=False, device=global_device())
+        in_extension = torch.nn.Conv2d(3, 7, (3, 5), bias=False)
         local_demo = deepcopy(self.demo)
         local_demo.layer_in_extension(in_extension.weight)
 
         torch.manual_seed(0)
-        x = torch.randn(23, 5, 10, 10, device=global_device())
+        x = torch.randn(23, 5, 10, 10)
         x_main = x[:, :2]
         x_ext = x[:, 2:]
         y_th = self.demo(x_main) + in_extension(x_ext)
@@ -143,7 +145,7 @@ class TestConv2dGrowingModule(TorchTestCase):
         )
 
     def test_layer_out_extension_without_bias(self):
-        out_extension = torch.nn.Conv2d(2, 5, (3, 5), bias=False, device=global_device())
+        out_extension = torch.nn.Conv2d(2, 5, (3, 5), bias=False)
         local_demo = deepcopy(self.demo)
         with self.assertWarns(UserWarning):
             local_demo.layer_out_extension(
@@ -169,9 +171,7 @@ class TestConv2dGrowingModule(TorchTestCase):
         )
 
     def test_layer_out_extension_with_bias(self):
-        out_extension = torch.nn.Conv2d(
-            2, 5, 3, bias=True, device=global_device(), padding=1
-        )
+        out_extension = torch.nn.Conv2d(2, 5, 3, bias=True, padding=1)
         local_demo = deepcopy(self.demo_b)
         local_demo.layer_out_extension(out_extension.weight, out_extension.bias)
 
@@ -351,7 +351,7 @@ class TestConv2dGrowingModule(TorchTestCase):
         There fore the optimal delta is proportional to -theta.
         """
         self.demo.init_computation()
-        input_x = indicator_batch((2, 3, 5), device=global_device())
+        input_x = indicator_batch((2, 3, 5))
         y = self.demo(input_x)
         assert y.shape == (2 * 3 * 5, 7, 1, 1)
         loss = torch.norm(y)
@@ -440,7 +440,7 @@ class TestFullConv2dGrowingModule(TestConv2dGrowingModule):
             _ = self.demo.mask_tensor_t
 
         hin, win = 11, 13
-        x = torch.randn(1, 2, hin, win, device=global_device())
+        x = torch.randn(1, 2, hin, win)
         hout, wout = self.demo(x).shape[2:]
         self.demo.input_size = (hin, win)
 
@@ -657,7 +657,6 @@ class TestFullConv2dGrowingModule(TestConv2dGrowingModule):
             kernel_size=(3, 3),
             padding=1,
             use_bias=bias,
-            device=global_device(),
             previous_module=demo_couple[0],
         )
         demo_couple = (demo_couple[0], demo_couple_1)
@@ -671,9 +670,7 @@ class TestFullConv2dGrowingModule(TestConv2dGrowingModule):
         demo_couple[1].init_computation()
         demo_couple[1].tensor_s_growth.init()
 
-        input_x = indicator_batch(
-            (demo_couple[0].in_channels, 7, 11), device=global_device()
-        )
+        input_x = indicator_batch((demo_couple[0].in_channels, 7, 11))
         y = demo_couple[0](input_x)
         y = demo_couple[1](y)
         loss = ((y - input_x) ** 2).sum()
@@ -735,19 +732,17 @@ class TestRestrictedConv2dGrowingModule(TestConv2dGrowingModule):
             kernel_size=(5, 5),
             padding=2,
             use_bias=bias,
-            device=global_device(),
         )
         reference_layer = torch.nn.Linear(
             demo_layer.in_channels,
             demo_layer.out_channels,
             bias=bias,
-            device=global_device(),
         )
 
         constructed_layer = demo_layer.linear_layer_of_tensor(
             reference_layer.weight.data, reference_layer.bias.data if bias else None
         )
-        x = torch.randn(5, 7, 11, demo_layer.in_channels, device=global_device())
+        x = torch.randn(5, 7, 11, demo_layer.in_channels)
         y_ref = reference_layer(x)
 
         x = x.permute(0, 3, 1, 2)
@@ -838,7 +833,6 @@ class TestRestrictedConv2dGrowingModule(TestConv2dGrowingModule):
             demo_out.in_channels * demo_out.kernel_size[0] * demo_out.kernel_size[1]
             + bias,
             demo_out.out_channels,
-            device=global_device(),
         )
 
         n = demo_out.tensor_n
@@ -870,7 +864,6 @@ class TestRestrictedConv2dGrowingModule(TestConv2dGrowingModule):
             demo_out.in_channels * demo_out.kernel_size[0] * demo_out.kernel_size[1]
             + bias,
             demo_out.out_channels,
-            device=global_device(),
         )
 
         alpha, alpha_b, omega, eigs = demo_out.compute_optimal_added_parameters()
