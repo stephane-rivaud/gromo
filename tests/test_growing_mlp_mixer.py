@@ -3,11 +3,11 @@ import unittest
 import torch
 import torch.nn as nn
 
-from gromo.containers.growing_residual_mlp import GrowingResidualMLP
+from gromo.containers.growing_mlp_mixer import GrowingMLPMixer
 from tests.test_growing_container import create_synthetic_data, gather_statistics
 
 
-class TestGrowingResidualMLP(unittest.TestCase):
+class TestGrowingMLPMixer(unittest.TestCase):
     def setUp(self):
         # Create synthetic data
         self.in_features = (3, 32, 32)
@@ -19,17 +19,19 @@ class TestGrowingResidualMLP(unittest.TestCase):
         )
 
         # Create a simple MLP model
+        self.patch_size = 4
         self.num_features = 16
-        self.hidden_features = 8
+        self.hidden_dim_token = 8
+        self.hidden_dim_channel = 8
         self.num_blocks = 2
 
-        self.model = GrowingResidualMLP(
+        self.model = GrowingMLPMixer(
             in_features=self.in_features,
             out_features=self.out_features,
             num_features=self.num_features,
-            hidden_features=self.hidden_features,
+            hidden_dim_token=self.hidden_dim_token,
+            hidden_dim_channel=self.hidden_dim_channel,
             num_blocks=self.num_blocks,
-            activation=nn.ReLU(),
             device=torch.device("cpu"),
         )
 
@@ -41,17 +43,16 @@ class TestGrowingResidualMLP(unittest.TestCase):
         self.model.compute_optimal_updates()
 
     def test_init(self):
-        l1 = GrowingResidualMLP(
+        l1 = GrowingMLPMixer(
             in_features=self.in_features,
             out_features=self.out_features,
             num_features=self.num_features,
-            hidden_features=self.hidden_features,
+            hidden_dim_token=self.hidden_dim_token,
+            hidden_dim_channel=self.hidden_dim_channel,
             num_blocks=self.num_blocks,
-            activation=nn.ReLU(),
-            device=torch.device("cpu"),
         )
 
-        self.assertIsInstance(l1, GrowingResidualMLP)
+        self.assertIsInstance(l1, GrowingMLPMixer)
         self.assertIsInstance(l1, torch.nn.Module)
 
     def test_forward(self):
@@ -66,15 +67,7 @@ class TestGrowingResidualMLP(unittest.TestCase):
 
     def test_set_growing_layers(self):
         self.model.set_growing_layers()
-        self.assertEqual(len(self.model._growing_layers), self.num_blocks)
-
-    def test_tensor_statistics(self):
-        tensor = torch.randn(10)
-        stats = self.model.tensor_statistics(tensor)
-        self.assertIn("min", stats)
-        self.assertIn("max", stats)
-        self.assertIn("mean", stats)
-        self.assertIn("std", stats)
+        self.assertEqual(len(self.model._growing_layers), 2 * self.num_blocks)
 
     def test_weights_statistics(self):
         stats = self.model.weights_statistics()

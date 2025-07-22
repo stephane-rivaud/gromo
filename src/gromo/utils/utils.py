@@ -1,13 +1,8 @@
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable, Optional
 
-import matplotlib.cm as mpl_cm
-import matplotlib.colors as mpl_colors
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
-from pyvis.network import Network
-from torch.types import _int
 
 # if torch.cuda.is_available():
 #     __global_device = torch.device("cuda")
@@ -27,10 +22,7 @@ def set_device(device: str | torch.device) -> None:
         device choice
     """
     global __global_device
-    if isinstance(device, str):
-        __global_device = torch.device(device)
-    else:
-        __global_device = device
+    __global_device = torch.device(device)
 
 
 def reset_device() -> None:
@@ -49,6 +41,30 @@ def global_device() -> torch.device:
     """
     global __global_device
     return __global_device
+
+
+def get_correct_device(self, device: torch.device | str | None) -> torch.device:
+    """Get and set the correct device as global
+    Precedence works as follows:
+        argument > config file > global_device
+
+    Parameters
+    ----------
+    device : torch.device | str | None
+        chosen device argument, leave empty to use config file
+
+    Returns
+    -------
+    torch.device
+        selected correct device
+    """
+    device = torch.device(
+        device
+        if device is not None
+        else set_from_conf(self, "device", global_device(), setter=False)
+    )
+    set_device(device)
+    return device
 
 
 def torch_zeros(*size: tuple[int, int], **kwargs) -> torch.Tensor:
@@ -91,6 +107,35 @@ def torch_ones(*size: tuple[int, int], **kwargs) -> torch.Tensor:
         return torch.ones(*size, device=__global_device, **kwargs)
 
 
+def set_from_conf(self, name: str, default: Any = None, setter: bool = True) -> Any:
+    """Standardize private argument setting from config file
+
+    Parameters
+    ----------
+    name : str
+        name of variable
+    default : Any, optional
+        default value in case config does not provide one, by default None
+    setter : bool, optional
+        set the retrieved value as argument in the object, by default True
+
+    Returns
+    -------
+    Any
+        value set to variable
+    """
+    # Check that config file has been found and read
+    assert hasattr(self, "_config_data")
+    assert isinstance(self._config_data, dict)
+
+    value = self._config_data.get(name, default)
+
+    if setter:
+        setattr(self, f"{name}", value)
+
+    return value
+
+
 def activation_fn(fn_name: str) -> nn.Module:
     """Create activation function module by name
 
@@ -119,20 +164,23 @@ def activation_fn(fn_name: str) -> nn.Module:
         return nn.Identity()
 
 
-def line_search(cost_fn: Callable, verbose: bool = True) -> tuple[float, float]:
+def line_search(
+    cost_fn: Callable, return_history: bool = False
+) -> tuple[float, float] | tuple[list, list]:
     """Line search for black-box convex function
 
     Parameters
     ----------
     cost_fn : Callable
         black-box convex function
-    verbose : bool, optional
-        create plot, by default True
+    return_history : bool, optional
+        return full loss history, by default False
 
     Returns
     -------
-    tuple[float, float]
+    tuple[float, float] | tuple[list, list]
         return minima and min value
+        if return_history is True return instead tested parameters and loss history
     """
     losses = []
     n_points = 100
@@ -164,15 +212,10 @@ def line_search(cost_fn: Callable, verbose: bool = True) -> tuple[float, float]:
     factor = f_full[np.argmin(losses)]
     min_loss = np.min(losses)
 
-    if verbose:
-        plt.figure()
-        plt.plot(f_full, losses)
-        plt.xlabel(f"factor $\gamma$")  # type: ignore
-        plt.ylabel("loss")
-        plt.title(f"Minima at {factor=} with loss={min_loss}")
-        plt.show()
-
-    return factor, min_loss
+    if return_history:
+        return list(f_full), losses
+    else:
+        return factor, min_loss
 
 
 def mini_batch_gradient_descent(
@@ -277,32 +320,6 @@ def mini_batch_gradient_descent(
                     f"Epoch {epoch}: Train loss {loss_history[-1]} Train Accuracy {accuracy}"
                 )
 
-    if verbose:
-        plt.figure()
-        plt.plot(gradients)
-        plt.xlabel("epochs")
-        plt.ylabel("gradients average norm")
-        plt.show()
-
-        plt.figure()
-        plt.plot(full_loss)
-        plt.xlabel("epochs")
-        plt.ylabel("batch loss")
-        plt.show()
-
-        plt.figure()
-        plt.plot(loss_history)
-        plt.xlabel("epochs")
-        plt.ylabel("average epoch loss")
-        plt.show()
-
-        if not fast:
-            plt.figure()
-            plt.plot(acc_history)
-            plt.xlabel("epochs")
-            plt.ylabel("accuracy")
-            plt.show()
-
     return loss_history, acc_history
 
 
@@ -315,9 +332,6 @@ def batch_gradient_descent(
     tol: float = 1e-5,
     fast: bool = True,
     eval_fn: Callable | None = None,
-    verbose: bool = True,
-    loss_name: str = "loss",
-    title: str = "",
 ) -> tuple[list[float], list[float]]:
     """Batch gradient descent implementation
 
@@ -339,12 +353,6 @@ def batch_gradient_descent(
         fast implementation without evaluation, by default True
     eval_fn : Callable | None, optional
         evaluation function, by default None
-    verbose : bool, optional
-        _description_, by default True
-    loss_name : str, optional
-        name of the loss, by default "loss"
-    title : str, optional
-        title of the plot, by default ""
 
     Returns
     -------
@@ -382,81 +390,7 @@ def batch_gradient_descent(
         prev_loss = loss.item()
         # target.detach_()
 
-    if verbose:
-        plt.figure()
-        plt.plot(loss_history)
-        plt.xlabel("epochs")
-        plt.ylabel(f"{loss_name}")
-        plt.title(f"{title}")
-        plt.show()
-
-        if not fast:
-            labels = ["train"]
-            plt.figure()
-            plt.plot(acc_history, label=labels)
-            plt.xlabel("epochs")
-            plt.ylabel("accuracy")
-            plt.title(f"{title}")
-            plt.legend()
-            plt.show()
-
     return loss_history, acc_history
-
-
-def DAG_to_pyvis(dag):
-    """Create pyvis graph based on GrowableDAG
-
-    Parameters
-    ----------
-    dag : GrowableDAG
-        growable dag object
-
-    Returns
-    -------
-    _type_
-        pyvis object
-    """
-    # nt = Network('500px', '500px', directed=True, notebook=True, cdn_resources='remote')
-    nt = Network(directed=True)
-
-    default_offset_x = 150.0
-    default_offset_y = 0.0
-
-    for node in dag.nodes:
-        size = dag.nodes[node]["size"]
-        attrs = {
-            "x": None,
-            "y": None,
-            "physics": True,
-            "label": node,
-            "title": str(size),
-            "color": size_to_color(size),
-            "size": np.sqrt(size),
-            "mass": 4,
-        }
-        if node == "start":
-            attrs.update(
-                {"x": -default_offset_x, "y": -default_offset_y, "physics": False}
-            )
-        elif node == "end":
-            attrs.update({"x": default_offset_x, "y": default_offset_y, "physics": False})
-        nt.add_node(node, **attrs)
-    for edge in dag.edges:
-        prev_node, next_node = edge
-        module = dag.get_edge_module(prev_node, next_node)
-        nt.add_edge(
-            prev_node, next_node, title=module.name, label=str(module.weight.shape)
-        )
-
-    # nt.toggle_physics(False)
-    return nt
-
-
-def size_to_color(size):
-    cmap = mpl_cm.Reds
-    norm = mpl_colors.Normalize(vmin=0, vmax=784)
-    rgba = cmap(norm(size))
-    return mpl_colors.rgb2hex(rgba)
 
 
 def calculate_true_positives(

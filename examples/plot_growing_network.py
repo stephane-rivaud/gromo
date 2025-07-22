@@ -1,25 +1,52 @@
+"""
+================================
+Simple Growing Container Example
+================================
+
+This example shows how to instantiate a model with growing layers.
+"""
+
+# Authors: Theo Rudkiewicz <theo.rudkiewicz@inria.fr>
+#          Sylvain Chevallier <sylvain.chevallier@universite-paris-saclay.fr>
+
+###############################################################################
+# Setup
+# -----
+# Importing the modules
+
 import torch
 
-from gromo.linear_growing_module import LinearAdditionGrowingModule, LinearGrowingModule
+from gromo.containers.growing_container import GrowingContainer
+from gromo.modules.linear_growing_module import (
+    LinearGrowingModule,
+    LinearMergeGrowingModule,
+)
 from gromo.utils.utils import global_device
 
 
-class GrowingNetwork(torch.nn.Module):
+###############################################################################
+# Define your model
+
+
+class GrowingNetwork(GrowingContainer):
     def __init__(
         self,
         in_features: int = 5,
         out_features: int = 1,
         use_bias: bool = True,
         hidden_features: int = 10,
-        device: torch.device = global_device(),
+        device: torch.device = None,
     ):
-        super(GrowingNetwork, self).__init__()
-        self.device = device
-        self.start_module = LinearAdditionGrowingModule(
-            in_features=in_features, name="start"
+        super(GrowingNetwork, self).__init__(
+            in_features=in_features,
+            out_features=out_features,
+            device=device,
+        )
+        self.start_module = LinearMergeGrowingModule(
+            in_features=self.in_features, name="start"
         )
         self.l1 = LinearGrowingModule(
-            in_features=in_features,
+            in_features=self.in_features,
             out_features=hidden_features,
             use_bias=use_bias,
             post_layer_function=torch.nn.ReLU(),
@@ -27,21 +54,23 @@ class GrowingNetwork(torch.nn.Module):
         )
         self.l2 = LinearGrowingModule(
             in_features=hidden_features,
-            out_features=in_features,
+            out_features=self.in_features,
             name="l2",
             use_bias=use_bias,
         )
-        self.res_module = LinearAdditionGrowingModule(
-            in_features=in_features, post_addition_function=torch.nn.ReLU(), name="res"
+        self.res_module = LinearMergeGrowingModule(
+            in_features=self.in_features,
+            post_merge_function=torch.nn.ReLU(),
+            name="res",
         )
         self.l3 = LinearGrowingModule(
-            in_features=in_features,
-            out_features=out_features,
+            in_features=self.in_features,
+            out_features=self.out_features,
             name="l3",
             use_bias=use_bias,
         )
         self.l4 = LinearGrowingModule(
-            in_features=in_features,
+            in_features=self.in_features,
             out_features=hidden_features,
             post_layer_function=torch.nn.ReLU(),
             name="l4",
@@ -49,12 +78,12 @@ class GrowingNetwork(torch.nn.Module):
         )
         self.l5 = LinearGrowingModule(
             in_features=hidden_features,
-            out_features=out_features,
+            out_features=self.out_features,
             name="l5",
             use_bias=use_bias,
         )
-        self.end_module = LinearAdditionGrowingModule(
-            in_features=out_features, name="end"
+        self.end_module = LinearMergeGrowingModule(
+            in_features=self.out_features, name="end"
         )
 
         self.start_module.set_next_modules([self.l1, self.res_module])
@@ -72,12 +101,26 @@ class GrowingNetwork(torch.nn.Module):
         self.l5.next_module = self.end_module
         self.end_module.set_previous_modules([self.l3, self.l5])
 
+        self.set_growing_layers()
+
+    def set_growing_layers(self):
+        self._growing_layers = [
+            self.start_module,
+            self.l1,
+            self.l2,
+            self.res_module,
+            self.l3,
+            self.l4,
+            self.l5,
+            self.end_module,
+        ]
+
     def __str__(self, verbose=0):
         if verbose == 0:
             return super(GrowingNetwork, self).__str__()
         else:
             txt = [f"{self.__class__.__name__}:"]
-            for layer in self.children():
+            for layer in self._growing_layers:
                 txt.append(layer.__str__(verbose=verbose))
             return "\n".join(txt)
 
@@ -92,7 +135,7 @@ class GrowingNetwork(torch.nn.Module):
         return self.end_module(x + x1)
 
     def start_computing_s_m(self):
-        for layer in self.children():
+        for layer in self._growing_layers:
             layer.tensor_s.init()
             if isinstance(layer, LinearGrowingModule):
                 layer.tensor_m.init()
@@ -100,7 +143,7 @@ class GrowingNetwork(torch.nn.Module):
                 layer.store_pre_activity = True
 
     def update_s_m(self):
-        for layer in self.children():
+        for layer in self._growing_layers:
             if isinstance(layer, LinearGrowingModule):
                 layer.tensor_m.update()
                 layer.tensor_s.update()
@@ -115,12 +158,12 @@ class GrowingNetwork(torch.nn.Module):
         self.update_s_m()
 
     def stop_computing_s_m(self):
-        for layer in self.children():
+        for layer in self._growing_layers:
             layer.tensor_s.reset()
             if isinstance(layer, LinearGrowingModule):
                 layer.tensor_m.reset()
 
-            if isinstance(layer, LinearAdditionGrowingModule):
+            if isinstance(layer, LinearMergeGrowingModule):
                 if layer.previous_tensor_s is not None:
                     layer.previous_tensor_s.reset()
                 if layer.previous_tensor_m is not None:
@@ -130,8 +173,6 @@ class GrowingNetwork(torch.nn.Module):
 
 
 if __name__ == "__main__":
-    from torchinfo import summary
-
     device = global_device()
     net = GrowingNetwork(5, 1, device=device)
     x_input = torch.randn(20, 5, device=device)
@@ -141,7 +182,8 @@ if __name__ == "__main__":
     print(net)
     print(net.l1.layer.weight.device)
 
-    summary(net, input_size=(1, 5), device=device)
+    # from torchinfo import summary
+    # summary(net, input_size=(1, 5), device=device)
 
     print(net.l1.layer.weight.device)
 

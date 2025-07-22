@@ -1,52 +1,12 @@
 from warnings import warn
 
 import torch
-import subprocess
-
-
-def get_cuda_version_as_number():
-    if not torch.cuda.is_available():
-        return None
-    else:
-        try:
-            # Run nvidia-smi and capture the output
-            output = subprocess.check_output("nvidia-smi", shell=True).decode()
-            # Look for the line containing "CUDA Version"
-            for line in output.split("\n"):
-                if "CUDA Version" in line:
-                    # Extract the version part after the colon and strip unwanted characters
-                    version_str = line.split(":")[-1].strip()
-                    version_number = version_str.split()[0]  # Remove extra symbols or text if present
-                    return float(version_number)  # Convert to float (e.g., 11.8)
-        except Exception as e:
-            raise RuntimeError(f"Error fetching CUDA version: {e}")
-
-
-def get_preferred_linalg_library() -> str:
-    """
-    Get the preferred linalg library for CUDA operations.
-
-    Returns
-    -------
-    str
-        preferred linalg library
-    """
-    cuda_version = get_cuda_version_as_number()
-    if cuda_version is None:
-        preferred_backend = None
-    elif cuda_version >= 12.1:
-        preferred_backend = "cusolver"
-    else:
-        preferred_backend = "magma"
-
-    print(f"Preferred linalg library: {preferred_backend}")
-    return preferred_backend
 
 
 def sqrt_inverse_matrix_semi_positive(
-        matrix: torch.Tensor,
-        threshold: float = 1e-5,
-        preferred_linalg_library: None | str = get_preferred_linalg_library(),
+    matrix: torch.Tensor,
+    threshold: float = 1e-5,
+    preferred_linalg_library: None | str = None,
 ) -> torch.Tensor:
     """
     Compute the square root of the inverse of a semi-positive definite matrix.
@@ -58,8 +18,8 @@ def sqrt_inverse_matrix_semi_positive(
     threshold: float
         threshold to consider an eigenvalue as zero
     preferred_linalg_library: None | str in ("magma", "cusolver")
-        linalg library to use, "cusolver" may fail
-        for non-positive definite matrix if CUDA < 12.1 is used
+        linalg library to use, "cusolver" may failed
+        for non positive definite matrix if CUDA < 12.1 is used
         see: https://pytorch.org/docs/stable/generated/torch.linalg.eigh.html
 
     Returns
@@ -78,17 +38,11 @@ def sqrt_inverse_matrix_semi_positive(
     except torch.linalg.LinAlgError as e:
         if preferred_linalg_library == "cusolver":
             raise ValueError(
-                "This is probably a bug from CUDA < 12.1. "
+                "This is probably a bug from CUDA < 12.1"
                 "Try torch.backends.cuda.preferred_linalg_library('magma')"
             )
         else:
             raise e
-    except RuntimeError as e:
-        print(f"RuntimeError: {e}")
-        print(f"Matrix shape: {matrix.shape}")
-        print(f"Matrix: {matrix}")
-        raise e
-
     selected_eigenvalues = eigenvalues > threshold
     eigenvalues = torch.rsqrt(eigenvalues[selected_eigenvalues])  # inverse square root
     eigenvectors = eigenvectors[:, selected_eigenvalues]
@@ -135,7 +89,7 @@ def compute_optimal_added_parameters(
         diff = torch.abs(matrix_s - matrix_s.t())
         warn(
             f"Warning: The input matrix S is not symmetric.\n"
-            f"Max difference: {diff.max():.2e},"
+            f"Max difference: {diff.max():.2e},\n"
             f"% of non-zero elements: {100 * (diff > 1e-10).sum() / diff.numel():.2f}%"
         )
         matrix_s = (matrix_s + matrix_s.t()) / 2
@@ -275,3 +229,112 @@ def compute_mask_tensor_t(
             if t_info[k, lc] > 0:
                 tensor_t[lc, k, t_info[k, lc] - 1] = 1
     return tensor_t
+
+
+def create_bordering_effect_convolution(
+    channels: int,
+    convolution: torch.nn.Conv2d,
+) -> torch.nn.Conv2d:
+    """
+    Create a convolution that simulates the border effect of a convolution
+    on an unfolded tensor. The convolution can then be used in
+    `apply_border_effect_on_unfolded`.
+
+    Parameters
+    ----------
+    channels: int
+        Number of input channels for the convolution, warning
+        this is for the unfolded tensor, not the original tensor.
+        Therefore, it should be equal to C[-1] * C1.kernel_size[0] * C1.kernel_size[1].
+    convolution: torch.nn.Conv2d
+        convolutional layer to be applied on the unfolded tensor
+
+    Returns
+    -------
+    torch.nn.Conv2d
+        convolutional layer that simulates the border effect
+    """
+    if not isinstance(channels, int) or channels <= 0:
+        raise ValueError("Input 'input_channels' must be a positive integer.")
+    if not isinstance(convolution, torch.nn.Conv2d):
+        raise TypeError("Input 'convolution' must be a torch.nn.Conv2d instance.")
+
+    identity_conv = torch.nn.Conv2d(
+        in_channels=channels,
+        out_channels=channels,
+        groups=channels,
+        kernel_size=convolution.kernel_size,
+        padding=convolution.padding,
+        stride=convolution.stride,
+        dilation=convolution.dilation,
+        bias=False,
+        device=convolution.weight.device,
+    )
+
+    identity_conv.weight.data.fill_(0)
+    mid = (convolution.kernel_size[0] // 2, convolution.kernel_size[1] // 2)
+    identity_conv.weight.data[:, 0, mid[0], mid[1]] = 1.0
+
+    return identity_conv
+
+
+@torch.no_grad()
+def apply_border_effect_on_unfolded(
+    unfolded_tensor: torch.Tensor,
+    original_size: tuple[int, int],
+    border_effect_conv: torch.nn.Conv2d | None = None,
+    identity_conv: torch.nn.Conv2d | None = None,
+) -> torch.Tensor:
+    """
+    Simulate the effect of a 1x1 convolution on the size of an unfolded tensor.
+    Should satisfy that for a convolution C1 and a convolution C2,
+    if B is the output of C1 of shape (n, C, H, W) we get
+    as unfolded tensor the unfolded input of C1 of shape
+    (n, C[-1] * C1.kernel_size[0] * C1.kernel_size[1], H * W).
+    Then B[+1] is the output of C2 of shape (n, C[+1], H[+1], W[+1])
+    the output of this function (noted F) should be of shape
+    (n, C[+1] * C2.kernel_size[0] * C2.kernel_size[1], H[+1] * W[+1])
+    such that if C2 has only 1x1 centered non-zero kernel
+    C2 o C1(F) should be equal to C1 o C2(B[+1]).
+
+    Parameters
+    ----------
+    unfolded_tensor: torch.Tensor
+        unfolded tensor to be modified
+    original_size: tuple[int, int]
+        original size of the tensor before unfolding
+    border_effect_conv: torch.Conv2d
+        convolutional layer to be applied on the unfolded tensor
+    identity_conv: torch.Conv2d
+        convolutional layer that simulates the identity effect,
+        if None, it will be created from `border_effect_conv`.
+
+    Returns
+    -------
+    torch.Tensor
+        modified unfolded tensor
+    """
+    if not isinstance(unfolded_tensor, torch.Tensor):
+        raise TypeError("Input 'unfolded_tensor' must be a torch.Tensor")
+    assert isinstance(border_effect_conv, torch.nn.Conv2d) or isinstance(
+        identity_conv, torch.nn.Conv2d
+    ), "Either 'border_effect_conv' or 'identity_conv' must be provided."
+
+    if identity_conv is None:
+        channels = unfolded_tensor.shape[1]
+        identity_conv = create_bordering_effect_convolution(
+            channels=channels,
+            convolution=border_effect_conv,
+        )
+
+    unfolded_tensor = unfolded_tensor.reshape(
+        unfolded_tensor.shape[0],
+        unfolded_tensor.shape[1],
+        original_size[0],
+        original_size[1],
+    )
+
+    unfolded_tensor = identity_conv(unfolded_tensor)
+    unfolded_tensor = unfolded_tensor.flatten(start_dim=2)
+
+    return unfolded_tensor

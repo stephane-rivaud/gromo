@@ -4,17 +4,20 @@ Module to define a two layer block similar to a BasicBlock in ResNet.
 
 import torch
 
-from gromo.growing_module import AdditionGrowingModule, GrowingModule
-from gromo.linear_growing_module import LinearAdditionGrowingModule, LinearGrowingModule
-from gromo.tensor_statistic import TensorStatistic
+from gromo.containers.growing_container import GrowingContainer
+from gromo.modules.growing_module import GrowingModule
+from gromo.modules.linear_growing_module import (
+    LinearGrowingModule,
+    LinearMergeGrowingModule,
+)
 
 
 all_layer_types = {
-    "linear": {"layer": LinearGrowingModule, "addition": LinearAdditionGrowingModule},
+    "linear": {"layer": LinearGrowingModule, "merge": LinearMergeGrowingModule},
 }
 
 
-class GrowingBlock(torch.nn.Module):
+class GrowingBlock(GrowingContainer):
     """
     Represents a block of a growing network.
 
@@ -65,15 +68,18 @@ class GrowingBlock(torch.nn.Module):
             dictionary of arguments for the second layer, if None use kwargs_layer
         """
         assert layer_type in all_layer_types, f"Layer type {layer_type} not supported."
-        super(GrowingBlock, self).__init__()
+        super(GrowingBlock, self).__init__(
+            in_features=in_out_features,
+            out_features=in_out_features,
+        )
         self.name = name
         self.hidden_features = hidden_features
 
-        self.input_block = all_layer_types[layer_type]["addition"](
-            post_addition_function=pre_activation,
+        self.input_block = all_layer_types[layer_type]["merge"](
+            post_merge_function=pre_activation,
             previous_modules=None,
             next_modules=None,
-            in_features=in_out_features,
+            in_features=self.in_features,
             name=f"{name}(input)",
         )
 
