@@ -22,6 +22,9 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(global_device(), torch.device("cuda"))
         set_device(torch.device("cpu"))
         self.assertEqual(global_device(), torch.device("cpu"))
+        
+        reset_device()
+        
 
     def test_torch_zeros(self) -> None:
         size = (random.randint(1, 10), random.randint(1, 10))
@@ -60,8 +63,8 @@ class TestUtils(unittest.TestCase):
     def test_mini_batch_gradient_descent(self) -> None:
         callable_forward = lambda x: x**2 + 1
         cost_fn = lambda pred, y: torch.sum((pred - y) ** 2)
-        x = torch.rand((5, 2), requires_grad=True, device=global_device())
-        y = torch.rand((5, 1), device=global_device())
+        x = torch.rand((5, 2), requires_grad=True)
+        y = torch.rand((5, 1))
         lrate = 1e-3
         epochs = 50
         batch_size = 8
@@ -94,7 +97,7 @@ class TestUtils(unittest.TestCase):
             verbose=False,
         )
 
-        model = nn.Linear(2, 1, device=global_device())
+        model = nn.Linear(2, 1)
         eval_fn = lambda: None
         mini_batch_gradient_descent(
             model,
