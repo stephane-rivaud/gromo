@@ -74,7 +74,7 @@ class TensorStatistic:
 
     def update(self, **kwargs):
         assert (
-            not self._shape or self._tensor is not None
+            self._shape is None or self._tensor is not None
         ), f"The tensor statistic {self.name} has not been initialized."
         if self.updated is False:
             update, nb_sample = self._update_function(**kwargs)

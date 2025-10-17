@@ -191,7 +191,7 @@ def line_search(cost_fn: Callable, verbose: bool = True) -> tuple[float, float]:
     if verbose:
         plt.figure()
         plt.plot(f_full, losses)
-        plt.xlabel(f"factor $\gamma$")  # type: ignore
+        plt.xlabel(f"factor $\\gamma$")  # type: ignore
         plt.ylabel("loss")
         plt.title(f"Minima at {factor=} with loss={min_loss}")
         plt.show()

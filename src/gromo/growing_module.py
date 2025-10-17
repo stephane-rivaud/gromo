@@ -252,10 +252,10 @@ class AdditionGrowingModule(torch.nn.Module):
         Initialize the computation of the optimal added parameters.
         """
         self.store_input = True
-        self.store_pre_activity = True
         for module in self.previous_modules:
             module.store_input = True
-            module.store_pre_activity = True
+            if hasattr(module, 'store_pre_activity'):
+                module.store_pre_activity = True
         self.previous_tensor_s.init()
         self.previous_tensor_m.init()
 
@@ -264,11 +264,11 @@ class AdditionGrowingModule(torch.nn.Module):
         Reset the computation of the optimal added parameters.
         """
         self.store_input = False
-        self.store_pre_activity = False
         self.store_activity = False
         for module in self.previous_modules:
             module.store_input = False
-            module.store_pre_activity = False
+            if hasattr(module, 'store_pre_activity'):
+                module.store_pre_activity = False
         self.previous_tensor_s.reset()
         self.previous_tensor_m.reset()
 

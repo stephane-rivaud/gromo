@@ -225,7 +225,7 @@ class Conv2dGrowingModule(GrowingModule):
         """
         Compute the update of the tensor S.
         With the input tensor B, the update is
-        S := (B^c_F)^T B^c_F \in (C d[+1]d[+1], C d[+1]d[+1]).
+        S := (B^c_F)^T B^c_F \\in (C d[+1]d[+1], C d[+1]d[+1]).
 
         Returns
         -------
@@ -373,7 +373,7 @@ class Conv2dGrowingModule(GrowingModule):
         """
         Compute the update of the tensor S_growth.
         With the input tensor B, the update is
-        S_growth := (Bt)^T Bt \in (C dd, C dd).
+        S_growth := (Bt)^T Bt \\in (C dd, C dd).
 
         Returns
         -------
