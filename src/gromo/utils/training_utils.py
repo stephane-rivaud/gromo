@@ -245,6 +245,7 @@ def gradient_descent(
     batch_limit: int | None = None,
     dataloader_seed: int | None = None,
     device: torch.device = torch.device("cpu"),
+    scheduler_step_granularity: str = "batch",
 ) -> tuple[float, float]:
     """
     Train the model on the train_dataloader using classic gradient descent.
@@ -272,6 +273,11 @@ def gradient_descent(
         Default is None.
     device : torch.device, optional
         Device to use. Default is torch.device("cpu").
+    scheduler_step_granularity : str, optional
+        When a scheduler is provided, call ``scheduler.step()`` after every batch
+        (``"batch"``) or once after the training loop (``"epoch"``).
+        Default is ``"batch"`` to preserve the historical behavior of this
+        function when the argument is omitted.
 
     Returns
     -------
@@ -281,6 +287,11 @@ def gradient_descent(
     assert (
         not isinstance(loss_function, nn.Module) or loss_function.reduction == "mean"
     ), "The loss function should be averaged over the batch"
+    if scheduler_step_granularity not in {"batch", "epoch"}:
+        raise ValueError(
+            "scheduler_step_granularity must be either 'batch' or 'epoch', "
+            f"got {scheduler_step_granularity!r}"
+        )
 
     # metrics meters
     loss_meter = AverageMeter()
@@ -307,12 +318,15 @@ def gradient_descent(
 
         loss.backward()
         optimizer.step()
-        if scheduler is not None:
+        if scheduler is not None and scheduler_step_granularity == "batch":
             scheduler.step()
 
         # update metrics
         loss_meter.update(loss.detach(), x.size(0))
         metrics.update(y_pred.detach(), y)
+
+    if scheduler is not None and scheduler_step_granularity == "epoch":
+        scheduler.step()
 
     if scheduler is not None and hasattr(scheduler, "epoch_step"):
         scheduler.epoch_step()
