@@ -12,9 +12,14 @@ from gromo.utils.utils import compute_tensor_stats
 class ResidualBlock(nn.Module):
     """Pre-norm residual wrapper for transformer sublayers."""
 
-    def __init__(self, sublayer, d_model):
+    def __init__(
+        self,
+        sublayer: nn.Module,
+        d_model: int,
+        device: torch.device | str | None = None,
+    ) -> None:
         super().__init__()
-        self.norm = nn.LayerNorm(d_model)
+        self.norm = nn.LayerNorm(d_model, device=device)
         self.sublayer = sublayer
 
     def forward(self, x, *args, **kwargs):
@@ -25,13 +30,20 @@ class ResidualBlock(nn.Module):
 class SelfAttentionLayer(nn.Module):
     """Multi-head self-attention sublayer for transformer blocks."""
 
-    def __init__(self, d_model, num_heads, dropout=0.0):
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        dropout: float = 0.0,
+        device: torch.device | str | None = None,
+    ) -> None:
         super().__init__()
         self.attn = nn.MultiheadAttention(
             embed_dim=d_model,
             num_heads=num_heads,
             dropout=dropout,
             batch_first=True,
+            device=device,
         )
 
     def forward(self, x, attn_mask=None, key_padding_mask=None):
@@ -50,24 +62,40 @@ class SelfAttentionLayer(nn.Module):
 class GrowingTransformerBlock(GrowingContainer):
     """Transformer block with fixed attention and growable feed-forward branch."""
 
-    def __init__(self, d_model, num_heads, d_ff, dropout=0.0):
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        d_ff: int,
+        dropout: float = 0.0,
+        device: torch.device | str | None = None,
+    ) -> None:
         super().__init__(
             in_features=d_model,
             out_features=d_model,
+            device=device,
             name="GrowingTransformerBlock",
         )
         self.attn_block = ResidualBlock(
-            SelfAttentionLayer(d_model, num_heads, dropout),
+            SelfAttentionLayer(
+                d_model,
+                num_heads,
+                dropout,
+                device=self.device,
+            ),
             d_model,
+            device=self.device,
         )
         self.mlp = LinearGrowingBlock(
             in_features=d_model,
             out_features=d_model,
             hidden_features=d_ff,
-            pre_activation=nn.LayerNorm(d_model),
+            pre_activation=nn.LayerNorm(d_model, device=self.device),
             mid_activation=nn.GELU(),
             pre_addition_function=nn.Identity(),
             name="mlp",
+            kwargs_layer={"device": self.device},
+            device=self.device,
         )
         self.set_growing_layers()
 
