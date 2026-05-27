@@ -211,10 +211,14 @@ def evaluate_model(
 
     # prediction function
     if use_extended_model:
+
+        def _primary_output(output):
+            return output[0] if isinstance(output, tuple) else output
+
         if isinstance(model, GrowingModel):
             predict_fn = lambda x: model.extended_forward(x, mask=mask)
         elif isinstance(model, GrowingContainer):
-            predict_fn = lambda x: model.extended_forward(x, mask=mask)[0]
+            predict_fn = lambda x: _primary_output(model.extended_forward(x, mask=mask))
         else:
             raise TypeError(
                 "Model must be an instance of GrowingModel or GrowingContainer when use_extended_model is True"
