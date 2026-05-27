@@ -9,90 +9,256 @@ from gromo.containers.growing_container import GrowingContainer
 from gromo.utils.utils import compute_tensor_stats
 
 
-class ResidualBlock(nn.Module):
-    """Pre-norm residual wrapper for transformer sublayers."""
+def drop_path(
+    x: torch.Tensor,
+    drop_prob: float = 0.0,
+    training: bool = False,
+) -> torch.Tensor:
+    """Drop paths per sample, matching the stochastic-depth layer used by CCT."""
+    if drop_prob == 0.0 or not training:
+        return x
+    keep_prob = 1 - drop_prob
+    shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+    random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
+    random_tensor.floor_()
+    return x.div(keep_prob) * random_tensor
+
+
+class DropPath(nn.Module):
+    """Stochastic depth that leaves GroMo extension tensors untouched."""
+
+    def __init__(self, drop_prob: float = 0.0) -> None:
+        super().__init__()
+        self.drop_prob = drop_prob
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply stochastic depth to the input tensor."""
+        return drop_path(x, self.drop_prob, self.training)
+
+    def extended_forward(
+        self,
+        x: torch.Tensor | None,
+        x_ext: torch.Tensor | None,
+    ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+        """Apply stochastic depth while preserving the extension tensor."""
+        return self(x) if x is not None else None, x_ext
+
+
+class ExtendedDropout(nn.Dropout):
+    """Dropout that preserves GroMo extension tensors during extended forward."""
+
+    def extended_forward(
+        self,
+        x: torch.Tensor | None,
+        x_ext: torch.Tensor | None,
+    ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+        """Apply dropout while preserving the extension tensor."""
+        return self(x) if x is not None else None, x_ext
+
+
+class Attention(nn.Module):
+    """CCT-style multi-head self-attention with qkv projection."""
 
     def __init__(
         self,
-        sublayer: nn.Module,
-        d_model: int,
+        dim: int,
+        num_heads: int = 8,
+        attention_dropout: float = 0.1,
+        projection_dropout: float = 0.1,
         device: torch.device | str | None = None,
     ) -> None:
         super().__init__()
-        self.norm = nn.LayerNorm(d_model, device=device)
-        self.sublayer = sublayer
+        if dim % num_heads != 0:
+            raise ValueError("`dim` must be divisible by `num_heads`.")
+        self.num_heads = num_heads
+        head_dim = dim // self.num_heads
+        self.scale = head_dim**-0.5
 
-    def forward(self, x, *args, **kwargs):
-        """Apply layer normalization, the wrapped sublayer, and the residual add."""
-        return x + self.sublayer(self.norm(x), *args, **kwargs)
+        self.qkv = nn.Linear(dim, dim * 3, bias=False, device=device)
+        self.attn_drop = nn.Dropout(attention_dropout)
+        self.proj = nn.Linear(dim, dim, device=device)
+        self.proj_drop = nn.Dropout(projection_dropout)
 
-
-class SelfAttentionLayer(nn.Module):
-    """Multi-head self-attention sublayer for transformer blocks."""
-
-    def __init__(
+    def forward(
         self,
-        d_model: int,
-        num_heads: int,
-        dropout: float = 0.0,
-        device: torch.device | str | None = None,
-    ) -> None:
-        super().__init__()
-        self.attn = nn.MultiheadAttention(
-            embed_dim=d_model,
-            num_heads=num_heads,
-            dropout=dropout,
-            batch_first=True,
-            device=device,
+        x: torch.Tensor,
+    ) -> torch.Tensor:
+        """Compute self-attention over a token sequence."""
+        batch_size, sequence_length, channels = x.shape
+        qkv = (
+            self.qkv(x)
+            .reshape(
+                batch_size,
+                sequence_length,
+                3,
+                self.num_heads,
+                channels // self.num_heads,
+            )
+            .permute(2, 0, 3, 1, 4)
         )
+        q, k, v = qkv[0], qkv[1], qkv[2]
 
-    def forward(self, x, attn_mask=None, key_padding_mask=None):
-        """Compute self-attention over a sequence of hidden states."""
-        y, _ = self.attn(
-            x,
-            x,
-            x,
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+
+        x = (attn @ v).transpose(1, 2).reshape(batch_size, sequence_length, channels)
+        x = self.proj(x)
+        return self.proj_drop(x)
+
+
+class MaskedAttention(Attention):
+    """CCT-style masked self-attention using token-validity masks."""
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        mask: torch.Tensor | None = None,
+        attn_mask: torch.Tensor | None = None,
+        key_padding_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Compute masked self-attention over a token sequence."""
+        batch_size, sequence_length, channels = x.shape
+        qkv = (
+            self.qkv(x)
+            .reshape(
+                batch_size,
+                sequence_length,
+                3,
+                self.num_heads,
+                channels // self.num_heads,
+            )
+            .permute(2, 0, 3, 1, 4)
+        )
+        q, k, v = qkv[0], qkv[1], qkv[2]
+
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        mask = self._resolve_mask(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            mask=mask,
             attn_mask=attn_mask,
             key_padding_mask=key_padding_mask,
-            need_weights=False,
         )
-        return y
+        if mask is not None:
+            mask_value = -torch.finfo(attn.dtype).max
+            mask = mask[:, None, :] * mask[:, :, None]
+            mask = mask.unsqueeze(1).repeat(1, self.num_heads, 1, 1)
+            attn = attn.masked_fill(~mask, mask_value)
+
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+
+        x = (attn @ v).transpose(1, 2).reshape(batch_size, sequence_length, channels)
+        x = self.proj(x)
+        return self.proj_drop(x)
+
+    def _resolve_mask(
+        self,
+        batch_size: int,
+        sequence_length: int,
+        mask: torch.Tensor | None = None,
+        attn_mask: torch.Tensor | None = None,
+        key_padding_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor | None:
+        if mask is not None:
+            resolved_mask = mask
+        elif key_padding_mask is not None:
+            resolved_mask = ~key_padding_mask.to(dtype=torch.bool)
+        elif (
+            attn_mask is not None
+            and attn_mask.dim() == 2
+            and attn_mask.shape == (batch_size, sequence_length)
+        ):
+            resolved_mask = attn_mask
+        else:
+            if attn_mask is not None:
+                raise ValueError(
+                    "`attn_mask` must have shape (batch_size, sequence_length) to "
+                    "match CCT `MaskedAttention`. Use `mask` or `key_padding_mask`."
+                )
+            return None
+
+        if resolved_mask.shape[-1] != sequence_length:
+            raise ValueError("mask has incorrect dimensions")
+        return resolved_mask.to(dtype=torch.bool, device=self.qkv.weight.device)
 
 
 class GrowingTransformerBlock(GrowingContainer):
-    """Transformer block with fixed attention and growable feed-forward branch."""
+    """CCT-compatible transformer encoder layer with a growable MLP branch."""
 
     def __init__(
         self,
         d_model: int,
-        num_heads: int,
-        d_ff: int,
+        num_heads: int | None = None,
+        d_ff: int | None = None,
         dropout: float = 0.0,
         device: torch.device | str | None = None,
+        nhead: int | None = None,
+        dim_feedforward: int | None = 2048,
+        attention_dropout: float | None = None,
+        drop_path_rate: float = 0.0,
+        projection_dropout: float | None = None,
+        *args: Any,
+        **kwargs: Any,
     ) -> None:
+        if args:
+            raise TypeError(f"Unexpected positional arguments: {args!r}")
+        if kwargs:
+            raise TypeError(f"Unexpected keyword arguments: {sorted(kwargs)}")
+        if num_heads is None:
+            num_heads = nhead
+        if num_heads is None:
+            raise ValueError("`num_heads` or CCT-compatible `nhead` must be provided.")
+        if d_ff is None:
+            d_ff = dim_feedforward
+        if d_ff is None:
+            raise ValueError(
+                "`d_ff` or CCT-compatible `dim_feedforward` must be provided."
+            )
+        if attention_dropout is None:
+            attention_dropout = dropout
+        if projection_dropout is None:
+            projection_dropout = dropout
+
         super().__init__(
             in_features=d_model,
             out_features=d_model,
             device=device,
             name="GrowingTransformerBlock",
         )
-        self.attn_block = ResidualBlock(
-            SelfAttentionLayer(
-                d_model,
-                num_heads,
-                dropout,
-                device=self.device,
-            ),
-            d_model,
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_ff = d_ff
+        self.dropout_rate = dropout
+        self.attention_dropout = attention_dropout
+        self.drop_path_rate = drop_path_rate
+
+        self.pre_norm = nn.LayerNorm(d_model, device=self.device)
+        self.self_attn = MaskedAttention(
+            dim=d_model,
+            num_heads=num_heads,
+            attention_dropout=attention_dropout,
+            projection_dropout=projection_dropout,
             device=self.device,
         )
+        self.drop_path = DropPath(drop_path_rate) if drop_path_rate > 0 else nn.Identity()
+        self.norm1 = nn.LayerNorm(d_model, device=self.device)
+        dropout1 = ExtendedDropout(dropout) if dropout > 0 else nn.Identity()
+        dropout2 = ExtendedDropout(dropout) if dropout > 0 else nn.Identity()
         self.mlp = LinearGrowingBlock(
             in_features=d_model,
             out_features=d_model,
             hidden_features=d_ff,
-            pre_activation=nn.LayerNorm(d_model, device=self.device),
-            mid_activation=nn.GELU(),
-            pre_addition_function=nn.Identity(),
+            pre_activation=nn.Identity(),
+            mid_activation=nn.Sequential(
+                nn.GELU(),
+                dropout1,
+            ),
+            pre_addition_function=nn.Sequential(
+                dropout2,
+                DropPath(drop_path_rate) if drop_path_rate > 0 else nn.Identity(),
+            ),
             name="mlp",
             kwargs_layer={"device": self.device},
             device=self.device,
@@ -158,25 +324,62 @@ class GrowingTransformerBlock(GrowingContainer):
         """Return the total first-order improvement of the current proposal."""
         return self.mlp.first_order_improvement
 
-    def forward(self, x, attn_mask=None, key_padding_mask=None):
-        """Run the attention branch followed by the growable feed-forward branch."""
-        x = self.attn_block(
-            x,
-            attn_mask=attn_mask,
-            key_padding_mask=key_padding_mask,
+    def _apply_attention_branch(
+        self,
+        x: torch.Tensor,
+        mask: torch.Tensor | None = None,
+        attn_mask: torch.Tensor | None = None,
+        key_padding_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Run the fixed attention branch before delegating to the growing MLP."""
+        x = x + self.drop_path(
+            self.self_attn(
+                self.pre_norm(x),
+                mask=mask,
+                attn_mask=attn_mask,
+                key_padding_mask=key_padding_mask,
+            )
         )
-        x = self.mlp(x)
-        return x
+        return self.norm1(x)
 
-    def extended_forward(self, x, mask=None, attn_mask=None, key_padding_mask=None):
-        """Run the block while applying any pending GroMo extensions in the MLP."""
-        x = self.attn_block(
-            x,
-            attn_mask=attn_mask,
-            key_padding_mask=key_padding_mask,
+    def forward(
+        self,
+        x,
+        mask=None,
+        attn_mask=None,
+        key_padding_mask=None,
+        *args,
+        **kwargs,
+    ):
+        """Run attention, then delegate the feed-forward path to LinearGrowingBlock."""
+        _ = args, kwargs
+        return self.mlp(
+            self._apply_attention_branch(
+                x,
+                mask=mask,
+                attn_mask=attn_mask,
+                key_padding_mask=key_padding_mask,
+            )
         )
-        x = self.mlp.extended_forward(x, mask=mask)
-        return x
+
+    def extended_forward(
+        self,
+        x,
+        mask=None,
+        attn_mask=None,
+        key_padding_mask=None,
+        attention_mask=None,
+    ):
+        """Run attention, then delegate the extended path to LinearGrowingBlock."""
+        return self.mlp.extended_forward(
+            self._apply_attention_branch(
+                x,
+                mask=attention_mask,
+                attn_mask=attn_mask,
+                key_padding_mask=key_padding_mask,
+            ),
+            mask=mask,
+        )
 
     def delete_update(self, **kwargs: Any) -> None:
         """Discard the currently cached growth proposal."""
@@ -235,22 +438,29 @@ class GrowingTransformerBlock(GrowingContainer):
 
     def weights_statistics(self) -> Dict[str, Any]:
         """Collect summary statistics for attention and MLP parameters."""
-        attn = self.attn_block.sublayer.attn
         statistics: Dict[str, Any] = {
             "attention": {
-                "in_proj_weight": compute_tensor_stats(attn.in_proj_weight),
-                "out_proj_weight": compute_tensor_stats(attn.out_proj.weight),
+                "qkv_weight": compute_tensor_stats(self.self_attn.qkv.weight),
+                "proj_weight": compute_tensor_stats(self.self_attn.proj.weight),
+            },
+            "pre_norm": {
+                "weight": compute_tensor_stats(self.pre_norm.weight),
+                "bias": compute_tensor_stats(self.pre_norm.bias),
+            },
+            "norm1": {
+                "weight": compute_tensor_stats(self.norm1.weight),
+                "bias": compute_tensor_stats(self.norm1.bias),
             },
             "mlp": self.mlp.weights_statistics(),
             "d_model": self.in_features,
             "d_ff": self.hidden_neurons,
         }
-        if attn.in_proj_bias is not None:
-            statistics["attention"]["in_proj_bias"] = compute_tensor_stats(
-                attn.in_proj_bias
+        if self.self_attn.qkv.bias is not None:
+            statistics["attention"]["qkv_bias"] = compute_tensor_stats(
+                self.self_attn.qkv.bias
             )
-        if attn.out_proj.bias is not None:
-            statistics["attention"]["out_proj_bias"] = compute_tensor_stats(
-                attn.out_proj.bias
+        if self.self_attn.proj.bias is not None:
+            statistics["attention"]["proj_bias"] = compute_tensor_stats(
+                self.self_attn.proj.bias
             )
         return statistics
