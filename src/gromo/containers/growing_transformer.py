@@ -416,6 +416,10 @@ class GrowingTransformerBlock(GrowingContainer):
         """Expand the growable MLP branch to its configured target width."""
         self.mlp.complete_growth(extension_kwargs=extension_kwargs)
 
+    def create_layer_extensions(self, **kwargs: Any) -> None:
+        """Create random growth extensions on the growable MLP branch."""
+        self.mlp.create_layer_extensions(**kwargs)
+
     def sub_select_optimal_added_parameters(
         self,
         keep_neurons: int | None = None,
@@ -434,6 +438,18 @@ class GrowingTransformerBlock(GrowingContainer):
             zeros_fan_in=zeros_fan_in,
             zeros_fan_out=zeros_fan_out,
         )
+
+    def apply_rescaling(self, **kwargs: Any) -> None:
+        """Apply variance-transfer rescaling on the growable MLP branch."""
+        self.mlp.apply_rescaling(**kwargs)
+
+    def apply_neuron_pairing(self, **kwargs: Any) -> None:
+        """Apply neuron pairing on the growable MLP branch."""
+        self.mlp.apply_neuron_pairing(**kwargs)
+
+    def normalize_optimal_updates(self, **kwargs: Any) -> None:
+        """Normalize growth updates on the growable MLP branch."""
+        self.mlp.normalize_optimal_updates(**kwargs)
 
     def update_information(self) -> Dict[str, Any]:
         """Summarize the current growth proposal for reporting and comparison."""
