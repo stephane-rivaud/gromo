@@ -110,16 +110,26 @@ class SequentialGrowingModel(GrowingModel):
             information dictionary
         """
         information = {}
-        for i, layer in enumerate(self._growing_layers):
+        for active_idx, layer in enumerate(self._growing_layers):
+            layer_idx = active_idx
+            for growable_idx, growable_layer in enumerate(self._growable_layers):
+                if layer is growable_layer:
+                    layer_idx = growable_idx
+                    break
+
+            layer_update_information = getattr(layer, "update_information", None)
+            if callable(layer_update_information):
+                information[layer_idx] = layer_update_information()
+                continue
+
             assert isinstance(layer.parameter_update_decrease, torch.Tensor), (
                 "parameter_update_decrease should be a tensor"
             )
-            layer_information = {
+            information[layer_idx] = {
                 "update_value": layer.first_order_improvement.item(),
                 "parameter_improvement": layer.parameter_update_decrease.item(),
                 "eigenvalues_extension": layer.eigenvalues_extension,
             }
-            information[i] = layer_information
         return information
 
     def missing_neurons(self) -> int:

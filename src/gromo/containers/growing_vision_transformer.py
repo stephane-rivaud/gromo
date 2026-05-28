@@ -467,11 +467,9 @@ class GrowingTransformerClassifier(SequentialGrowingModel):
         return self.fc(self._pool_tokens(x))
 
     def update_information(self) -> Dict[str, Any]:
-        """Collect growth information for each transformer block."""
+        """Collect growth information for active transformer blocks."""
         return {
-            "blocks": {
-                i: block.update_information() for i, block in enumerate(self.blocks)
-            },
+            "blocks": super().update_information(),
             "d_model": self.embedding_dim,
             "d_ff": self.d_ff,
             "num_blocks": self.num_layers,
@@ -772,12 +770,16 @@ class GrowingTransformer(SequentialGrowingModel):
         )
 
     def update_information(self) -> Dict[str, Any]:
-        """Collect growth information for each transformer block."""
+        """Collect growth information for active transformer blocks."""
+        blocks_information = super().update_information()
         return {
-            "blocks": {
-                i: block.update_information() for i, block in enumerate(self.blocks)
+            "blocks": blocks_information,
+            "classifier": {
+                "blocks": blocks_information,
+                "d_model": self.classifier.embedding_dim,
+                "d_ff": self.classifier.d_ff,
+                "num_blocks": self.classifier.num_layers,
             },
-            "classifier": self.classifier.update_information(),
             "embedding_dim": self.embedding_dim,
             "num_layers": self.num_layers,
             "num_heads": self.num_heads,
@@ -1147,9 +1149,16 @@ class GrowingTextViTLite(SequentialGrowingModel):
         )
 
     def update_information(self) -> Dict[str, Any]:
-        """Collect growth information for each transformer block."""
+        """Collect growth information for active text transformer blocks."""
+        blocks_information = super().update_information()
         return {
-            "classifier": self.classifier.update_information(),
+            "blocks": blocks_information,
+            "classifier": {
+                "blocks": blocks_information,
+                "d_model": self.classifier.embedding_dim,
+                "d_ff": self.classifier.d_ff,
+                "num_blocks": self.classifier.num_layers,
+            },
             "embedding_dim": self.embedding_dim,
             "num_layers": self.num_layers,
             "num_heads": self.num_heads,
