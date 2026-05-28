@@ -12,6 +12,7 @@ from gromo.containers.growing_vision_transformer import (
     GrowingTransformerClassifier,
     GrowingViTLite,
 )
+from gromo.containers.sequential_growing_container import SequentialGrowingModel
 from tests.test_growing_container import create_synthetic_data, gather_statistics
 from tests.torch_unittest import TorchTestCase
 
@@ -63,6 +64,7 @@ class TestGrowingTransformer(TorchTestCase):
 
         self.assertIsInstance(model, GrowingTransformer)
         self.assertIsInstance(model, torch.nn.Module)
+        self.assertIsInstance(model, SequentialGrowingModel)
 
     def test_forward(self):
         x = torch.randn(1, *self.in_features)
@@ -77,6 +79,43 @@ class TestGrowingTransformer(TorchTestCase):
     def test_set_growing_layers(self):
         self.model.set_growing_layers()
         self.assertEqual(len(self.model._growing_layers), self.num_blocks)
+
+    def test_set_growing_layers_with_index(self):
+        self.model.set_growing_layers(index=1)
+        self.assertEqual(self.model.layer_to_grow_index, 1)
+        self.assertEqual(len(self.model._growing_layers), 1)
+        self.assertIs(self.model._growing_layers[0], self.model.blocks[1])
+
+    def test_set_growing_layers_sequential(self):
+        self.model.set_growing_layers(scheduling_method="sequential")
+        self.assertEqual(self.model.layer_to_grow_index, 0)
+        self.assertEqual(len(self.model._growing_layers), 1)
+        self.assertIs(self.model._growing_layers[0], self.model.blocks[0])
+
+        self.model.set_growing_layers(scheduling_method="sequential")
+        self.assertEqual(self.model.layer_to_grow_index, 1)
+        self.assertEqual(len(self.model._growing_layers), 1)
+        self.assertIs(self.model._growing_layers[0], self.model.blocks[1])
+
+    def test_compute_optimal_updates_on_selected_block_only(self):
+        model = GrowingTransformer(
+            in_features=self.in_features,
+            out_features=self.out_features,
+            patch_size=self.patch_size,
+            d_model=self.d_model,
+            num_heads=self.num_heads,
+            d_ff=self.d_ff,
+            num_blocks=self.num_blocks,
+            device=torch.device("cpu"),
+        )
+        gather_statistics(self.dataloader, model, self.loss)
+        model.set_growing_layers(index=1)
+
+        with self.assertMaybeWarns(UserWarning):
+            model.compute_optimal_updates()
+
+        self.assertIsNone(model.blocks[0].optimal_delta_layer)
+        self.assertIsNotNone(model.blocks[1].optimal_delta_layer)
 
     def test_weights_statistics(self):
         stats = self.model.weights_statistics()
@@ -142,6 +181,7 @@ class TestGrowingTransformer(TorchTestCase):
             device=torch.device("cpu"),
         )
 
+        self.assertIsInstance(classifier, SequentialGrowingModel)
         x = torch.randn(2, 7, self.d_model)
         mask = torch.tensor([[True, True, True, True, False, False, False], [True] * 7])
         y = classifier(x)
@@ -151,6 +191,11 @@ class TestGrowingTransformer(TorchTestCase):
         self.assertEqual(y.shape, (2, self.out_features))
         self.assertEqual(y_masked.shape, (2, self.out_features))
         self.assertEqual(y_ext.shape, (2, self.out_features))
+
+        classifier.set_growing_layers(index=1)
+        self.assertEqual(classifier.layer_to_grow_index, 1)
+        self.assertEqual(len(classifier._growing_layers), 1)
+        self.assertIs(classifier._growing_layers[0], classifier.blocks[1])
 
     def test_growing_transformer_generic_forward(self):
         model = GrowingTransformer(
@@ -259,6 +304,7 @@ class TestGrowingTransformer(TorchTestCase):
             device=torch.device("cpu"),
         )
 
+        self.assertIsInstance(model, SequentialGrowingModel)
         x = torch.randint(0, 20, (2, 8))
         mask = torch.ones(2, 8, dtype=torch.bool)
 
@@ -267,6 +313,10 @@ class TestGrowingTransformer(TorchTestCase):
             model.extended_forward(x, attention_mask=mask).shape,
             (2, self.out_features),
         )
+
+        model.set_growing_layers(index=1)
+        self.assertEqual(model.layer_to_grow_index, 1)
+        self.assertEqual(len(model._growing_layers), 1)
 
 
 if __name__ == "__main__":

@@ -5,8 +5,8 @@ import torch.nn as nn
 import torch.nn.functional as functional
 from torch import Tensor
 
-from gromo.containers.growing_container import GrowingContainer
 from gromo.containers.growing_transformer import GrowingTransformerBlock
+from gromo.containers.sequential_growing_container import SequentialGrowingModel
 from gromo.utils.utils import compute_tensor_stats
 
 
@@ -244,7 +244,7 @@ class Embedder(nn.Module):
             nn.init.normal_(m.weight)
 
 
-class GrowingTransformerClassifier(GrowingContainer):
+class GrowingTransformerClassifier(SequentialGrowingModel):
     """CCT TransformerClassifier with growable feed-forward transformer blocks."""
 
     def __init__(
@@ -277,8 +277,8 @@ class GrowingTransformerClassifier(GrowingContainer):
             in_features=in_features,
             out_features=num_classes,
             device=device,
-            name=name,
         )
+        self.name = name
 
         dim_feedforward = int(embedding_dim * mlp_ratio)
         self.embedding_dim = embedding_dim
@@ -344,16 +344,32 @@ class GrowingTransformerClassifier(GrowingContainer):
                 for i in range(num_layers)
             ]
         )
+        self._growable_layers: list[GrowingTransformerBlock] = list(self.blocks)
         self.norm = nn.LayerNorm(embedding_dim, device=self.device)
         self.fc = nn.Linear(embedding_dim, num_classes, device=self.device)
-        self.set_growing_layers()
+        self.set_growing_layers(scheduling_method="all")
         self.apply(self.init_weight)
         if self.positional_emb is not None and positional_embedding == "learnable":
             nn.init.trunc_normal_(self.positional_emb, std=0.2)
 
-    def set_growing_layers(self) -> None:
-        """Reference each transformer block as an independent growth candidate."""
-        self._growing_layers = list(self.blocks)
+    def set_growing_layers(
+        self,
+        scheduling_method: str | int = "all",
+        index: int | None = None,
+    ) -> None:
+        """Select all blocks, the next block, or one specific block for growth."""
+        if isinstance(scheduling_method, int):
+            if index is not None:
+                raise ValueError(
+                    "Pass either a positional layer index or `index=...`, not both."
+                )
+            index = scheduling_method
+            scheduling_method = "all"
+        self._growable_layers = list(self.blocks)
+        super().set_growing_layers(
+            scheduling_method=scheduling_method,
+            index=index,
+        )
 
     def _pad_to_sequence_length(
         self,
@@ -525,7 +541,7 @@ class GrowingTransformerClassifier(GrowingContainer):
         return pe.unsqueeze(0)
 
 
-class GrowingTransformer(GrowingContainer):
+class GrowingTransformer(SequentialGrowingModel):
     """Image transformer base using a tokenizer and growable transformer blocks."""
 
     def __init__(
@@ -635,8 +651,8 @@ class GrowingTransformer(GrowingContainer):
             in_features=n_input_channels * image_height * image_width,
             out_features=num_classes,
             device=device,
-            name=name,
         )
+        self.name = name
         self.legacy_api = legacy_api
         self.input_shape = (n_input_channels, image_height, image_width)
         self.embedding_dim = embedding_dim
@@ -687,11 +703,29 @@ class GrowingTransformer(GrowingContainer):
             positional_embedding=positional_embedding,
             device=self.device,
         )
-        self.set_growing_layers()
+        self._growable_layers: list[GrowingTransformerBlock] = list(
+            self.classifier.blocks
+        )
+        self.set_growing_layers(scheduling_method="all")
 
-    def set_growing_layers(self) -> None:
-        """Expose classifier transformer blocks as the growable layers."""
-        self._growing_layers = list(self.classifier.blocks)
+    def set_growing_layers(
+        self,
+        scheduling_method: str | int = "all",
+        index: int | None = None,
+    ) -> None:
+        """Select all blocks, the next block, or one specific block for growth."""
+        if isinstance(scheduling_method, int):
+            if index is not None:
+                raise ValueError(
+                    "Pass either a positional layer index or `index=...`, not both."
+                )
+            index = scheduling_method
+            scheduling_method = "all"
+        self._growable_layers = list(self.classifier.blocks)
+        super().set_growing_layers(
+            scheduling_method=scheduling_method,
+            index=index,
+        )
 
     @property
     def blocks(self) -> nn.ModuleList:
@@ -972,7 +1006,7 @@ class GrowingCVT(GrowingTransformer):
         )
 
 
-class GrowingTextViTLite(GrowingContainer):
+class GrowingTextViTLite(SequentialGrowingModel):
     """TextViTLite using growable transformer blocks and masked attention."""
 
     def __init__(
@@ -1007,8 +1041,8 @@ class GrowingTextViTLite(GrowingContainer):
             in_features=seq_len,
             out_features=num_classes,
             device=device,
-            name="GrowingTextViTLite",
         )
+        self.name = "GrowingTextViTLite"
         self.seq_len = seq_len
         self.word_embedding_dim = word_embedding_dim
         self.embedding_dim = embedding_dim
@@ -1052,11 +1086,29 @@ class GrowingTextViTLite(GrowingContainer):
             positional_embedding=positional_embedding,
             device=self.device,
         )
-        self.set_growing_layers()
+        self._growable_layers: list[GrowingTransformerBlock] = list(
+            self.classifier.blocks
+        )
+        self.set_growing_layers(scheduling_method="all")
 
-    def set_growing_layers(self) -> None:
-        """Expose classifier transformer blocks as the growable layers."""
-        self._growing_layers = list(self.classifier.blocks)
+    def set_growing_layers(
+        self,
+        scheduling_method: str | int = "all",
+        index: int | None = None,
+    ) -> None:
+        """Select all blocks, the next block, or one specific block for growth."""
+        if isinstance(scheduling_method, int):
+            if index is not None:
+                raise ValueError(
+                    "Pass either a positional layer index or `index=...`, not both."
+                )
+            index = scheduling_method
+            scheduling_method = "all"
+        self._growable_layers = list(self.classifier.blocks)
+        super().set_growing_layers(
+            scheduling_method=scheduling_method,
+            index=index,
+        )
 
     def forward(
         self,
@@ -1105,8 +1157,12 @@ class GrowingTextViTLite(GrowingContainer):
 
     @property
     def first_order_improvement(self) -> torch.Tensor:
-        """Return the improvement of the classifier growth candidates."""
-        return self.classifier.first_order_improvement
+        """Return the improvement of the currently selected text transformer block."""
+        if self.currently_updated_layer_index is None:
+            return torch.stack(
+                [layer.first_order_improvement for layer in self._growing_layers]
+            ).max()
+        return self.currently_updated_layer.first_order_improvement
 
     def weights_statistics(self) -> Dict[str, Any]:
         """Collect statistics for embedder, tokenizer, and classifier head."""

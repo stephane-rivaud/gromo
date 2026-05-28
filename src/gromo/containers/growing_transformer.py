@@ -404,6 +404,18 @@ class GrowingTransformerBlock(GrowingContainer):
             apply_extension=apply_extension,
         )
 
+    def missing_neurons(self) -> int:
+        """Return how many hidden neurons remain before reaching the target width."""
+        return self.mlp.missing_neurons()
+
+    def number_of_neurons_to_add(self, **kwargs: Any) -> int:
+        """Delegate the next growth-step width to the growable MLP branch."""
+        return self.mlp.number_of_neurons_to_add(**kwargs)
+
+    def complete_growth(self, extension_kwargs: Any) -> None:
+        """Expand the growable MLP branch to its configured target width."""
+        self.mlp.complete_growth(extension_kwargs=extension_kwargs)
+
     def sub_select_optimal_added_parameters(
         self,
         keep_neurons: int | None = None,
