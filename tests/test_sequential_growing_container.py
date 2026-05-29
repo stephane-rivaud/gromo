@@ -117,6 +117,13 @@ class BaseSequentialGrowingModel(SequentialGrowingModel):
         return torch.tensor(0.0)
 
 
+class ReportingLinearGrowingModule(LinearGrowingModule):
+    """Minimal growable layer exposing a custom update_information hook."""
+
+    def update_information(self) -> dict[str, str]:
+        return {"name": self.name}
+
+
 class TestSequentialGrowingModel(TorchTestCase):
     """Test SequentialGrowingModel implementation."""
 
@@ -286,3 +293,26 @@ class TestSequentialGrowingModel(TorchTestCase):
         container.layer_to_grow_index = -1
         with self.assertRaises(RuntimeError):
             container.number_of_neurons_to_add(number_of_growth_steps=2)
+
+    def test_update_information_uses_real_growable_index_and_nested_hook(self):
+        """Test callable layer update_information uses the index in _growable_layers."""
+        container = DummySequentialGrowingModel(
+            in_features=self.in_features,
+            out_features=self.out_features,
+            hidden_features=self.hidden_features,
+            device=self.device,
+        )
+        container.layer2 = ReportingLinearGrowingModule(
+            in_features=self.hidden_features,
+            out_features=self.hidden_features,
+            name="layer2",
+            previous_module=container.layer1,
+            device=self.device,
+        )
+        container._growable_layers = [container.layer1, container.layer2]
+        container.set_growing_layers(index=1)
+
+        info = container.update_information()
+
+        self.assertEqual(list(info.keys()), [1])
+        self.assertEqual(info[1], {"name": "layer2"})
