@@ -467,7 +467,7 @@ class TestGrowingTransformerCoveragePaths(TorchTestCase):
         self.assertEqual(hidden_features, block.hidden_neurons)
 
         dummy_delta = nn.Identity()
-        block.optimal_delta_layer = dummy_delta
+        GrowingTransformerBlock.optimal_delta_layer.fset(block, dummy_delta)
         self.assertIs(block.optimal_delta_layer, dummy_delta)
 
         block.parameter_update_decrease = torch.tensor(1.25)
@@ -728,7 +728,7 @@ class TestGrowingTransformerCoveragePaths(TorchTestCase):
         )
         for idx, block in enumerate(classifier.blocks):
             block.parameter_update_decrease = torch.tensor(float(idx + 1))
-            block.mlp.eigenvalues_extension = None
+            block.mlp.second_layer.eigenvalues_extension = None
         self.assertEqual(classifier.first_order_improvement.item(), 2.0)
         classifier.select_update(layer_index=0)
         self.assertEqual(classifier.first_order_improvement.item(), 1.0)
@@ -745,7 +745,7 @@ class TestGrowingTransformerCoveragePaths(TorchTestCase):
         )
         for idx, block in enumerate(image_model.classifier.blocks):
             block.parameter_update_decrease = torch.tensor(float(idx + 1))
-            block.mlp.eigenvalues_extension = None
+            block.mlp.second_layer.eigenvalues_extension = None
         self.assertEqual(image_model.first_order_improvement.item(), 2.0)
         image_model.select_update(layer_index=1)
         self.assertEqual(image_model.first_order_improvement.item(), 2.0)
@@ -865,12 +865,12 @@ class TestGrowingTransformerCoveragePaths(TorchTestCase):
         self.assertIn("embedder", text_stats)
         self.assertIn("tokenizer", text_stats)
         self.assertIn("classifier", text_stats)
-        text_info = text_model.update_information()
-        self.assertIn("classifier", text_info)
 
         for idx, block in enumerate(text_model.classifier.blocks):
             block.parameter_update_decrease = torch.tensor(float(idx + 1))
-            block.mlp.eigenvalues_extension = None
+            block.mlp.second_layer.eigenvalues_extension = None
+        text_info = text_model.update_information()
+        self.assertIn("classifier", text_info)
         self.assertEqual(text_model.first_order_improvement.item(), 2.0)
         text_model.select_update(layer_index=1)
         self.assertEqual(text_model.first_order_improvement.item(), 2.0)
