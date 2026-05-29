@@ -261,7 +261,6 @@ class GrowingTransformerBlock(GrowingContainer):
             ),
             name="mlp",
             kwargs_layer={"device": self.device},
-            device=self.device,
         )
         self.set_growing_layers()
 
