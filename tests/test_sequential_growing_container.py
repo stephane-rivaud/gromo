@@ -315,4 +315,4 @@ class TestSequentialGrowingModel(TorchTestCase):
         info = container.update_information()
 
         self.assertEqual(list(info.keys()), [1])
-        self.assertEqual(info[1], {"name": "layer2"})
+        self.assertEqual(info[1], {"name": container.layer2.name})

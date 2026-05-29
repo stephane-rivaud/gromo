@@ -942,6 +942,7 @@ class TestGrowingTransformerCoveragePaths(TorchTestCase):
         )
         text_stats_with_bias = text_model.weights_statistics()
         self.assertIn("bias", text_stats_with_bias["tokenizer"])
+        text_model.set_growing_layers(scheduling_method="all")
 
         for idx, block in enumerate(text_model.classifier.blocks):
             block.parameter_update_decrease = torch.tensor(float(idx + 1))
