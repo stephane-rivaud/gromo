@@ -21,6 +21,7 @@ Enhancements
 ~~~~~~~~~~~~
 
 - Add sequentially growable transformer backbones and classifier variants, including CCT, CVT, ViT-Lite, and text/image transformer support, with sequential block scheduling and tests (:gh:`256` by `Santiago23florido`_).
+- Example for `GrowingGraphNetwork` and `GrowingDAG` usage (:gh:`252` by `Stella Douka`_)
 - Add an empirical Fisher (loss-gradient covariance) as an optional preconditioner for both optimal-delta weight updates and rank-k neuron extension computations (:gh:`250` by `Théo Rudkiewicz`_).
 - Add GradMax normalization details and associated tests for update scaling behavior (:gh:`242` by `Pako Maxence TEKOU`_)
 - Introduce an empirical Fisher / loss-gradient covariance statistic to GrowingModule-based layers (:gh:`249` by `Théo Rudkiewicz`_).
@@ -103,6 +104,7 @@ Enhancements
 Bugs
 ~~~~
 
+- Fix orientation of non-square images in `__make_safe_forward` (:gh:`230` by `Stella Douka`_)
 - Address training instability in `GrowingDAG` (:gh:`210` by `Stella Douka`_)
 - Fix lingering modules that were not properly deleted (:gh:`210` by `Stella Douka`_)
 - Fix sub-modules that are not registered in pytorch (:gh:`179` by `Stella Douka`_)
