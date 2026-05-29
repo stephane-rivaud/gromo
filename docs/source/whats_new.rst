@@ -20,6 +20,7 @@ Develop branch
 Enhancements
 ~~~~~~~~~~~~
 
+- Add sequentially growable transformer backbones and classifier variants, including CCT, CVT, ViT-Lite, and text/image transformer support, with sequential block scheduling and tests (:gh:`256` by `Santiago23florido`_).
 - Add an empirical Fisher (loss-gradient covariance) as an optional preconditioner for both optimal-delta weight updates and rank-k neuron extension computations (:gh:`250` by `Théo Rudkiewicz`_).
 - Add GradMax normalization details and associated tests for update scaling behavior (:gh:`242` by `Pako Maxence TEKOU`_)
 - Introduce an empirical Fisher / loss-gradient covariance statistic to GrowingModule-based layers (:gh:`249` by `Théo Rudkiewicz`_).
@@ -141,3 +142,4 @@ API changes
 .. _Hugo Mousset: https://github.com/hmousset
 .. _ferdinandlouapre: https://github.com/ferdinandlouapre
 .. _Pako Maxence TEKOU: https://github.com/maxencelebaron
+.. _Santiago23florido: https://github.com/Santiago23florido
