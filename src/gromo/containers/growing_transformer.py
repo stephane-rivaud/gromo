@@ -260,7 +260,7 @@ class GrowingTransformerBlock(GrowingContainer):
                 DropPath(drop_path_rate) if drop_path_rate > 0 else nn.Identity(),
             ),
             name="mlp",
-            kwargs_layer={"device": self.device},
+            device=self.device,
         )
         self.set_growing_layers()
 
