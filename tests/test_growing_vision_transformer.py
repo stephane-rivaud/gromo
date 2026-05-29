@@ -1,3 +1,4 @@
+import runpy
 import unittest
 from unittest.mock import patch
 
@@ -381,6 +382,16 @@ class TestGrowingTransformerCoveragePaths(TorchTestCase):
         with self.assertRaises(ValueError):
             Attention(dim=10, num_heads=4, device=self.device)
 
+        plain_attention = Attention(
+            dim=self.d_model,
+            num_heads=self.num_heads,
+            attention_dropout=0.0,
+            projection_dropout=0.0,
+            device=self.device,
+        )
+        plain_output = plain_attention(torch.randn(2, 5, self.d_model))
+        self.assertEqual(plain_output.shape, (2, 5, self.d_model))
+
         attn = MaskedAttention(
             dim=self.d_model,
             num_heads=self.num_heads,
@@ -553,6 +564,22 @@ class TestGrowingTransformerCoveragePaths(TorchTestCase):
         self.assertIn("qkv_bias", stats["attention"])
         self.assertIn("proj_bias", stats["attention"])
 
+        stochastic_block = GrowingTransformerBlock(
+            d_model=self.d_model,
+            num_heads=self.num_heads,
+            d_ff=self.d_ff,
+            dropout=0.1,
+            attention_dropout=0.0,
+            drop_path_rate=0.2,
+            device=self.device,
+        )
+        stochastic_output = stochastic_block(torch.randn(2, 4, self.d_model))
+        self.assertEqual(stochastic_output.shape, (2, 4, self.d_model))
+        stochastic_block.parameter_update_decrease = torch.tensor(0.5)
+        stochastic_block.mlp.second_layer.eigenvalues_extension = torch.tensor([0.3, 0.2])
+        stochastic_info = stochastic_block.update_information()
+        self.assertEqual(stochastic_info["added_neurons"], 2)
+
     def test_patch_grid_tokenizer_text_tokenizer_and_embedder_helpers(self):
         patch_shape, num_patches = check_patch_grid(16, 8, (4, 2))
         self.assertEqual(patch_shape, (4, 2))
@@ -712,6 +739,43 @@ class TestGrowingTransformerCoveragePaths(TorchTestCase):
         self.assertIn("attention_pool", no_pos_stats)
         self.assertIn("bias", no_pos_stats["attention_pool"])
 
+        no_pos_classifier.set_growing_layers(0)
+        self.assertEqual(no_pos_classifier.layer_to_grow_index, 0)
+
+        variable_length_classifier = GrowingTransformerClassifier(
+            sequence_length=None,
+            seq_pool=True,
+            embedding_dim=self.d_model,
+            num_layers=1,
+            num_heads=self.num_heads,
+            mlp_ratio=0.5,
+            num_classes=self.out_features,
+            dropout=0.0,
+            attention_dropout=0.0,
+            stochastic_depth=0.0,
+            positional_embedding="none",
+            device=self.device,
+        )
+        variable_tokens = torch.randn(2, 5, self.d_model)
+        passthrough_tokens, passthrough_mask = variable_length_classifier._prepare_tokens(
+            variable_tokens
+        )
+        self.assertEqual(passthrough_tokens.shape, variable_tokens.shape)
+        self.assertIsNone(passthrough_mask)
+        self.assertEqual(
+            variable_length_classifier(variable_tokens).shape,
+            (2, self.out_features),
+        )
+
+        already_long_tokens, already_long_mask = (
+            no_pos_classifier._pad_to_sequence_length(
+                torch.randn(2, 7, self.d_model),
+                torch.ones(2, 7, dtype=torch.bool),
+            )
+        )
+        self.assertEqual(already_long_tokens.shape, (2, 7, self.d_model))
+        self.assertEqual(already_long_mask.shape, (2, 7))
+
     def test_classifier_and_image_model_first_order_improvement_paths(self):
         classifier = GrowingTransformerClassifier(
             sequence_length=4,
@@ -865,6 +929,19 @@ class TestGrowingTransformerCoveragePaths(TorchTestCase):
         self.assertIn("embedder", text_stats)
         self.assertIn("tokenizer", text_stats)
         self.assertIn("classifier", text_stats)
+        text_model.set_growing_layers(0)
+        self.assertEqual(text_model.layer_to_grow_index, 0)
+
+        text_model.tokenizer.conv_layers[0] = nn.Conv2d(
+            1,
+            self.d_model,
+            kernel_size=(2, self.d_model),
+            stride=(2, 1),
+            padding=(0, 0),
+            bias=True,
+        )
+        text_stats_with_bias = text_model.weights_statistics()
+        self.assertIn("bias", text_stats_with_bias["tokenizer"])
 
         for idx, block in enumerate(text_model.classifier.blocks):
             block.parameter_update_decrease = torch.tensor(float(idx + 1))
@@ -877,6 +954,57 @@ class TestGrowingTransformerCoveragePaths(TorchTestCase):
 
         with self.assertRaises(ValueError):
             text_model.set_growing_layers(1, index=0)
+
+    def test_non_legacy_model_aliases_and_module_main_entrypoint(self):
+        model = GrowingTransformer(
+            img_size=16,
+            embedding_dim=self.d_model,
+            n_input_channels=self.in_features[0],
+            n_conv_layers=1,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            num_layers=2,
+            num_heads=self.num_heads,
+            mlp_ratio=0.5,
+            num_classes=self.out_features,
+            positional_embedding="none",
+            dropout=0.0,
+            attention_dropout=0.0,
+            stochastic_depth=0.0,
+            device=self.device,
+        )
+        self.assertFalse(model.legacy_api)
+        self.assertIs(model.blocks, model.classifier.blocks)
+
+        model.set_growing_layers(1)
+        self.assertEqual(model.layer_to_grow_index, 1)
+
+        seq_len = model.classifier.sequence_length
+        assert seq_len is not None
+        attention_mask = torch.ones(1, seq_len, dtype=torch.bool)
+        self.assertEqual(
+            model(
+                torch.randn(1, *self.in_features),
+                attention_mask=attention_mask,
+            ).shape,
+            (1, self.out_features),
+        )
+
+        non_legacy_stats = model.weights_statistics()
+        self.assertIn("tokenizer", non_legacy_stats)
+        self.assertIn("classifier", non_legacy_stats)
+        self.assertNotIn("patcher", non_legacy_stats)
+        self.assertNotIn("classifier_head", non_legacy_stats)
+
+        with patch("builtins.print"):
+            main_globals = runpy.run_module(
+                "gromo.containers.growing_vision_transformer",
+                run_name="__main__",
+            )
+        self.assertIn("model", main_globals)
+        self.assertIn("x", main_globals)
+        self.assertIn("y", main_globals)
 
 
 if __name__ == "__main__":
