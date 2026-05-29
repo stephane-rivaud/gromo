@@ -537,7 +537,7 @@ class TestGrowingTransformerCoveragePaths(TorchTestCase):
             block.normalize_optimal_updates(mode="unit-test")
             normalize_updates.assert_called_once_with(mode="unit-test")
 
-        block.mlp.eigenvalues_extension = None
+        block.mlp.second_layer.eigenvalues_extension = None
         info = block.update_information()
         self.assertEqual(info["added_neurons"], 0)
         self.assertEqual(info["d_model"], self.d_model)
