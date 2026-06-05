@@ -6,6 +6,7 @@ import torch.nn as nn
 
 from gromo.containers.growing_block import LinearGrowingBlock
 from gromo.containers.growing_container import GrowingContainer
+from gromo.modules.growing_module import GrowingModule
 from gromo.utils.utils import compute_tensor_stats
 
 
@@ -292,6 +293,11 @@ class GrowingTransformerBlock(GrowingContainer):
     def hidden_neurons(self) -> int:
         """Return the number of hidden neurons in the feed-forward branch."""
         return self.mlp.hidden_neurons
+
+    @property
+    def growth_module(self) -> GrowingModule:
+        """Return the leaf growable module that stores scaling tensors."""
+        return self.mlp.second_layer
 
     @property
     def eigenvalues_extension(self) -> torch.Tensor | None:
