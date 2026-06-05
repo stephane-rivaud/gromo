@@ -32,7 +32,7 @@ def check_patch_grid(
 
 
 def _block_growth_targets(
-    blocks: nn.ModuleList[GrowingTransformerBlock],
+    blocks: nn.ModuleList,
 ) -> list[GrowingModule]:
     """Return the leaf MLP modules that own growth-state tensors per block."""
     return [block.growth_module for block in blocks]
