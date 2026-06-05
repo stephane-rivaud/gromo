@@ -7,6 +7,7 @@ from torch import Tensor
 
 from gromo.containers.growing_transformer import GrowingTransformerBlock
 from gromo.containers.sequential_growing_container import SequentialGrowingModel
+from gromo.modules.growing_module import GrowingModule
 from gromo.utils.utils import compute_tensor_stats
 
 
@@ -28,6 +29,13 @@ def check_patch_grid(
     assert remainder_width == 0, "`image_width` must be divisible by `patch_size`"
 
     return (patch_height, patch_width), num_patches_height * num_patches_width
+
+
+def _block_growth_targets(
+    blocks: nn.ModuleList[GrowingTransformerBlock],
+) -> list[GrowingModule]:
+    """Return the leaf MLP modules that own growth-state tensors per block."""
+    return [block.growth_module for block in blocks]
 
 
 class Tokenizer(nn.Module):
@@ -344,7 +352,7 @@ class GrowingTransformerClassifier(SequentialGrowingModel):
                 for i in range(num_layers)
             ]
         )
-        self._growable_layers: list[GrowingTransformerBlock] = list(self.blocks)
+        self._growable_layers: list[GrowingModule] = _block_growth_targets(self.blocks)
         self.norm = nn.LayerNorm(embedding_dim, device=self.device)
         self.fc = nn.Linear(embedding_dim, num_classes, device=self.device)
         self.set_growing_layers(scheduling_method="all")
@@ -365,7 +373,7 @@ class GrowingTransformerClassifier(SequentialGrowingModel):
                 )
             index = scheduling_method
             scheduling_method = "all"
-        self._growable_layers = list(self.blocks)
+        self._growable_layers = _block_growth_targets(self.blocks)
         super().set_growing_layers(
             scheduling_method=scheduling_method,
             index=index,
@@ -701,7 +709,7 @@ class GrowingTransformer(SequentialGrowingModel):
             positional_embedding=positional_embedding,
             device=self.device,
         )
-        self._growable_layers: list[GrowingTransformerBlock] = list(
+        self._growable_layers: list[GrowingModule] = _block_growth_targets(
             self.classifier.blocks
         )
         self.set_growing_layers(scheduling_method="all")
@@ -719,7 +727,7 @@ class GrowingTransformer(SequentialGrowingModel):
                 )
             index = scheduling_method
             scheduling_method = "all"
-        self._growable_layers = list(self.classifier.blocks)
+        self._growable_layers = _block_growth_targets(self.classifier.blocks)
         super().set_growing_layers(
             scheduling_method=scheduling_method,
             index=index,
@@ -1088,7 +1096,7 @@ class GrowingTextViTLite(SequentialGrowingModel):
             positional_embedding=positional_embedding,
             device=self.device,
         )
-        self._growable_layers: list[GrowingTransformerBlock] = list(
+        self._growable_layers: list[GrowingModule] = _block_growth_targets(
             self.classifier.blocks
         )
         self.set_growing_layers(scheduling_method="all")
@@ -1106,7 +1114,7 @@ class GrowingTextViTLite(SequentialGrowingModel):
                 )
             index = scheduling_method
             scheduling_method = "all"
-        self._growable_layers = list(self.classifier.blocks)
+        self._growable_layers = _block_growth_targets(self.classifier.blocks)
         super().set_growing_layers(
             scheduling_method=scheduling_method,
             index=index,
