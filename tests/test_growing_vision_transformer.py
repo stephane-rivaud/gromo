@@ -99,7 +99,6 @@ class TestGrowingTransformer(TorchTestCase):
         self.assertEqual(self.model.layer_to_grow_index, 1)
         self.assertEqual(len(self.model._growing_layers), 1)
         self.assertIs(self.model._growing_layers[0], self.model.blocks[1].growth_module)
-        self.assertIsInstance(self.model.currently_updated_layer, GrowingModule)
 
     def test_set_growing_layers_sequential(self):
         self.model.set_growing_layers(scheduling_method="sequential")
@@ -148,6 +147,10 @@ class TestGrowingTransformer(TorchTestCase):
         layer_index = 0
         selected_index = self.model.select_update(layer_index=layer_index)
         self.assertEqual(selected_index, layer_index)
+        self.assertIs(
+            self.model.currently_updated_layer, self.model.blocks[0].growth_module
+        )
+        self.assertIsInstance(self.model.currently_updated_layer, GrowingModule)
 
     def test_cct_encoder_layer_signature(self):
         block = GrowingTransformerBlock(
@@ -211,7 +214,6 @@ class TestGrowingTransformer(TorchTestCase):
         self.assertEqual(classifier.layer_to_grow_index, 1)
         self.assertEqual(len(classifier._growing_layers), 1)
         self.assertIs(classifier._growing_layers[0], classifier.blocks[1].growth_module)
-        self.assertIsInstance(classifier.currently_updated_layer, GrowingModule)
 
     def test_growing_transformer_generic_forward(self):
         model = GrowingTransformer(
@@ -264,8 +266,7 @@ class TestGrowingTransformer(TorchTestCase):
         self.assertEqual(y.shape, (2, self.out_features))
         self.assertEqual(y_ext.shape, (2, self.out_features))
         model.set_growing_layers(index=1)
-        self.assertIs(model.currently_updated_layer, model.blocks[1].growth_module)
-        self.assertIsInstance(model.currently_updated_layer, GrowingModule)
+        self.assertIs(model._growing_layers[0], model.blocks[1].growth_module)
 
     def test_growing_vit_lite_and_cvt_forward(self):
         vit = GrowingViTLite(
@@ -336,9 +337,7 @@ class TestGrowingTransformer(TorchTestCase):
         model.set_growing_layers(index=1)
         self.assertEqual(model.layer_to_grow_index, 1)
         self.assertEqual(len(model._growing_layers), 1)
-        self.assertIs(
-            model.currently_updated_layer, model.classifier.blocks[1].growth_module
-        )
+        self.assertIs(model._growing_layers[0], model.classifier.blocks[1].growth_module)
 
 
 class TestGrowingTransformerCoveragePaths(TorchTestCase):
