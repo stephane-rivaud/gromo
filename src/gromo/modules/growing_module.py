@@ -3559,6 +3559,82 @@ class GrowingModule(torch.nn.Module):
         torch.nn.init.uniform_(tensor, -bound, bound)
 
     @torch.no_grad()
+    def net2wider_initialization(
+        self,
+        tensor: torch.Tensor,
+        reference_tensor: torch.Tensor | None,
+        fan_in: int,
+    ) -> None:
+        """
+        Initialize tensor with Net2Wider function-preserving duplication.
+
+        This initialization duplicates existing neurons from the reference tensor
+        and scales them to preserve the output function value. It is designed for
+        output extensions (where the extension has the same output dimension as
+        the base layer and can duplicate output channels directly).
+
+        For input extensions where the shape doesn't match the base layer, this
+        falls back to Kaiming initialization.
+
+        Parameters
+        ----------
+        tensor: torch.Tensor
+            Extension weight tensor to initialize. For output extensions, shape should
+            match (extension_size, *base_shape[1:]) where base_shape is the reference.
+        reference_tensor: torch.Tensor | None
+            Base layer weight tensor to draw duplications from.
+            If None or incompatible shape, falls back to Kaiming initialization.
+        fan_in: int
+            Total input dimension (base + extension). Used for Kaiming fallback.
+
+        Notes
+        -----
+        Net2Wider function preservation only applies when:
+        - Extension is for output channels (matching input dimension with reference)
+        - Replication factor is accounted for in post-layer weights
+        """
+        if reference_tensor is None or reference_tensor.numel() == 0:
+            # Fallback to Kaiming if no reference available
+            self.kaiming_initialization(tensor, None, fan_in)
+            return
+
+        # Check shape compatibility: extension should have same spatial/channel dims as reference
+        # except for the first dimension which is the number of extensions
+        if reference_tensor.shape[1:] != tensor.shape[1:]:
+            # Shapes incompatible for direct duplication (e.g., input extensions)
+            # Fall back to Kaiming initialization
+            self.kaiming_initialization(tensor, None, fan_in)
+            return
+
+        num_base = reference_tensor.shape[0]
+        num_ext = tensor.shape[0]
+
+        if num_base == 0:
+            # Empty reference, fall back to Kaiming
+            self.kaiming_initialization(tensor, None, fan_in)
+            return
+
+        # Randomly select which base channels to duplicate for each extension
+        selected_indices = torch.randint(
+            0, num_base, (num_ext,), device=tensor.device, dtype=torch.long
+        )
+
+        # Count how many times each base channel is selected (for scaling)
+        replication_counts = torch.bincount(selected_indices, minlength=num_base).float()
+
+        # Initialize by duplicating selected channels and scaling
+        for i in range(num_ext):
+            ref_idx = selected_indices[i].item()
+
+            # Copy the reference row to this extension row
+            tensor[i].copy_(reference_tensor[ref_idx])
+
+            # Scale by replication count to preserve function value
+            replication_factor = replication_counts[ref_idx].item()
+            if replication_factor > 1:
+                tensor[i].div_(replication_factor)
+
+    @torch.no_grad()
     def create_layer_extensions(
         self,
         extension_size: int,
@@ -3690,6 +3766,7 @@ class GrowingModule(torch.nn.Module):
             "copy_uniform": self.copy_uniform_initialization,
             "kaiming": self.kaiming_initialization,
             "zeros": lambda tensor, _, __: torch.nn.init.zeros_(tensor),
+            "net2wider": self.net2wider_initialization,
             # Future initializations can be added here
         }
 

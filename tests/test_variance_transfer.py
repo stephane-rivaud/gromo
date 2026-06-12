@@ -15,7 +15,7 @@ from gromo.containers.growing_block import (
     LinearGrowingBlock,
 )
 from gromo.modules.growing_normalisation import GrowingBatchNorm2d
-from gromo.utils.utils import global_device
+from gromo.utils.utils import global_device, set_device
 
 
 try:
@@ -624,7 +624,15 @@ class TestActivationVariance(TorchTestCase):
 
     def setUp(self):
         super().setUp()
+        # Activation-variance expectations are calibrated for CPU float32;
+        # MPS matmuls can shift empirical variance beyond the loose tolerance.
+        self._global_device_before = global_device()
+        set_device("cpu")
         self.device = global_device()
+
+    def tearDown(self):
+        set_device(self._global_device_before)
+        super().tearDown()
 
     def _make_block_with_perturbed_weights(self, h_t):
         """Create block with weights far from Kaiming scale."""
