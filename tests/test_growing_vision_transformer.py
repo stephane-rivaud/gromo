@@ -8,11 +8,8 @@ import torch.nn as nn
 from gromo.containers.growing_block import GrowingBlock
 from gromo.containers.growing_transformer import (
     Attention,
-    DropPath,
-    ExtendedDropout,
     GrowingTransformerBlock,
     MaskedAttention,
-    drop_path,
 )
 from gromo.containers.growing_vision_transformer import (
     Embedder,
@@ -27,6 +24,8 @@ from gromo.containers.growing_vision_transformer import (
     check_patch_grid,
 )
 from gromo.containers.sequential_growing_container import SequentialGrowingModel
+from gromo.modules.growing_drop_path import DropPath, drop_path
+from gromo.modules.growing_dropout import GrowingDropout
 from tests.test_growing_container import create_synthetic_data, gather_statistics
 from tests.torch_unittest import TorchTestCase
 
@@ -355,17 +354,20 @@ class TestGrowingTransformerCoveragePaths(TorchTestCase):
         self.assertAllClose(drop_path(x, drop_prob=0.5, training=False), x)
 
         with patch(
-            "gromo.containers.growing_transformer.torch.rand",
-            return_value=torch.zeros((2, 1, 1)),
+            "gromo.modules.growing_drop_path.torch.rand",
+            return_value=torch.ones((2, 1, 1)),
         ):
             dropped = drop_path(x, drop_prob=0.5, training=True)
             self.assertAllClose(dropped, torch.zeros_like(x))
 
+        with self.assertRaisesRegex(ValueError, r"`drop_prob` must lie in \[0, 1\]"):
+            drop_path(x, drop_prob=1.5, training=True)
+
         drop_module = DropPath(0.5)
         drop_module.train()
         with patch(
-            "gromo.containers.growing_transformer.torch.rand",
-            return_value=torch.zeros((2, 1, 1)),
+            "gromo.modules.growing_drop_path.torch.rand",
+            return_value=torch.ones((2, 1, 1)),
         ):
             dropped, forwarded_ext = drop_module.extended_forward(x, x_ext)
             self.assertAllClose(dropped, torch.zeros_like(x))
@@ -375,7 +377,7 @@ class TestGrowingTransformerCoveragePaths(TorchTestCase):
         self.assertIsNone(dropped_none)
         self.assertIs(forwarded_ext, x_ext)
 
-        dropout = ExtendedDropout(0.0)
+        dropout = GrowingDropout(dropout_rate=0.0)
         kept, forwarded_ext = dropout.extended_forward(x, x_ext)
         self.assertAllClose(kept, x)
         self.assertIs(forwarded_ext, x_ext)
@@ -1012,6 +1014,86 @@ class TestGrowingTransformerCoveragePaths(TorchTestCase):
         self.assertIn("model", main_globals)
         self.assertIn("x", main_globals)
         self.assertIn("y", main_globals)
+
+
+class TestGrowingTransformerDropPathIntegration(TorchTestCase):
+    """extended_forward at scaling t should match forward after apply_change.
+
+    MLP ``dropout`` is set to zero: ``GrowingDropout`` in the growing MLP only
+    regularises the main branch during ``extended_forward``, so train-mode
+    equivalence with the merged ``forward`` requires disabling it here.
+    Attention dropout and DropPath remain active in the train-mode test.
+    """
+
+    def setUp(self):
+        torch.manual_seed(0)
+        self.device = torch.device("cpu")
+        self.d_model = 16
+        self.num_heads = 4
+        self.d_ff = 32
+        self.extension_size = 4
+        self.rng_seed = 12_345
+
+    def _make_block(self) -> GrowingTransformerBlock:
+        return GrowingTransformerBlock(
+            d_model=self.d_model,
+            num_heads=self.num_heads,
+            d_ff=self.d_ff,
+            dropout=0.0,
+            attention_dropout=0.1,
+            drop_path_rate=0.2,
+            device=self.device,
+        )
+
+    def _assert_integration_equivalence(
+        self, block, x: torch.Tensor, *, train: bool
+    ) -> None:
+        if train:
+            block.train()
+        else:
+            block.eval()
+
+        block.mlp.create_layer_extensions(
+            extension_size=self.extension_size,
+            output_extension_init="copy_uniform",
+            input_extension_init="copy_uniform",
+        )
+        block.mlp.set_scaling_factor(1.0)
+
+        torch.manual_seed(self.rng_seed)
+        with torch.no_grad():
+            y_preview = block.extended_forward(x).clone()
+
+        block.mlp.apply_change(
+            scaling_factor=1.0,
+            extension_size=self.extension_size,
+        )
+
+        torch.manual_seed(self.rng_seed)
+        with torch.no_grad():
+            y_integrated = block(x)
+
+        self.assertAllClose(
+            y_preview,
+            y_integrated,
+            atol=1e-5,
+            msg=(
+                "extended_forward preview should match forward after apply_change "
+                f"(train={train}, seed={self.rng_seed})"
+            ),
+        )
+
+    def test_integration_equivalence_eval_mode(self):
+        """Stochastic layers are off in eval; equivalence should hold regardless."""
+        block = self._make_block()
+        x = torch.randn(2, 5, self.d_model, device=self.device)
+        self._assert_integration_equivalence(block, x, train=False)
+
+    def test_integration_equivalence_train_mode_fixed_seed(self):
+        """Train-mode equivalence with attention dropout and DropPath enabled."""
+        block = self._make_block()
+        x = torch.randn(2, 5, self.d_model, device=self.device)
+        self._assert_integration_equivalence(block, x, train=True)
 
 
 if __name__ == "__main__":

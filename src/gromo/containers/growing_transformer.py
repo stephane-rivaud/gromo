@@ -6,55 +6,10 @@ import torch.nn as nn
 
 from gromo.containers.growing_block import LinearGrowingBlock
 from gromo.containers.growing_container import GrowingContainer
+from gromo.modules.growing_drop_path import DropPath
+from gromo.modules.growing_dropout import GrowingDropout
 from gromo.modules.growing_module import GrowingModule
 from gromo.utils.utils import compute_tensor_stats
-
-
-def drop_path(
-    x: torch.Tensor,
-    drop_prob: float = 0.0,
-    training: bool = False,
-) -> torch.Tensor:
-    """Drop paths per sample, matching the stochastic-depth layer used by CCT."""
-    if drop_prob == 0.0 or not training:
-        return x
-    keep_prob = 1 - drop_prob
-    shape = (x.shape[0],) + (1,) * (x.ndim - 1)
-    random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
-    random_tensor.floor_()
-    return x.div(keep_prob) * random_tensor
-
-
-class DropPath(nn.Module):
-    """Stochastic depth that leaves GroMo extension tensors untouched."""
-
-    def __init__(self, drop_prob: float = 0.0) -> None:
-        super().__init__()
-        self.drop_prob = drop_prob
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Apply stochastic depth to the input tensor."""
-        return drop_path(x, self.drop_prob, self.training)
-
-    def extended_forward(
-        self,
-        x: torch.Tensor | None,
-        x_ext: torch.Tensor | None,
-    ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
-        """Apply stochastic depth while preserving the extension tensor."""
-        return self(x) if x is not None else None, x_ext
-
-
-class ExtendedDropout(nn.Dropout):
-    """Dropout that preserves GroMo extension tensors during extended forward."""
-
-    def extended_forward(
-        self,
-        x: torch.Tensor | None,
-        x_ext: torch.Tensor | None,
-    ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
-        """Apply dropout while preserving the extension tensor."""
-        return self(x) if x is not None else None, x_ext
 
 
 class Attention(nn.Module):
@@ -245,8 +200,8 @@ class GrowingTransformerBlock(GrowingContainer):
         )
         self.drop_path = DropPath(drop_path_rate) if drop_path_rate > 0 else nn.Identity()
         self.norm1 = nn.LayerNorm(d_model, device=self.device)
-        dropout1 = ExtendedDropout(dropout) if dropout > 0 else nn.Identity()
-        dropout2 = ExtendedDropout(dropout) if dropout > 0 else nn.Identity()
+        dropout1 = GrowingDropout(dropout_rate=dropout) if dropout > 0 else nn.Identity()
+        dropout2 = GrowingDropout(dropout_rate=dropout) if dropout > 0 else nn.Identity()
         self.mlp = LinearGrowingBlock(
             in_features=d_model,
             out_features=d_model,
