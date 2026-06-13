@@ -3787,9 +3787,9 @@ class GrowingModule(torch.nn.Module):
     ) -> int:
         """Get the number of neurons to add in the next growth step.
 
-        Methods
-        -------
-        - fixed_proportional: add a fixed proportion of the total number of neurons
+        Notes
+        -----
+        - ``fixed_proportional``: add a fixed proportion of the total number of neurons
           to add at each growth step. The amount to add is computed as
           an integer division as a consequence a few neurons may remain to be added
           after all growth steps have been performed.
