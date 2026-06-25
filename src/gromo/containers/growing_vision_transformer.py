@@ -362,17 +362,10 @@ class GrowingTransformerClassifier(SequentialGrowingModel):
 
     def set_growing_layers(
         self,
-        scheduling_method: str | int = "all",
+        scheduling_method: str = "all",
         index: int | None = None,
     ) -> None:
         """Select all blocks, the next block, or one specific block for growth."""
-        if isinstance(scheduling_method, int):
-            if index is not None:
-                raise ValueError(
-                    "Pass either a positional layer index or `index=...`, not both."
-                )
-            index = scheduling_method
-            scheduling_method = "all"
         self._growable_layers = _block_growth_targets(self.blocks)
         super().set_growing_layers(
             scheduling_method=scheduling_method,
@@ -716,17 +709,10 @@ class GrowingTransformer(SequentialGrowingModel):
 
     def set_growing_layers(
         self,
-        scheduling_method: str | int = "all",
+        scheduling_method: str = "all",
         index: int | None = None,
     ) -> None:
         """Select all blocks, the next block, or one specific block for growth."""
-        if isinstance(scheduling_method, int):
-            if index is not None:
-                raise ValueError(
-                    "Pass either a positional layer index or `index=...`, not both."
-                )
-            index = scheduling_method
-            scheduling_method = "all"
         self._growable_layers = _block_growth_targets(self.classifier.blocks)
         super().set_growing_layers(
             scheduling_method=scheduling_method,
@@ -1103,17 +1089,10 @@ class GrowingTextViTLite(SequentialGrowingModel):
 
     def set_growing_layers(
         self,
-        scheduling_method: str | int = "all",
+        scheduling_method: str = "all",
         index: int | None = None,
     ) -> None:
         """Select all blocks, the next block, or one specific block for growth."""
-        if isinstance(scheduling_method, int):
-            if index is not None:
-                raise ValueError(
-                    "Pass either a positional layer index or `index=...`, not both."
-                )
-            index = scheduling_method
-            scheduling_method = "all"
         self._growable_layers = _block_growth_targets(self.classifier.blocks)
         super().set_growing_layers(
             scheduling_method=scheduling_method,

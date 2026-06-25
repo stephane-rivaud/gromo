@@ -718,8 +718,6 @@ class TestGrowingTransformerCoveragePaths(TorchTestCase):
 
         with self.assertRaises(ValueError):
             classifier._prepare_tokens(torch.randn(2, 5, self.d_model))
-        with self.assertRaises(ValueError):
-            classifier.set_growing_layers(0, index=1)
 
         no_pos_classifier = GrowingTransformerClassifier(
             sequence_length=6,
@@ -747,7 +745,7 @@ class TestGrowingTransformerCoveragePaths(TorchTestCase):
         self.assertIn("attention_pool", no_pos_stats)
         self.assertIn("bias", no_pos_stats["attention_pool"])
 
-        no_pos_classifier.set_growing_layers(0)
+        no_pos_classifier.set_growing_layers(index=0)
         self.assertEqual(no_pos_classifier.layer_to_grow_index, 0)
 
         variable_length_classifier = GrowingTransformerClassifier(
@@ -937,7 +935,7 @@ class TestGrowingTransformerCoveragePaths(TorchTestCase):
         self.assertIn("embedder", text_stats)
         self.assertIn("tokenizer", text_stats)
         self.assertIn("classifier", text_stats)
-        text_model.set_growing_layers(0)
+        text_model.set_growing_layers(index=0)
         self.assertEqual(text_model.layer_to_grow_index, 0)
 
         text_model.tokenizer.conv_layers[0] = nn.Conv2d(
@@ -961,9 +959,6 @@ class TestGrowingTransformerCoveragePaths(TorchTestCase):
         text_model.select_update(layer_index=1)
         self.assertEqual(text_model.first_order_improvement.item(), 2.0)
 
-        with self.assertRaises(ValueError):
-            text_model.set_growing_layers(1, index=0)
-
     def test_non_legacy_model_aliases_and_module_main_entrypoint(self):
         model = GrowingTransformer(
             img_size=16,
@@ -986,7 +981,7 @@ class TestGrowingTransformerCoveragePaths(TorchTestCase):
         self.assertFalse(model.legacy_api)
         self.assertIs(model.blocks, model.classifier.blocks)
 
-        model.set_growing_layers(1)
+        model.set_growing_layers(index=1)
         self.assertEqual(model.layer_to_grow_index, 1)
 
         seq_len = model.classifier.sequence_length
