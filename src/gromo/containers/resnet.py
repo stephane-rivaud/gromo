@@ -562,6 +562,123 @@ class ResNetBasicBlock(SequentialGrowingModel):
         # Add the new block to the growing layers list
         self._growable_layers.append(new_block)
 
+    def _rebuild_growable_layers(self) -> None:
+        """Rebuild the flat list of growable blocks after structural edits."""
+        self._growable_layers = []
+        for stage in self.stages:  # type: ignore
+            stage: nn.Sequential
+            for block in stage:  # type: ignore
+                block: Conv2dGrowingBlock | nn.Module
+                if isinstance(block, Conv2dGrowingBlock):
+                    self._growable_layers.append(block)
+
+    def find_block_location(self, block: Conv2dGrowingBlock) -> tuple[int, int]:
+        """Return ``(stage_index, block_index)`` for a growable block.
+
+        ``block_index`` counts only ``Conv2dGrowingBlock`` modules within the stage.
+        """
+        for stage_idx, stage in enumerate(self.stages):  # type: ignore
+            stage: nn.Sequential
+            block_idx = 0
+            for module in stage:  # type: ignore
+                module: Conv2dGrowingBlock | nn.Module
+                if isinstance(module, Conv2dGrowingBlock):
+                    if module is block:
+                        return stage_idx, block_idx
+                    block_idx += 1
+        raise ValueError(f"Block {block.name!r} not found in model stages.")
+
+    def insert_block(
+        self,
+        stage_index: int,
+        block_index: int,
+        hidden_channels: int = 0,
+        input_block_kernel_size: int | None = None,
+        output_block_kernel_size: int | None = None,
+    ) -> Conv2dGrowingBlock:
+        """Insert a new block before ``block_index`` in the given stage.
+
+        The inserted block uses ``use_downsample=False`` and matches the channel
+        width of the reference block at ``block_index``. When ``block_index`` equals
+        the number of blocks in the stage, the block is appended before any trailing
+        activation module (classical ResNet mode).
+
+        Parameters
+        ----------
+        stage_index : int
+            Index of the stage to modify.
+        block_index : int
+            Index among ``Conv2dGrowingBlock`` modules where the new block is inserted.
+            ``len(existing_blocks)`` appends at the end of the stage.
+        hidden_channels : int
+            Hidden channels for the inserted block (0 for empty capacity reserve).
+        input_block_kernel_size : int | None
+            Kernel size for the first layer. If None, uses the instance default.
+        output_block_kernel_size : int | None
+            Kernel size for the second layer. If None, uses the instance default.
+
+        Returns
+        -------
+        Conv2dGrowingBlock
+            The newly inserted block.
+
+        Raises
+        ------
+        IndexError
+            If ``stage_index`` or ``block_index`` is out of range.
+        """
+        if not self.use_preactivation:
+            assert hidden_channels >= 0, (
+                "As you are using the classical ResNet, "
+                "hidden_channels must be non-negative."
+            )
+        if stage_index < 0 or stage_index >= len(self.stages):
+            raise IndexError(
+                f"Stage {stage_index} is out of range. "
+                f"There are {len(self.stages)} stages."
+            )
+
+        stage: nn.Sequential = self.stages[stage_index]  # type: ignore
+        stage_modules = list(stage.children())
+        existing_blocks = [m for m in stage_modules if isinstance(m, Conv2dGrowingBlock)]
+        num_blocks = len(existing_blocks)
+
+        if block_index < 0 or block_index > num_blocks:
+            raise IndexError(
+                f"Block index {block_index} is out of range for stage {stage_index} "
+                f"with {num_blocks} growable blocks."
+            )
+
+        if block_index < num_blocks:
+            ref_block = existing_blocks[block_index]
+            in_channels = ref_block.in_features
+            out_channels = ref_block.out_features
+            insert_seq_idx = stage_modules.index(ref_block)
+        else:
+            ref_block = existing_blocks[-1]
+            in_channels = ref_block.out_features
+            out_channels = in_channels
+            insert_seq_idx = stage_modules.index(ref_block) + 1
+            if not self.use_preactivation:
+                insert_seq_idx += 1
+
+        new_block = self._create_block(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            hidden_channels=hidden_channels,
+            input_block_stride=1,
+            output_block_stride=1,
+            name=f"Stage {stage_index} Block {num_blocks}",
+            use_downsample=False,
+            input_block_kernel_size=input_block_kernel_size,
+            output_block_kernel_size=output_block_kernel_size,
+        )
+
+        stage_modules.insert(insert_seq_idx, new_block)
+        self.stages[stage_index] = nn.Sequential(*stage_modules)
+        self._rebuild_growable_layers()
+        return new_block
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward function
 
