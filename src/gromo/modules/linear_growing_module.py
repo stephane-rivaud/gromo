@@ -764,12 +764,22 @@ class LinearGrowingModule(GrowingModule):
                 f"The new layer should have a bias ({bias is not None=}) if and only if "
                 f"the main layer bias ({self.use_bias =}) is not None."
             )
-        new_layer = torch.nn.Linear(
-            weight.shape[1], weight.shape[0], bias=(bias is not None), device=self.device
+        weight_on = weight.to(device=self.device, dtype=self.layer.weight.dtype)
+        bias_on = (
+            bias.to(device=self.device, dtype=self.layer.bias.dtype)
+            if bias is not None
+            else None
         )
-        new_layer.weight = torch.nn.Parameter(weight)
-        if bias is not None:
-            new_layer.bias = torch.nn.Parameter(bias)
+        new_layer = torch.nn.Linear(
+            weight_on.shape[1],
+            weight_on.shape[0],
+            bias=(bias_on is not None),
+            device=self.device,
+            dtype=weight_on.dtype,
+        )
+        new_layer.weight = torch.nn.Parameter(weight_on)
+        if bias_on is not None:
+            new_layer.bias = torch.nn.Parameter(bias_on)
         return new_layer
 
     def add_parameters(  # type: ignore

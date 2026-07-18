@@ -596,6 +596,8 @@ class GrowingBlock(GrowingContainer):
         neuron_pairing: GrowingModule._KNOWN_NEURON_PAIRINGS_TYPE | None = None,
         rescaling: GrowingModule._KNOWN_RESCALING_STRATEGIES_TYPE | None = None,
         noise_ratio: float = 0.001,
+        selected_indices: torch.Tensor | None = None,
+        generator: torch.Generator | None = None,
     ) -> None:
         """
         Create the layer input and output extensions of given sizes.
@@ -616,10 +618,12 @@ class GrowingBlock(GrowingContainer):
             *extension_size*.
         output_extension_init: str
             Initialisation method for the output extension.  Possible values
-            include ``"copy_uniform"``, ``"kaiming"``, ``"zeros"``.
+            include ``"copy_uniform"``, ``"copy_normal"``, ``"kaiming"``,
+            ``"kaiming_normal"``, ``"zeros"``, ``"net2wider"``.
         input_extension_init: str
             Initialisation method for the input extension.  Possible values
-            include ``"copy_uniform"``, ``"kaiming"``, ``"zeros"``.
+            include ``"copy_uniform"``, ``"copy_normal"``, ``"kaiming"``,
+            ``"kaiming_normal"``, ``"zeros"``, ``"net2wider"``.
         neuron_pairing: GrowingModule._KNOWN_NEURON_PAIRINGS_TYPE | None
             Neuron-pairing strategy.  ``None`` (default) or
             ``"vv_z_negz"``.
@@ -631,6 +635,10 @@ class GrowingBlock(GrowingContainer):
             Fraction of the standard deviation of the input extension weights
             used as noise for symmetry breaking after neuron pairing.
             Default ``0.001``.
+        selected_indices: torch.Tensor | None
+            Optional replica index map for the joint ``net2wider`` path.
+        generator: torch.Generator | None
+            Optional RNG for sampling ``selected_indices`` when not injected.
         """
         self.second_layer.create_layer_extensions(
             extension_size=extension_size,
@@ -641,6 +649,8 @@ class GrowingBlock(GrowingContainer):
             neuron_pairing=neuron_pairing,
             rescaling=rescaling,
             noise_ratio=noise_ratio,
+            selected_indices=selected_indices,
+            generator=generator,
         )
 
     def apply_rescaling(
