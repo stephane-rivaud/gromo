@@ -3558,6 +3558,139 @@ class GrowingModule(torch.nn.Module):
         bound = (2.0 * 3.0 / fan_in) ** 0.5
         torch.nn.init.uniform_(tensor, -bound, bound)
 
+    def _assert_groups_one_for_net2wider(self) -> None:
+        """Reject depthwise / grouped convolution for Net2Wider v1."""
+        for module in (self, self.previous_module):
+            layer = getattr(module, "layer", None)
+            groups = getattr(layer, "groups", 1)
+            if groups != 1:
+                raise ValueError(
+                    f"net2wider requires groups==1, got groups={groups} on "
+                    f"{getattr(module, 'name', module)}."
+                )
+
+    @torch.no_grad()
+    def _apply_net2wider_extensions(
+        self,
+        extension_size: int,
+        selected_indices: torch.Tensor | None = None,
+        generator: torch.Generator | None = None,
+    ) -> torch.Tensor:
+        """Fill both extensions with a shared Net2Wider replica map.
+
+        Samples (or accepts) replica indices once, copies those neurons into
+        the previous layer's output extension, then scales the next layer's
+        existing input fan-in and extension columns by ``1 / c_j`` where
+        ``c_j = 1 + replica_count(j)``.
+
+        Parameters
+        ----------
+        extension_size: int
+            Number of neurons / channels to add (same on both sides).
+        selected_indices: torch.Tensor | None
+            Optional pre-chosen indices of shape ``(extension_size,)`` into
+            the previous layer's output axis. When ``None``, indices are
+            sampled with ``generator`` (or the global RNG).
+        generator: torch.Generator | None
+            Optional generator used only when ``selected_indices`` is
+            ``None``.
+
+        Returns
+        -------
+        torch.Tensor
+            The replica index map that was applied (also stored on
+            ``self.net2wider_selected_indices``).
+
+        Raises
+        ------
+        ValueError
+            If extensions are missing, sizes mismatch, or indices are invalid.
+        """
+        assert isinstance(self.previous_module, GrowingModule)
+        prev = self.previous_module
+        ext_out = prev.extended_output_layer
+        ext_in = self.extended_input_layer
+        if ext_out is None or ext_in is None:
+            raise ValueError(
+                "net2wider requires both extended_output_layer (previous) and "
+                "extended_input_layer (current) to be allocated."
+            )
+
+        num_base = prev.weight.shape[0]
+        if extension_size <= 0:
+            raise ValueError(
+                f"net2wider extension_size must be positive, got {extension_size}."
+            )
+        if ext_out.weight.shape[0] != extension_size:
+            raise ValueError(
+                f"Output extension size {ext_out.weight.shape[0]} does not match "
+                f"requested net2wider extension_size={extension_size}."
+            )
+        if ext_in.weight.shape[1] != extension_size:
+            raise ValueError(
+                f"Input extension size {ext_in.weight.shape[1]} does not match "
+                f"requested net2wider extension_size={extension_size}."
+            )
+
+        if selected_indices is None:
+            selected_indices = torch.randint(
+                0,
+                num_base,
+                (extension_size,),
+                generator=generator,
+                dtype=torch.long,
+            )
+        else:
+            selected_indices = selected_indices.detach().to(dtype=torch.long).reshape(-1)
+            if selected_indices.numel() != extension_size:
+                raise ValueError(
+                    f"selected_indices must have length {extension_size}, "
+                    f"got {selected_indices.numel()}."
+                )
+            if bool((selected_indices < 0).any() or (selected_indices >= num_base).any()):
+                raise ValueError(
+                    f"selected_indices must be in [0, {num_base}), "
+                    f"got min={int(selected_indices.min())}, "
+                    f"max={int(selected_indices.max())}."
+                )
+
+        selected_indices = selected_indices.to(device=prev.weight.device)
+        replica_counts = torch.ones(
+            num_base, dtype=torch.float32, device=prev.weight.device
+        )
+        replica_counts.scatter_add_(
+            0,
+            selected_indices,
+            torch.ones(extension_size, dtype=torch.float32, device=prev.weight.device),
+        )
+
+        # Output extension: unscaled copies of selected previous-layer neurons.
+        ext_out.weight.copy_(prev.weight[selected_indices])
+        if ext_out.bias is not None:
+            if prev.bias is None:
+                raise ValueError(
+                    "Previous layer has no bias but its output extension does."
+                )
+            ext_out.bias.copy_(prev.bias[selected_indices])
+
+        # Scale next-layer existing fan-in (originals) by 1/c_j, then copy
+        # those already-scaled columns into the input extension (replicas).
+        next_weight = self.weight
+        for j in range(num_base):
+            count = float(replica_counts[j].item())
+            if count != 1.0:
+                next_weight[:, j].div_(count)
+
+        for i, src_idx in enumerate(selected_indices.tolist()):
+            ext_in.weight[:, i].copy_(next_weight[:, src_idx])
+
+        if ext_in.bias is not None:
+            torch.nn.init.zeros_(ext_in.bias)
+
+        self.net2wider_selected_indices = selected_indices
+        prev.net2wider_selected_indices = selected_indices
+        return selected_indices
+
     @torch.no_grad()
     def create_layer_extensions(
         self,
@@ -3569,6 +3702,8 @@ class GrowingModule(torch.nn.Module):
         neuron_pairing: _KNOWN_NEURON_PAIRINGS_TYPE | None = None,
         rescaling: _KNOWN_RESCALING_STRATEGIES_TYPE | None = None,
         noise_ratio: float = 0.001,
+        selected_indices: torch.Tensor | None = None,
+        generator: torch.Generator | None = None,
     ) -> None:
         """
         Create extension for layer input and output.
@@ -3593,6 +3728,14 @@ class GrowingModule(torch.nn.Module):
         4. **Neuron pairing** — the already-allocated second half of each
            extension is filled in place via (V,V)/(Z,-Z).
 
+        When both ``input_extension_init`` and ``output_extension_init`` are
+        ``"net2wider"``, a **joint** function-preserving path is used instead:
+        a shared replica map fills both extensions and scales the next-layer
+        existing fan-in by ``1/c_j``. Mixing ``net2wider`` with another init,
+        ``neuron_pairing``, or ``rescaling`` raises ``ValueError``. BatchNorm
+        between the pair and residual/skip growth are out of scope for v1
+        (Linear / BN-free mechanism bar).
+
         Parameters
         ----------
         extension_size: int
@@ -3606,11 +3749,13 @@ class GrowingModule(torch.nn.Module):
         output_extension_init: str
             Initialisation method for the output extension.  Must be one of
             the keys in ``known_inits`` (``"copy_uniform"``, ``"kaiming"``,
-            ``"zeros"``), default ``"copy_uniform"``.
+            ``"zeros"``) or ``"net2wider"`` (joint path; both sides required),
+            default ``"copy_uniform"``.
         input_extension_init: str
             Initialisation method for the input extension.  Must be one of
             the keys in ``known_inits`` (``"copy_uniform"``, ``"kaiming"``,
-            ``"zeros"``), default ``"copy_uniform"``.
+            ``"zeros"``) or ``"net2wider"`` (joint path; both sides required),
+            default ``"copy_uniform"``.
         neuron_pairing: _KNOWN_NEURON_PAIRINGS_TYPE | None
             Neuron-pairing strategy applied after initialisation.
             ``"none"`` (default) or ``"vv_z_negz"``.
@@ -3618,15 +3763,24 @@ class GrowingModule(torch.nn.Module):
             ``output_extension_size`` / ``input_extension_size``) is the
             **final** size, pairing included, and must be even. A
             ``ValueError`` is raised otherwise.
+            Incompatible with ``net2wider``.
         rescaling: _KNOWN_RESCALING_STRATEGIES_TYPE | None
             Variance-transfer rescaling strategy applied before extension
             creation.  ``"none"`` (default), ``"default_vt"``,
             ``"vt_constraint_old_shape"``, or ``"vt_constraint_new_shape"``.
+            Incompatible with ``net2wider``.
         noise_ratio: float
             Fraction of the standard deviation of the input extension weights
             used as the noise level for symmetry breaking after neuron
             pairing.  Set to ``0`` for exact function preservation.
             Default ``0.001``.
+        selected_indices: torch.Tensor | None
+            Optional replica index map for the joint ``net2wider`` path
+            (length = extension size). Ignored for other inits. Exposed for
+            probe↔gromo cross-checks.
+        generator: torch.Generator | None
+            Optional RNG for sampling ``selected_indices`` when not injected.
+            Used only by the joint ``net2wider`` path.
 
         Notes
         -----
@@ -3651,7 +3805,8 @@ class GrowingModule(torch.nn.Module):
         ------
         ValueError
             If unknown initialization method, rescaling strategy, or neuron
-            pairing.
+            pairing; if ``net2wider`` is mixed with another init / pairing /
+            rescaling; if Conv ``groups != 1``.
         """
         if output_extension_size is None:
             output_extension_size = extension_size
@@ -3661,6 +3816,45 @@ class GrowingModule(torch.nn.Module):
             f"The layer {self.name} has no previous module."
             "Therefore, neuron addition is not possible."
         )
+
+        uses_net2wider = (
+            input_extension_init == "net2wider" or output_extension_init == "net2wider"
+        )
+        if uses_net2wider:
+            if (
+                input_extension_init != "net2wider"
+                or output_extension_init != "net2wider"
+            ):
+                raise ValueError(
+                    "net2wider requires both input_extension_init and "
+                    "output_extension_init to be 'net2wider' (joint replica map). "
+                    f"Got input={input_extension_init!r}, "
+                    f"output={output_extension_init!r}."
+                )
+            if neuron_pairing is not None:
+                raise ValueError(
+                    "net2wider cannot be combined with neuron_pairing="
+                    f"{neuron_pairing!r}."
+                )
+            if rescaling is not None:
+                raise ValueError(
+                    f"net2wider cannot be combined with rescaling={rescaling!r}."
+                )
+            if input_extension_size != output_extension_size:
+                raise ValueError(
+                    "net2wider requires equal input and output extension sizes "
+                    f"(got input={input_extension_size}, "
+                    f"output={output_extension_size})."
+                )
+            self._assert_groups_one_for_net2wider()
+            self.previous_module.create_layer_out_extension(output_extension_size)
+            self.create_layer_in_extension(input_extension_size)
+            self._apply_net2wider_extensions(
+                extension_size=input_extension_size,
+                selected_indices=selected_indices,
+                generator=generator,
+            )
+            return
 
         if neuron_pairing is not None:
             for param_name, value in (
@@ -3697,7 +3891,7 @@ class GrowingModule(torch.nn.Module):
             if init not in known_inits:
                 raise ValueError(
                     f"Unknown initialization method '{init}'. "
-                    f"Available methods are: {list(known_inits.keys())}."
+                    f"Available methods are: {[*list(known_inits.keys()), 'net2wider']}."
                 )
 
         # Step 3: Initialize extensions. When pairing is active only the
