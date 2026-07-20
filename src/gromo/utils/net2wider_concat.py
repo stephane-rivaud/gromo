@@ -102,60 +102,46 @@ def create_concat_net2wider_extensions(
     mode: WidenMode = "net2wider",
     generator: torch.Generator | None = None,
 ) -> torch.Tensor:
-    """Allocate + fill producer out-ext and consumer in-ext for concat fan-in.
+    """Allocate + fill producer out-ext and one consumer in-ext (see multi)."""
+    return create_concat_net2wider_extensions_multi(
+        producer=producer,
+        consumers=[(consumer, channel_offset)],
+        extension_size=extension_size,
+        selected_indices=selected_indices,
+        mode=mode,
+        generator=generator,
+    )
 
-    Parameters
-    ----------
-    producer
-        Branch-ending layer whose *output* channels are widened.
-    consumer
-        Post-concat layer whose *input* channels consume the concat.
-    extension_size
-        Number of channels to add.
-    selected_indices
-        Shared replica map ``g`` into the producer's output axis. Required
-        semantics for ``mode="net2wider"``; for ``random_pad`` still used only
-        as a length/shape check when provided (pad values are random).
-    channel_offset
-        Concat channel offset where this producer sits in the consumer fan-in.
-    mode
-        ``"net2wider"`` (function-preserving) or ``"random_pad"`` (true random
-        weight-tensor pad; does **not** scale existing fan-in).
-    generator
-        RNG for sampling ``g`` (net2wider) or random pad values.
 
-    Returns
-    -------
-    torch.Tensor
-        The replica index map ``g`` (for random_pad, the provided/sampled
-        indices used only for bookkeeping / parity tests).
+@torch.no_grad()
+def create_concat_net2wider_extensions_multi(
+    *,
+    producer: GrowingModule,
+    consumers: list[tuple[GrowingModule, int]],
+    extension_size: int,
+    selected_indices: torch.Tensor | None = None,
+    mode: WidenMode = "net2wider",
+    generator: torch.Generator | None = None,
+) -> torch.Tensor:
+    """Shared ``g`` + concat offsets for one producer and many consumers.
+
+    All consumers typically are the entry convolutions of the next Inception
+    module (each sees the full concat; same offset for the widened branch).
     """
     if mode not in ("net2wider", "random_pad"):
         raise ValueError(f"Unknown widen mode {mode!r}.")
-    if channel_offset < 0:
-        raise ValueError(f"channel_offset must be >= 0, got {channel_offset}.")
+    if not consumers:
+        raise ValueError("consumers must be non-empty.")
 
     groups = getattr(getattr(producer, "layer", None), "groups", 1)
     if groups != 1:
         raise ValueError(f"net2wider requires groups==1, got groups={groups}.")
-    groups_c = getattr(getattr(consumer, "layer", None), "groups", 1)
-    if groups_c != 1:
-        raise ValueError(f"net2wider requires groups==1 on consumer, got {groups_c}.")
 
     producer.create_layer_out_extension(extension_size)
-    consumer.create_layer_in_extension(extension_size)
-
     ext_out = producer.extended_output_layer
-    ext_in = consumer.extended_input_layer
-    assert ext_out is not None and ext_in is not None
+    assert ext_out is not None
 
     num_base = int(producer.weight.shape[0])
-    if channel_offset + num_base > int(consumer.weight.shape[1]):
-        raise ValueError(
-            f"channel_offset={channel_offset} + producer out={num_base} exceeds "
-            f"consumer in_channels={int(consumer.weight.shape[1])}."
-        )
-
     selected = _resolve_selected_indices(
         num_base,
         extension_size,
@@ -175,36 +161,17 @@ def create_concat_net2wider_extensions(
                 extension_size, dtype=torch.float32, device=producer.weight.device
             ),
         )
-
         ext_out.weight.copy_(producer.weight[selected])
         if ext_out.bias is not None:
             if producer.bias is None:
                 raise ValueError("Producer has no bias but its output extension does.")
             ext_out.bias.copy_(producer.bias[selected])
-
-        next_weight = consumer.weight
-        for j in range(num_base):
-            count = float(replica_counts[j].item())
-            if count != 1.0:
-                next_weight[:, channel_offset + j].div_(count)
-
-        for i, src_idx in enumerate(selected.tolist()):
-            ext_in.weight[:, i].copy_(next_weight[:, channel_offset + src_idx])
-
-        if ext_in.bias is not None:
-            nn.init.zeros_(ext_in.bias)
-
-        _prepare_producer_batch_norms(producer, selected)
     else:
-        # True random weight-tensor pad (paper §3.1): new channels are random;
-        # existing consumer columns are left untouched (no 1/c scaling).
         if generator is None:
             nn.init.normal_(ext_out.weight, mean=0.0, std=0.05)
             if ext_out.bias is not None:
                 nn.init.zeros_(ext_out.bias)
-            nn.init.normal_(ext_in.weight, mean=0.0, std=0.05)
         else:
-            # Manual sampling so tests can pin a generator.
             out_noise = torch.randn(
                 ext_out.weight.shape,
                 generator=generator,
@@ -214,53 +181,73 @@ def create_concat_net2wider_extensions(
             ext_out.weight.copy_(out_noise * 0.05)
             if ext_out.bias is not None:
                 ext_out.bias.zero_()
-            in_noise = torch.randn(
-                ext_in.weight.shape,
-                generator=generator,
-                dtype=ext_in.weight.dtype,
-                device=ext_in.weight.device,
+
+    for consumer, channel_offset in consumers:
+        if channel_offset < 0:
+            raise ValueError(f"channel_offset must be >= 0, got {channel_offset}.")
+        groups_c = getattr(getattr(consumer, "layer", None), "groups", 1)
+        if groups_c != 1:
+            raise ValueError(f"net2wider requires groups==1 on consumer, got {groups_c}.")
+        if channel_offset + num_base > int(consumer.weight.shape[1]):
+            raise ValueError(
+                f"channel_offset={channel_offset} + producer out={num_base} exceeds "
+                f"consumer in_channels={int(consumer.weight.shape[1])}."
             )
-            ext_in.weight.copy_(in_noise * 0.05)
-        if ext_in.bias is not None:
-            nn.init.zeros_(ext_in.bias)
-        # Do not prepare BN replicas for random_pad (defaults on grow).
+        consumer.create_layer_in_extension(extension_size)
+        ext_in = consumer.extended_input_layer
+        assert ext_in is not None
+
+        if mode == "net2wider":
+            next_weight = consumer.weight
+            for j in range(num_base):
+                count = float(replica_counts[j].item())
+                if count != 1.0:
+                    next_weight[:, channel_offset + j].div_(count)
+            for i, src_idx in enumerate(selected.tolist()):
+                ext_in.weight[:, i].copy_(next_weight[:, channel_offset + src_idx])
+            if ext_in.bias is not None:
+                nn.init.zeros_(ext_in.bias)
+        else:
+            if generator is None:
+                nn.init.normal_(ext_in.weight, mean=0.0, std=0.05)
+            else:
+                in_noise = torch.randn(
+                    ext_in.weight.shape,
+                    generator=generator,
+                    dtype=ext_in.weight.dtype,
+                    device=ext_in.weight.device,
+                )
+                ext_in.weight.copy_(in_noise * 0.05)
+            if ext_in.bias is not None:
+                nn.init.zeros_(ext_in.bias)
+
+        consumer.net2wider_selected_indices = selected
+        consumer.input_extension_scaling = 1.0
+        consumer.scaling_factor = 1.0
+
+    if mode == "net2wider":
+        _prepare_producer_batch_norms(producer, selected)
 
     producer.net2wider_selected_indices = selected
-    consumer.net2wider_selected_indices = selected
     producer.output_extension_scaling = 1.0
-    consumer.input_extension_scaling = 1.0
-    consumer.scaling_factor = 1.0
     return selected
 
 
-@torch.no_grad()
-def apply_concat_net2wider_change(
-    *,
-    producer: GrowingModule,
+def _insert_consumer_input_extension(
     consumer: GrowingModule,
+    *,
     extension_size: int,
     channel_offset: int,
+    num_base: int,
 ) -> None:
-    """Commit producer out-ext + consumer in-ext with mid-concat insertion.
-
-    New consumer input channels are inserted immediately after the producer's
-    base block at ``channel_offset + num_base``, matching channel-concat layout
-    (replicas sit next to their source branch, not appended after later branches).
-    """
     if consumer.extended_input_layer is None:
         raise ValueError("consumer.extended_input_layer is required before apply.")
-    if producer.extended_output_layer is None and extension_size > 0:
-        raise ValueError("producer.extended_output_layer is required before apply.")
-
-    # Capture producer base width *before* output growth.
-    num_base = int(producer.weight.shape[0])
     insert_at = channel_offset + num_base
     if insert_at > int(consumer.weight.shape[1]):
         raise ValueError(
             f"insert_at={insert_at} exceeds consumer in_channels="
             f"{int(consumer.weight.shape[1])}."
         )
-
     in_ext_scale = float(consumer.input_extension_scaling.item())
     ext_weight = in_ext_scale * consumer.extended_input_layer.weight
     if ext_weight.shape[1] != extension_size:
@@ -268,9 +255,6 @@ def apply_concat_net2wider_change(
             f"Input extension size {ext_weight.shape[1]} != extension_size="
             f"{extension_size}."
         )
-
-    # Insert (do not append) so concat channel order stays:
-    # [left branches | producer base | producer replicas | right branches].
     left = consumer.weight[:, :insert_at]
     right = consumer.weight[:, insert_at:]
     new_weight = torch.cat([left, ext_weight, right], dim=1)
@@ -280,8 +264,6 @@ def apply_concat_net2wider_change(
             "concat Net2Wider apply currently supports Conv consumers."
         )
     consumer.layer = consumer.layer_of_tensor(weight=new_weight, bias=consumer.bias)
-
-    # Keep tensor-statistic shapes consistent with layer_in_extension.
     if hasattr(consumer, "_tensor_s") and hasattr(consumer, "tensor_m"):
         from gromo.utils.tensor_statistic import TensorStatistic
 
@@ -297,15 +279,53 @@ def apply_concat_net2wider_change(
             update_function=consumer.compute_m_update,
             name=consumer.tensor_m.name,
         )
-
     consumer.extended_input_layer = None
+    consumer.net2wider_selected_indices = None
+
+
+@torch.no_grad()
+def apply_concat_net2wider_change(
+    *,
+    producer: GrowingModule,
+    consumer: GrowingModule,
+    extension_size: int,
+    channel_offset: int,
+) -> None:
+    """Commit producer out-ext + one consumer in-ext with mid-concat insertion."""
+    apply_concat_net2wider_change_multi(
+        producer=producer,
+        consumers=[(consumer, channel_offset)],
+        extension_size=extension_size,
+    )
+
+
+@torch.no_grad()
+def apply_concat_net2wider_change_multi(
+    *,
+    producer: GrowingModule,
+    consumers: list[tuple[GrowingModule, int]],
+    extension_size: int,
+) -> None:
+    """Commit producer out-ext + many consumer in-exts (shared ``g``)."""
+    if producer.extended_output_layer is None and extension_size > 0:
+        raise ValueError("producer.extended_output_layer is required before apply.")
+    if not consumers:
+        raise ValueError("consumers must be non-empty.")
+
+    num_base = int(producer.weight.shape[0])
+    for consumer, channel_offset in consumers:
+        _insert_consumer_input_extension(
+            consumer,
+            extension_size=extension_size,
+            channel_offset=channel_offset,
+            num_base=num_base,
+        )
 
     producer.output_extension_scaling = 1.0
     producer._apply_output_changes(scaling_factor=1.0, extension_size=extension_size)
     producer.extended_output_layer = None
     producer._clear_net2wider_pending_in_post_layer()
     producer.net2wider_selected_indices = None
-    consumer.net2wider_selected_indices = None
 
 
 @torch.no_grad()
@@ -318,25 +338,12 @@ def net2wider_widen_graph(
     mode: WidenMode = "net2wider",
     generator: torch.Generator | None = None,
 ) -> torch.Tensor:
-    """Graph-level widen: shared ``g`` + per-consumer concat offsets.
-
-    Currently supports a single post-concat consumer (typical Inception
-    projection). Multiple consumers must share the same extension fill.
-    """
-    if not consumers:
-        raise ValueError("net2wider_widen_graph requires at least one consumer.")
-    if len(consumers) != 1:
-        raise ValueError(
-            "net2wider_widen_graph currently supports exactly one consumer "
-            f"(got {len(consumers)}). Multi-consumer fan-out is unsupported."
-        )
-    consumer, offset = consumers[0]
-    return create_concat_net2wider_extensions(
+    """Graph-level widen: shared ``g`` + per-consumer concat offsets."""
+    return create_concat_net2wider_extensions_multi(
         producer=producer,
-        consumer=consumer,
+        consumers=consumers,
         extension_size=extension_size,
         selected_indices=selected_indices,
-        channel_offset=offset,
         mode=mode,
         generator=generator,
     )

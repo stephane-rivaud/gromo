@@ -27,6 +27,11 @@ from gromo.containers.growing_container import GrowingContainer
 from gromo.modules.channel_concat import ChannelConcat
 from gromo.modules.conv2d_growing_module import FullConv2dGrowingModule
 from gromo.modules.growing_normalisation import GrowingBatchNorm2d
+from gromo.utils.net2wider_concat import (
+    WidenMode,
+    apply_concat_net2wider_change_multi,
+    create_concat_net2wider_extensions_multi,
+)
 
 
 WidthPreset = Literal["full", "teacher_sqrt_0_3"]
@@ -154,6 +159,29 @@ class GrowingInceptionModule(GrowingContainer):
         )
         return self.concat(b1, b3, b5, bp)
 
+    def entry_convs(self) -> list[FullConv2dGrowingModule]:
+        """Convolutions that consume the previous concat (all four branches)."""
+        return [
+            self.branch1,
+            self.branch3_reduce,
+            self.branch5_reduce,
+            self.branch_pool_proj,
+        ]
+
+    def branch_producer(self, branch: str) -> FullConv2dGrowingModule:
+        """Return the layer whose *output* forms one concat segment."""
+        mapping = {
+            "branch1": self.branch1,
+            "branch3": self.branch3,
+            "branch5": self.branch5,
+            "branch_pool": self.branch_pool_proj,
+        }
+        if branch not in mapping:
+            raise ValueError(
+                f"Unknown branch {branch!r}; expected one of {sorted(mapping)}."
+            )
+        return mapping[branch]
+
     def inception_parameter_count(self) -> int:
         """Trainable parameter count inside this Inception module."""
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
@@ -259,6 +287,76 @@ class GrowingBNInception(GrowingContainer):
         self._growing_layers = [
             m for m in self.inceptions if isinstance(m, GrowingInceptionModule)
         ]
+
+    def inception_modules(self) -> list[GrowingInceptionModule]:
+        """Ordered list of Inception blocks (pools excluded)."""
+        return [m for m in self.inceptions if isinstance(m, GrowingInceptionModule)]
+
+    def next_inception_after(self, module_index: int) -> GrowingInceptionModule:
+        """Return the next Inception module after ``module_index`` (skips pools)."""
+        modules = self.inception_modules()
+        if module_index < 0 or module_index >= len(modules) - 1:
+            raise ValueError(
+                f"module_index={module_index} has no following Inception module "
+                f"(have {len(modules)} modules)."
+            )
+        return modules[module_index + 1]
+
+    def net2wider_widen_to_next(
+        self,
+        *,
+        module_index: int,
+        branch: str,
+        extension_size: int,
+        selected_indices: torch.Tensor | None = None,
+        mode: WidenMode = "net2wider",
+        generator: torch.Generator | None = None,
+    ) -> torch.Tensor:
+        """Widen one branch of module ``module_index``; remap next module entries.
+
+        Shared replica map ``g`` plus the branch concat offset are applied to
+        all four entry convolutions of the following Inception module.
+        """
+        modules = self.inception_modules()
+        src = modules[module_index]
+        dst = self.next_inception_after(module_index)
+        producer = src.branch_producer(branch)
+        offset = src.concat_offsets[branch]
+        consumers = [(conv, offset) for conv in dst.entry_convs()]
+        g = create_concat_net2wider_extensions_multi(
+            producer=producer,
+            consumers=consumers,
+            extension_size=extension_size,
+            selected_indices=selected_indices,
+            mode=mode,
+            generator=generator,
+        )
+        self._pending_fullgraph = {
+            "producer": producer,
+            "consumers": consumers,
+            "extension_size": extension_size,
+        }
+        return g
+
+    def apply_net2wider_widen_to_next(self) -> None:
+        """Apply a pending :meth:`net2wider_widen_to_next` (immediate apply)."""
+        pending = getattr(self, "_pending_fullgraph", None)
+        if pending is None:
+            raise ValueError("No pending full-graph widen; call net2wider_widen_to_next.")
+        apply_concat_net2wider_change_multi(
+            producer=pending["producer"],
+            consumers=pending["consumers"],
+            extension_size=pending["extension_size"],
+        )
+        self._pending_fullgraph = None
+        # Refresh channel metadata on source module.
+        for m in self.inception_modules():
+            m.out_features = (
+                m.branch1.out_channels
+                + m.branch3.out_channels
+                + m.branch5.out_channels
+                + m.branch_pool_proj.out_channels
+            )
 
     def inception_parameter_count(self) -> int:
         """Sum of trainable params in Inception modules only (stem/fc excluded)."""
