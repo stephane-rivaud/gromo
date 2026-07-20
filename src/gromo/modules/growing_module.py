@@ -6,6 +6,13 @@ import numpy as np
 import torch
 
 from gromo.config.loader import load_config
+from gromo.modules.growing_dropout import GrowingDropout
+from gromo.modules.growing_normalisation import (
+    GrowingBatchNorm1d,
+    GrowingBatchNorm2d,
+    GrowingGroupNorm,
+    GrowingLayerNorm,
+)
 from gromo.utils.tensor_statistic import TensorStatistic
 from gromo.utils.tools import (
     compute_optimal_added_parameters,
@@ -2043,28 +2050,49 @@ class GrowingModule(torch.nn.Module):
                 ),
             )
 
-            # Grow potential BatchNorm parameters
-            self._grow_post_layer_function(extension_size=extension_size)
+            # Grow potential BatchNorm parameters (Net2Wider consumes pending
+            # replica gamma/beta/running_* only when consume_net2wider=True).
+            consume_net2wider = self._post_layer_has_net2wider_pending()
+            if consume_net2wider:
+                scale = (
+                    scaling_factor.item()
+                    if isinstance(scaling_factor, torch.Tensor)
+                    else float(scaling_factor)
+                )
+                if abs(scale - 1.0) > 1e-6:
+                    raise ValueError(
+                        "net2wider with GrowingBatchNorm requires "
+                        f"output_extension_scaling==1 for function preservation, "
+                        f"got {scale}."
+                    )
+            self._grow_post_layer_function(
+                extension_size=extension_size,
+                consume_net2wider=consume_net2wider,
+            )
 
             # Update the size of the next module
             if isinstance(self.next_module, MergeGrowingModule):
                 self.next_module.update_size()
                 self.next_module._grow_post_merge_function(extension_size=extension_size)
 
-    def _grow_post_layer_function(self, extension_size: int) -> None:
+    def _grow_post_layer_function(
+        self, extension_size: int, consume_net2wider: bool = False
+    ) -> None:
         """Apply growth to sized activation functions
 
         Parameters
         ----------
         extension_size: int
             size of extension
+        consume_net2wider: bool, optional
+            When True, GrowingBatchNorm modules consume Net2Wider pending
+            replica tensors via ``grow(..., consume_net2wider=True)``.
         """
-        if isinstance(self.post_layer_function, torch.nn.Sequential):
-            for module in self.post_layer_function:
-                if hasattr(module, "grow"):
-                    module.grow(extension_size)  # type: ignore
-        elif hasattr(self.post_layer_function, "grow"):
-            self.post_layer_function.grow(extension_size)  # type: ignore
+        for module in self._iter_post_layer_modules(self.post_layer_function):
+            if isinstance(module, (GrowingBatchNorm1d, GrowingBatchNorm2d)):
+                module.grow(extension_size, consume_net2wider=consume_net2wider)
+            elif hasattr(module, "grow"):
+                module.grow(extension_size)  # type: ignore
 
     def apply_change(
         self,
@@ -2691,6 +2719,10 @@ class GrowingModule(torch.nn.Module):
         self._pre_activity = None
         self._input = None
 
+        # Clear Net2Wider BN pending (create → delete without apply must not
+        # leave stale replica tensors for a later non-net2wider grow).
+        self._clear_net2wider_pending_in_post_layer()
+
         # delete extended_output_layer
         if delete_output:
             self.extended_output_layer = None
@@ -2704,6 +2736,7 @@ class GrowingModule(torch.nn.Module):
                 if include_previous:
                     if isinstance(self.previous_module, GrowingModule):
                         self.previous_module.extended_output_layer = None
+                        self.previous_module._clear_net2wider_pending_in_post_layer()
                     elif isinstance(self.previous_module, MergeGrowingModule):
                         raise NotImplementedError  # TODO
                         # two options for future implementation:
@@ -3640,6 +3673,143 @@ class GrowingModule(torch.nn.Module):
                     f"{getattr(module, 'name', module)}."
                 )
 
+    @staticmethod
+    def _iter_post_layer_modules(module: torch.nn.Module) -> Iterator[torch.nn.Module]:
+        """Yield leaf modules in ``post_layer_function``, recursing into Sequential."""
+        if isinstance(module, torch.nn.Sequential):
+            for child in module:
+                yield from GrowingModule._iter_post_layer_modules(child)
+        else:
+            yield module
+
+    def _post_layer_has_net2wider_pending(self) -> bool:
+        """Return True if any GrowingBatchNorm in post_layer has Net2Wider pending."""
+        for module in self._iter_post_layer_modules(self.post_layer_function):
+            if (
+                isinstance(module, (GrowingBatchNorm1d, GrowingBatchNorm2d))
+                and getattr(module, "_net2wider_pending", None) is not None
+            ):
+                return True
+        return False
+
+    def _clear_net2wider_pending_in_post_layer(self) -> None:
+        """Clear Net2Wider pending on all GrowingBatchNorm modules in post_layer."""
+        for module in self._iter_post_layer_modules(self.post_layer_function):
+            if isinstance(module, (GrowingBatchNorm1d, GrowingBatchNorm2d)):
+                module.clear_net2wider_pending()
+
+    def _reject_net2wider_unsupported_norm_sites(self) -> None:
+        """Raise if norms appear on merge / skip sites outside prev.post_layer."""
+        assert isinstance(self.previous_module, GrowingModule)
+        prev = self.previous_module
+
+        def _raise_if_norm(site: str, fn: torch.nn.Module) -> None:
+            for module in self._iter_post_layer_modules(fn):
+                if isinstance(
+                    module,
+                    (
+                        GrowingBatchNorm1d,
+                        GrowingBatchNorm2d,
+                        GrowingGroupNorm,
+                        GrowingLayerNorm,
+                        torch.nn.BatchNorm1d,
+                        torch.nn.BatchNorm2d,
+                        torch.nn.BatchNorm3d,
+                        torch.nn.GroupNorm,
+                        torch.nn.LayerNorm,
+                    ),
+                ):
+                    raise ValueError(
+                        f"net2wider does not support normalisation on {site} "
+                        f"({type(module).__name__}); only GrowingBatchNorm in "
+                        "previous_module.post_layer_function is supported."
+                    )
+
+        if isinstance(prev.next_module, MergeGrowingModule):
+            _raise_if_norm(
+                "merge post_merge_function",
+                prev.next_module.post_merge_function,
+            )
+        if isinstance(self.next_module, MergeGrowingModule):
+            _raise_if_norm(
+                "next-side merge post_merge_function",
+                self.next_module.post_merge_function,
+            )
+
+    def _prepare_net2wider_post_layer_batch_norms(
+        self, selected_indices: torch.Tensor
+    ) -> None:
+        """Walk previous post_layer: prepare GrowingBN, reject unsupported modules.
+
+        Recurses into nested ``Sequential``. Clears pending on aborted prepare.
+        """
+        assert isinstance(self.previous_module, GrowingModule)
+        prev = self.previous_module
+        prepared: list[GrowingBatchNorm1d | GrowingBatchNorm2d] = []
+        try:
+            if prev._has_explicit_extended_post_layer_function:
+                has_growing_bn = any(
+                    isinstance(m, (GrowingBatchNorm1d, GrowingBatchNorm2d))
+                    for m in self._iter_post_layer_modules(prev.post_layer_function)
+                )
+                if has_growing_bn:
+                    raise ValueError(
+                        "net2wider with GrowingBatchNorm cannot be used with the "
+                        "deprecated explicit extended_post_layer_function (pending "
+                        "BN extended_forward would diverge from a separate extended "
+                        "post-layer path)."
+                    )
+
+            for module in self._iter_post_layer_modules(prev.post_layer_function):
+                # Growing* before base nn types (GrowingBatchNorm subclasses nn.BN).
+                if isinstance(module, (GrowingBatchNorm1d, GrowingBatchNorm2d)):
+                    module.prepare_net2wider_extension(selected_indices)
+                    prepared.append(module)
+                elif isinstance(module, (GrowingGroupNorm, GrowingLayerNorm)):
+                    raise ValueError(
+                        f"net2wider does not support {type(module).__name__} in "
+                        "post_layer_function (no function-preservation claim; "
+                        "GrowingBatchNorm1d/2d only)."
+                    )
+                elif isinstance(
+                    module, (GrowingDropout, torch.nn.ReLU, torch.nn.Identity)
+                ):
+                    continue
+                elif isinstance(
+                    module,
+                    (torch.nn.BatchNorm1d, torch.nn.BatchNorm2d, torch.nn.BatchNorm3d),
+                ):
+                    raise ValueError(
+                        "net2wider requires GrowingBatchNorm1d/2d in "
+                        f"post_layer_function, got plain {type(module).__name__}."
+                    )
+                elif isinstance(module, torch.nn.PReLU):
+                    raise ValueError(
+                        "net2wider does not support nn.PReLU in post_layer_function."
+                    )
+                elif hasattr(module, "num_features") or hasattr(module, "num_channels"):
+                    raise ValueError(
+                        f"net2wider rejects unknown sized module "
+                        f"{type(module).__name__} in post_layer_function."
+                    )
+                elif hasattr(module, "grow"):
+                    raise ValueError(
+                        f"net2wider rejects unknown growable module "
+                        f"{type(module).__name__} in post_layer_function."
+                    )
+                else:
+                    raise ValueError(
+                        f"net2wider rejects unsupported module "
+                        f"{type(module).__name__} in post_layer_function "
+                        "(allowlist: GrowingBatchNorm1d/2d, GrowingDropout, "
+                        "nn.ReLU, nn.Identity)."
+                    )
+        except Exception:
+            for module in prepared:
+                module.clear_net2wider_pending()
+            prev._clear_net2wider_pending_in_post_layer()
+            raise
+
     @torch.no_grad()
     def _apply_net2wider_extensions(
         self,
@@ -3653,6 +3823,11 @@ class GrowingModule(torch.nn.Module):
         the previous layer's output extension, then scales the next layer's
         existing input fan-in and extension columns by ``1 / c_j`` where
         ``c_j = 1 + replica_count(j)``.
+
+        Also prepares GrowingBatchNorm1d/2d modules in
+        ``previous_module.post_layer_function`` with the same replica map.
+        Function preservation with BatchNorm requires
+        ``output_extension_scaling == 1`` at apply.
 
         Parameters
         ----------
@@ -3675,7 +3850,8 @@ class GrowingModule(torch.nn.Module):
         Raises
         ------
         ValueError
-            If extensions are missing, sizes mismatch, or indices are invalid.
+            If extensions are missing, sizes mismatch, indices are invalid,
+            or unsupported post-layer / merge-side norms are present.
         """
         assert isinstance(self.previous_module, GrowingModule)
         prev = self.previous_module
@@ -3758,6 +3934,9 @@ class GrowingModule(torch.nn.Module):
         if ext_in.bias is not None:
             torch.nn.init.zeros_(ext_in.bias)
 
+        self._reject_net2wider_unsupported_norm_sites()
+        self._prepare_net2wider_post_layer_batch_norms(selected_indices)
+
         self.net2wider_selected_indices = selected_indices
         prev.net2wider_selected_indices = selected_indices
         return selected_indices
@@ -3803,9 +3982,12 @@ class GrowingModule(torch.nn.Module):
         ``"net2wider"``, a **joint** function-preserving path is used instead:
         a shared replica map fills both extensions and scales the next-layer
         existing fan-in by ``1/c_j``. Mixing ``net2wider`` with another init,
-        ``neuron_pairing``, or ``rescaling`` raises ``ValueError``. BatchNorm
-        between the pair and residual/skip growth are out of scope for v1
-        (Linear / BN-free mechanism bar).
+        ``neuron_pairing``, or ``rescaling`` raises ``ValueError``.
+        ``GrowingBatchNorm1d`` / ``GrowingBatchNorm2d`` in
+        ``previous_module.post_layer_function`` are supported (replica gamma/beta/
+        running_* + pending ``extended_forward``); apply with
+        ``scaling_factor=1.0``. Residual/skip growth and GroupNorm/LayerNorm
+        function preservation remain out of scope.
 
         Parameters
         ----------

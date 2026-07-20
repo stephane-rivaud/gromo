@@ -1,9 +1,39 @@
 """Growing normalization layers and shared normalization configuration types."""
 
+from dataclasses import dataclass
 from typing import Callable, Literal, TypeAlias, TypedDict
 
 import torch
 import torch.nn as nn
+
+
+@dataclass
+class Net2WiderBatchNormPending:
+    """Replica tensors prepared for joint Net2Wider consumption on GrowingBatchNorm.
+
+    Stored by :meth:`GrowingBatchNorm.prepare_net2wider_extension` and consumed
+    only when :meth:`GrowingBatchNorm.grow` is called with
+    ``consume_net2wider=True``. Size-only ``grow`` calls do **not** auto-consume
+    these tensors (defense-in-depth against stale pending after
+    ``delete_update``).
+
+    Pending ``running_*`` values are a snapshot at prepare time. Prefer apply
+    soon after create; multi-step training between create and apply without
+    refreshing pending running stats is a non-goal (stale replicas).
+    """
+
+    weight: torch.Tensor | None = None
+    bias: torch.Tensor | None = None
+    running_mean: torch.Tensor | None = None
+    running_var: torch.Tensor | None = None
+
+    @property
+    def extension_size(self) -> int:
+        """Number of replica features stored in this pending state."""
+        for tensor in (self.weight, self.bias, self.running_mean, self.running_var):
+            if tensor is not None:
+                return int(tensor.shape[0])
+        return 0
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +138,55 @@ class GrowingBatchNorm(nn.modules.batchnorm._BatchNorm):
             dtype=dtype,
         )
         self.name = name
+        self._net2wider_pending: Net2WiderBatchNormPending | None = None
+
+    def clear_net2wider_pending(self) -> None:
+        """Clear Net2Wider pending replica tensors and consume token state."""
+        self._net2wider_pending = None
+
+    def prepare_net2wider_extension(self, selected_indices: torch.Tensor) -> None:
+        """Snapshot replica gamma/beta/running_* for joint Net2Wider (function-preserving).
+
+        Clears any existing pending before writing. Pending is consumed only by
+        :meth:`grow` with ``consume_net2wider=True``, not by size-matched grow
+        alone. Apply soon after create: pending ``running_*`` are frozen at
+        prepare while main buffers may keep updating if the model trains.
+
+        Parameters
+        ----------
+        selected_indices : torch.Tensor
+            1-D long tensor of source feature indices to replicate.
+        """
+        self.clear_net2wider_pending()
+        indices = selected_indices.detach().to(dtype=torch.long).reshape(-1)
+        if indices.numel() == 0:
+            raise ValueError("selected_indices must be non-empty for Net2Wider prepare.")
+        if bool((indices < 0).any() or (indices >= self.num_features).any()):
+            raise ValueError(
+                f"selected_indices must be in [0, {self.num_features}), "
+                f"got min={int(indices.min())}, max={int(indices.max())}."
+            )
+
+        weight = bias = running_mean = running_var = None
+        if self.affine:
+            assert isinstance(self.weight, torch.Tensor)
+            assert isinstance(self.bias, torch.Tensor)
+            indices_dev = indices.to(device=self.weight.device)
+            weight = self.weight.detach()[indices_dev].clone()
+            bias = self.bias.detach()[indices_dev].clone()
+        if self.track_running_stats:
+            assert isinstance(self.running_mean, torch.Tensor)
+            assert isinstance(self.running_var, torch.Tensor)
+            indices_dev = indices.to(device=self.running_mean.device)
+            running_mean = self.running_mean.detach()[indices_dev].clone()
+            running_var = self.running_var.detach()[indices_dev].clone()
+
+        self._net2wider_pending = Net2WiderBatchNormPending(
+            weight=weight,
+            bias=bias,
+            running_mean=running_mean,
+            running_var=running_var,
+        )
 
     def _extend_parameter(
         self,
@@ -179,6 +258,8 @@ class GrowingBatchNorm(nn.modules.batchnorm._BatchNorm):
         new_biases: torch.Tensor | None = None,
         new_running_mean: torch.Tensor | None = None,
         new_running_var: torch.Tensor | None = None,
+        *,
+        consume_net2wider: bool = False,
     ) -> None:
         """
         Grow the batch normalization layer by adding more features.
@@ -188,23 +269,53 @@ class GrowingBatchNorm(nn.modules.batchnorm._BatchNorm):
         additional_features : int
             Number of additional features to add
         new_weights : torch.Tensor | None, optional
-            Custom weights for the new features. If None, defaults to ones.
+            Custom weights for the new features. If None, defaults to ones
+            (or Net2Wider pending gamma when ``consume_net2wider=True``).
         new_biases : torch.Tensor | None, optional
-            Custom biases for the new features. If None, defaults to zeros.
+            Custom biases for the new features. If None, defaults to zeros
+            (or Net2Wider pending beta when ``consume_net2wider=True``).
         new_running_mean : torch.Tensor | None, optional
-            Custom running mean for new features. If None, defaults to zeros.
+            Custom running mean for new features. If None, defaults to zeros
+            (or Net2Wider pending when ``consume_net2wider=True``).
         new_running_var : torch.Tensor | None, optional
-            Custom running variance for new features. If None, defaults to ones.
+            Custom running variance for new features. If None, defaults to ones
+            (or Net2Wider pending when ``consume_net2wider=True``).
+        consume_net2wider : bool, optional
+            If True, consume :attr:`_net2wider_pending` replica tensors prepared
+            by :meth:`prepare_net2wider_extension`. Pending is **not** consumed
+            based on size alone. Cleared after a successful consume.
 
         Raises
         ------
         ValueError
-            if the additional_features argument is not positive
+            if the additional_features argument is not positive, or if
+            ``consume_net2wider=True`` without matching pending state
         """
         if additional_features <= 0:
             raise ValueError(
                 f"additional_features must be positive, got {additional_features}"
             )
+
+        if consume_net2wider:
+            pending = self._net2wider_pending
+            if pending is None:
+                raise ValueError(
+                    f"{self.name}: consume_net2wider=True but no Net2Wider pending "
+                    "state (call prepare_net2wider_extension first)."
+                )
+            if pending.extension_size != additional_features:
+                raise ValueError(
+                    f"{self.name}: Net2Wider pending size {pending.extension_size} "
+                    f"does not match additional_features={additional_features}."
+                )
+            if new_weights is None:
+                new_weights = pending.weight
+            if new_biases is None:
+                new_biases = pending.bias
+            if new_running_mean is None:
+                new_running_mean = pending.running_mean
+            if new_running_var is None:
+                new_running_var = pending.running_var
 
         # Validate custom tensor shapes before any mutation
         for tensor, name in (
@@ -266,17 +377,56 @@ class GrowingBatchNorm(nn.modules.batchnorm._BatchNorm):
             )
 
         # Note: num_batches_tracked is just a counter, so no need to extend
+        if consume_net2wider:
+            self.clear_net2wider_pending()
+
+    def _batch_norm_extension(
+        self, x_ext: torch.Tensor, pending: Net2WiderBatchNormPending
+    ) -> torch.Tensor:
+        """Normalize extension activations with pending Net2Wider BN parameters.
+
+        Train (or ``track_running_stats=False``): batch stats of ``x_ext``, pending
+        gamma/beta when affine; never mutates main or pending running buffers.
+        Eval with tracked stats: pending running_mean/var + pending gamma/beta via
+        ``training=False``.
+        """
+        weight = pending.weight if self.affine else None
+        bias = pending.bias if self.affine else None
+        use_batch_stats = self.training or not self.track_running_stats
+        if use_batch_stats:
+            # running_*=None + training=True → batch stats, no buffer updates
+            return torch.nn.functional.batch_norm(
+                x_ext,
+                None,
+                None,
+                weight=weight,
+                bias=bias,
+                training=True,
+                momentum=self.momentum if self.momentum is not None else 0.1,
+                eps=self.eps,
+            )
+        assert pending.running_mean is not None and pending.running_var is not None
+        return torch.nn.functional.batch_norm(
+            x_ext,
+            pending.running_mean,
+            pending.running_var,
+            weight=weight,
+            bias=bias,
+            training=False,
+            momentum=self.momentum if self.momentum is not None else 0.1,
+            eps=self.eps,
+        )
 
     def extended_forward(
         self, x: torch.Tensor | None, x_ext: torch.Tensor | None
     ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
-        """Apply batch normalisation to the main tensor; pass the extension through unchanged.
+        """Apply batch normalisation to main and, when pending, to the extension.
 
-        Batch normalisation is tied to ``num_features = N`` and cannot process
-        the extension tensor, which has ``M`` channels.  The correct behaviour
-        for the extension part is the identity: the next layer's input will see
-        the raw extension pre-activation, consistent with what stateless
-        activation functions do to it.
+        Without Net2Wider pending state, the extension path is identity (other
+        init modes). With pending from :meth:`prepare_net2wider_extension`, the
+        extension is normalised with replica gamma/beta/running_* (see
+        :meth:`_batch_norm_extension`). Function preservation requires
+        ``output_extension_scaling == 1``.
 
         Parameters
         ----------
@@ -290,10 +440,13 @@ class GrowingBatchNorm(nn.modules.batchnorm._BatchNorm):
         Returns
         -------
         tuple[torch.Tensor | None, torch.Tensor | None]
-            ``(self(x), x_ext)`` — batch-normalised main tensor and unmodified
-            extension tensor.  ``None`` inputs propagate as ``None`` outputs.
+            Batch-normalised main tensor and extension tensor (identity or
+            pending-BN). ``None`` inputs propagate as ``None`` outputs.
         """
-        return self(x) if x is not None else None, x_ext
+        x_out = self(x) if x is not None else None
+        if x_ext is None or self._net2wider_pending is None:
+            return x_out, x_ext
+        return x_out, self._batch_norm_extension(x_ext, self._net2wider_pending)
 
     def get_growth_info(self) -> dict:
         """
