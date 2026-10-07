@@ -893,6 +893,8 @@ class GrowingGraphNetwork(GrowingContainer):
             return np.mean(loss).item()
 
         factor, _ = line_search(simulate_loss)
+        # The search leaves the scale at the last probe. Restore the minimum.
+        self.set_scaling_factor(factor)
         return factor
 
     def execute_expansions(
@@ -997,7 +999,7 @@ class GrowingGraphNetwork(GrowingContainer):
                     "nodes": [expansion.expanding_node],
                     "edges": expansion.new_edges,
                 }
-                self.find_amplitude_factor(dev_dataloader, mask)
+                factor = self.find_amplitude_factor(dev_dataloader, mask)
             else:
                 factor = 1.0
             self.set_scaling_factor(factor)

@@ -8,7 +8,9 @@ tensor shapes.
 import torch
 import torch.nn as nn
 import torch.nn.functional as functional
+from torch.utils.data import DataLoader, TensorDataset
 
+from gromo.containers import growing_graph_network as graph_network
 from gromo.containers.growing_dag import Expansion, ExpansionType, GrowingDAG
 from gromo.containers.growing_graph_network import GrowingGraphNetwork
 from gromo.modules.growing_normalisation import GrowingLayerNorm
@@ -222,3 +224,52 @@ def test_expand_node_keeps_layernorm() -> None:
         verbose=False,
     )
     assert isinstance(node.post_merge_function[0], GrowingLayerNorm)
+
+
+def test_amplitude_factor_returns_the_minimizer(monkeypatch) -> None:
+    """amplitude_factor=True must keep the factor that line search returns."""
+    torch.manual_seed(0)
+    set_device("cpu")
+
+    def two_point(cost_fn, return_history=False):
+        # Probe 1.0 last would be a bug: the returned minimizer is 0.5.
+        worse = float(cost_fn(1.0))
+        best = float(cost_fn(0.5))
+        if return_history:
+            return [1.0, 0.5], [worse, best]
+        return 0.5, best
+
+    monkeypatch.setattr(graph_network, "line_search", two_point)
+    net = GrowingGraphNetwork(
+        in_features=4,
+        out_features=3,
+        loss_fn=nn.MSELoss(),
+        neurons=2,
+        neuron_epochs=1,
+        neuron_lrate=1e-2,
+        neuron_batch_size=8,
+        use_bias=True,
+        use_layer_norm=False,
+        layer_type="linear",
+        device="cpu",
+    )
+    actions = [
+        action
+        for action in net.dag.define_next_actions(expand_end=False)
+        if action.type.name in {"NEW_EDGE", "NEW_NODE"}
+    ][:1]
+    start = net.dag.root
+    end = net.dag.end
+    dev = DataLoader(TensorDataset(torch.randn(8, 4), torch.randn(8, 3)), batch_size=8)
+    net.execute_expansions(
+        actions=actions,
+        bottleneck={end: torch.randn(8, 3), start: torch.randn(8, 4)},
+        input_B={start: torch.randn(8, 4), end: torch.randn(8, 3)},
+        amplitude_factor=True,
+        evaluate=False,
+        dev_dataloader=dev,
+        verbose=False,
+    )
+    assert actions[0].metrics["scaling_factor"] == 0.5
+    edge = net.dag.get_edge_module(start, end)
+    assert float(edge.scaling_factor.detach()) == 0.5
