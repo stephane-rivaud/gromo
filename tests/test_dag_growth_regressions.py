@@ -11,7 +11,21 @@ import torch.nn.functional as functional
 
 from gromo.containers.growing_dag import Expansion, ExpansionType
 from gromo.containers.growing_graph_network import GrowingGraphNetwork
+from gromo.modules.linear_growing_module import (
+    LinearGrowingModule,
+    LinearMergeGrowingModule,
+)
 from gromo.utils.utils import set_device
+
+
+def _batch_mean_sse(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """Squared error averaged over the batch and summed over outputs.
+
+    Mean cross-entropy divides by the batch size only. Elementwise
+    ``mse_loss(reduction="mean")`` also divides by the output width, which
+    the DAG rescale does not undo.
+    """
+    return ((pred - target) ** 2).sum() / pred.shape[0]
 
 
 def test_new_edge_small_step_decreases_loss() -> None:
@@ -77,3 +91,72 @@ def test_new_edge_small_step_decreases_loss() -> None:
     loss_opposite = mse_of(-installed_w, -installed_b)
     assert loss_installed < loss_zero
     assert loss_opposite > loss_installed
+
+
+def test_merge_delta_matches_least_squares_and_step_decreases_loss() -> None:
+    """Mean-reduced DAG statistics must match a sum-reduced least-squares step."""
+    torch.manual_seed(0)
+    set_device("cpu")
+    in_f, out_f, batch, n_batches = 5, 3, 16, 2
+    xs = [torch.randn(batch, in_f) for _ in range(n_batches)]
+    ys = [torch.randn(batch, out_f) for _ in range(n_batches)]
+    x_all = torch.cat(xs)
+    y_all = torch.cat(ys)
+    w_ls = torch.linalg.lstsq(x_all, y_all).solution.T
+
+    edge = LinearGrowingModule(
+        in_features=in_f,
+        out_features=out_f,
+        use_bias=False,
+        name="edge",
+        device="cpu",
+    )
+    merge = LinearMergeGrowingModule(
+        in_features=out_f,
+        post_merge_function=nn.Identity(),
+        name="merge",
+        device="cpu",
+    )
+    merge.set_previous_modules([edge])
+    for x, y in zip(xs, ys, strict=True):
+        pre = torch.zeros(x.shape[0], out_f, requires_grad=True)
+        _batch_mean_sse(pre, y).backward()
+        edge.store_input = True
+        edge._internal_store_input = True
+        edge._input = x
+        merge.input = pre
+        merge.previous_tensor_s.updated = False
+        merge.previous_tensor_m.updated = False
+        merge.previous_tensor_s.update()
+        merge.previous_tensor_m.update()
+    merge.compute_optimal_delta()
+    delta = edge.optimal_delta_layer.weight.detach().clone()
+    # d(sum of squares)/d(pred) = 2 (pred - y). At a zero prediction that is
+    # -2 y, so the subtracted Newton step is 2 W_ls.
+    assert torch.allclose(delta, -2 * w_ls, rtol=1e-4, atol=1e-4)
+
+    gamma = 0.25
+    step = -(gamma**2) * delta
+    loss_zero = float(((y_all) ** 2).mean())
+    loss_after = float(((functional.linear(x_all, step) - y_all) ** 2).mean())
+    assert loss_after < loss_zero
+
+    # Sequential modules already see a sum-reduced gradient. Do not scale it.
+    seq = LinearGrowingModule(
+        in_features=in_f,
+        out_features=out_f,
+        use_bias=False,
+        name="seq",
+        device="cpu",
+    )
+    pre = torch.zeros(x_all.shape[0], out_f, requires_grad=True)
+    ((pre - y_all) ** 2).sum().backward()
+    seq.store_input = True
+    seq._internal_store_input = True
+    seq._input = x_all
+    seq.store_pre_activity = True
+    seq._internal_store_pre_activity = True
+    seq._pre_activity = pre
+    update, n_samples = seq.compute_m_update()
+    assert n_samples == x_all.shape[0]
+    assert torch.allclose(update, x_all.T @ (-2 * y_all), rtol=1e-4, atol=1e-4)

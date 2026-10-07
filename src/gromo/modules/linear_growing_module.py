@@ -4,7 +4,10 @@ from warnings import warn
 import torch
 
 from gromo.modules.growing_module import GrowingModule, MergeGrowingModule
-from gromo.utils.tensor_statistic import TensorStatistic
+from gromo.utils.tensor_statistic import (
+    TensorStatistic,
+    activity_gradient_sum_scale,
+)
 
 
 class LinearMergeGrowingModule(MergeGrowingModule):
@@ -248,8 +251,11 @@ class LinearMergeGrowingModule(MergeGrowingModule):
         # assert self.input.grad is not None, f"No gradient for input for {self.name}."
         # assert self.pre_activity.grad is not None, f"No gradient for pre_activity for {self.name}."
         full_activity = self.construct_full_activity()
+        # Mean-reduced DAG losses divide this gradient by the batch size.
+        # S is not divided that way. See activity_gradient_sum_scale.
+        grad = activity_gradient_sum_scale(self.pre_activity.grad)
         return (
-            torch.einsum("ij,ik->jk", full_activity, self.pre_activity.grad),
+            torch.einsum("ij,ik->jk", full_activity, grad),
             self.input.shape[0],
         )
 

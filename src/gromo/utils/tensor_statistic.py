@@ -6,6 +6,28 @@ import torch
 from gromo.utils.utils import global_device
 
 
+def activity_gradient_sum_scale(grad: torch.Tensor) -> torch.Tensor:
+    """Put a batch-mean activity gradient on the sum-reduction scale.
+
+    ``TensorStatistic`` divides accumulated outer products by the sample
+    count. ``compute_statistics`` feeds it a sum-reduced gradient, and
+    ``LinearGrowingModule.compute_m_update`` does not rescale, so that path
+    already stores ``M = (1/N) X^T G_sum``.
+
+    DAG merge statistics are filled from a mean-reduced loss
+    (``CrossEntropyLoss``'s default, used by ``calculate_bottleneck`` and by
+    the experiment pipeline). Mean cross-entropy divides by the batch size,
+    which shrinks ``M`` and ``dW*`` by about one batch while ``S`` is
+    unchanged. Multiplying by the batch size undoes that division once.
+
+    Do not also switch those callers to ``reduction="sum"``: the two
+    corrections would scale ``M`` by the batch size a second time.
+    ``MSELoss(reduction="mean")`` divides by every output element, not only
+    the batch, and this factor does not undo that.
+    """
+    return grad * grad.shape[0]
+
+
 class TensorStatistic:
     """
     Class to store a tensor statistic and update it with a given function.
@@ -128,6 +150,8 @@ class TensorStatistic:
             assert self._tensor is not None, (
                 "If the number of samples is not zero the tensor should not be None."
             )
+            # Keep this division. Sum-reduced updates (the sequential path)
+            # become a mean over samples. Removing it would change that path.
             return self._tensor / self.samples
 
 
