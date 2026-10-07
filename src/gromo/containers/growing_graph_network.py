@@ -833,9 +833,14 @@ class GrowingGraphNetwork(GrowingContainer):
                 new_layer_output = torch.cat((new_layer_output, forward_fn(x).cpu()))
         expansion.metrics["block_output"] = {next_node_module._name: new_layer_output}
 
-        # Record layer extensions
+        # The auxiliary fit minimizes the bottleneck loss, so these weights
+        # decrease the network loss only when they are added. extended_forward
+        # and apply_change subtract optimal_delta_layer, which is the right
+        # convention for a least-squares delta and the wrong one for this fit.
+        # Store the negation so a new edge is installed as +gamma**2 W_fit.
+        stored_bias = None if bias is None else -bias.detach()
         new_edge_module.optimal_delta_layer = new_edge_module.layer_of_tensor(
-            weight, bias
+            -weight.detach(), stored_bias
         )
 
         return loss_history
