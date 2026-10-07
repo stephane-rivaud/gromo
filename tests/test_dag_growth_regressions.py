@@ -1,8 +1,7 @@
 """Regression tests for the DAG growth bugs reproduced in the April 2026 audit.
 
-Each test fails on ``repro/darts-baseline`` and passes once the corresponding
-fix is applied. They check loss, least squares, or LayerNorm survival, not
-tensor shapes.
+Each test fails on the commit before its fix and passes once that fix is
+applied. B6 also checks that a shared next-node norm grows once.
 """
 
 import torch
@@ -13,7 +12,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from gromo.containers import growing_graph_network as graph_network
 from gromo.containers.growing_dag import Expansion, ExpansionType, GrowingDAG
 from gromo.containers.growing_graph_network import GrowingGraphNetwork
-from gromo.modules.growing_normalisation import GrowingLayerNorm
+from gromo.modules.growing_normalisation import GrowingBatchNorm1d, GrowingLayerNorm
 from gromo.modules.linear_growing_module import (
     LinearGrowingModule,
     LinearMergeGrowingModule,
@@ -276,6 +275,97 @@ def test_amplitude_factor_returns_the_minimizer(monkeypatch) -> None:
     assert actions[0].metrics["scaling_factor"] == 0.5
     edge = net.dag.get_edge_module(start, end)
     assert float(edge.scaling_factor.detach()) == 0.5
+
+
+def test_shared_norm_grows_once_for_a_node_with_several_incoming_edges() -> None:
+    """Widening a node must grow its shared norm once, not once per incoming edge."""
+    torch.manual_seed(0)
+    set_device("cpu")
+    out_features = 3
+    added = 4
+    net = GrowingGraphNetwork(
+        in_features=4,
+        out_features=out_features,
+        loss_fn=nn.MSELoss(),
+        neurons=2,
+        neuron_epochs=1,
+        neuron_lrate=1e-2,
+        neuron_batch_size=8,
+        use_bias=True,
+        use_layer_norm=True,
+        layer_type="linear",
+        device="cpu",
+    )
+    dag = net.dag
+    dag.add_node_with_two_edges(
+        dag.root,
+        "hidden",
+        dag.end,
+        node_attributes={"type": "linear", "size": out_features, "activation": "selu"},
+        zero_weights=True,
+    )
+    dag.toggle_node_candidate("hidden", candidate=False)
+    incoming = [
+        src for src in dag.predecessors(dag.end) if not dag.is_node_candidate(src)
+    ]
+    assert len(incoming) >= 2
+
+    end = dag.get_node_module(dag.end)
+    layer_norm = GrowingLayerNorm(out_features, elementwise_affine=True)
+    batch_norm = GrowingBatchNorm1d(out_features, affine=True)
+    with torch.no_grad():
+        layer_norm.weight.copy_(
+            torch.arange(out_features, dtype=layer_norm.weight.dtype) + 1
+        )
+        layer_norm.bias.copy_(
+            -(torch.arange(out_features, dtype=layer_norm.bias.dtype) + 1)
+        )
+        batch_norm.weight.fill_(2)
+        batch_norm.bias.fill_(-3)
+        batch_norm.running_mean.fill_(0.5)
+        batch_norm.running_var.fill_(1.5)
+    previous_weight = layer_norm.weight.detach().clone()
+    previous_bias = layer_norm.bias.detach().clone()
+    previous_bn_weight = batch_norm.weight.detach().clone()
+    previous_bn_bias = batch_norm.bias.detach().clone()
+    previous_mean = batch_norm.running_mean.detach().clone()
+    previous_var = batch_norm.running_var.detach().clone()
+    pool = nn.Identity()
+    end.post_merge_function = nn.Sequential(layer_norm, batch_norm, nn.SELU(), pool)
+
+    for src in incoming:
+        edge = dag.get_edge_module(src, dag.end)
+        edge.create_layer_out_extension(added)
+        with torch.no_grad():
+            edge.extended_output_layer.weight.zero_()
+            if edge.extended_output_layer.bias is not None:
+                edge.extended_output_layer.bias.zero_()
+
+    expansion = Expansion(dag, ExpansionType.EXPANDED_NODE, expanding_node=dag.end)
+    expansion.metrics["scaling_factor"] = 1.0
+    expansion.metrics["active_neurons"] = added
+    net.chosen_action = expansion
+    net.apply_change()
+
+    assert tuple(layer_norm.normalized_shape) == (out_features + added,)
+    assert batch_norm.num_features == out_features + added
+    assert torch.equal(layer_norm.weight[:out_features], previous_weight)
+    assert torch.equal(layer_norm.bias[:out_features], previous_bias)
+    assert torch.equal(batch_norm.weight[:out_features], previous_bn_weight)
+    assert torch.equal(batch_norm.bias[:out_features], previous_bn_bias)
+    assert torch.equal(batch_norm.running_mean[:out_features], previous_mean)
+    assert torch.equal(batch_norm.running_var[:out_features], previous_var)
+    assert torch.equal(batch_norm.running_mean[out_features:], torch.zeros(added))
+    assert torch.equal(batch_norm.running_var[out_features:], torch.ones(added))
+    assert pool is end.post_merge_function[3]
+
+    activation = net(torch.randn(8, 4))
+    assert activation.shape[-1] == out_features + added
+    for src in incoming:
+        edge = dag.get_edge_module(src, dag.end)
+        assert edge.out_features == out_features + added
+        if edge.use_bias:
+            assert edge.bias.shape[0] == out_features + added
 
 
 def test_bic_minimum_prefers_the_smaller_loss() -> None:

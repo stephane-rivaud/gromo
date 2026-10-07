@@ -1957,7 +1957,10 @@ class GrowingModule(torch.nn.Module):
                 )
 
     def _apply_output_changes(
-        self, scaling_factor: float | torch.Tensor | None = None, extension_size: int = 0
+        self,
+        scaling_factor: float | torch.Tensor | None = None,
+        extension_size: int = 0,
+        grow_next_post_merge: bool = True,
     ) -> None:
         """
         Extend the layer output with the current layer output extension,
@@ -1969,6 +1972,10 @@ class GrowingModule(torch.nn.Module):
             scaling factor to apply to the optimal delta
         extension_size: int, optional
             size of extension, by default 0
+        grow_next_post_merge: bool, optional
+            grow the next module's post-merge once for this edge. A node with
+            several incoming edges shares that post-merge, so the graph applies
+            it on only one of those edges.
         """
         if scaling_factor is None:
             scaling_factor = self._scaling_factor_next_module
@@ -2003,7 +2010,10 @@ class GrowingModule(torch.nn.Module):
             # Update the size of the next module
             if isinstance(self.next_module, MergeGrowingModule):
                 self.next_module.update_size()
-                self.next_module._grow_post_merge_function(extension_size=extension_size)
+                if grow_next_post_merge:
+                    self.next_module._grow_post_merge_function(
+                        extension_size=extension_size
+                    )
 
     def _grow_post_layer_function(self, extension_size: int) -> None:
         """Apply growth to sized activation functions

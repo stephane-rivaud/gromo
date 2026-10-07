@@ -1173,7 +1173,9 @@ class GrowingGraphNetwork(GrowingContainer):
 
     def apply_change(self) -> None:
         """Apply all changes to the graph"""
-        # Apply changes
+        # Apply changes. Incoming edges of one node share its post-merge
+        # (LayerNorm, BatchNorm, or GroupNorm). Grow that once.
+        grown_post_merge: set[int] = set()
         for prev_node, next_node in self.dag.edges:
             factor = self.chosen_action.metrics["scaling_factor"]
             edge_module = self.dag.get_edge_module(prev_node, next_node)
@@ -1183,9 +1185,15 @@ class GrowingGraphNetwork(GrowingContainer):
             edge_module.apply_change(scaling_factor=factor, apply_previous=False)
             if edge_module.extended_output_layer is not None:
                 new_neurons = self.chosen_action.metrics["active_neurons"]
+                next_module = edge_module.next_module
+                grow_next = id(next_module) not in grown_post_merge
                 edge_module._apply_output_changes(
-                    scaling_factor=factor, extension_size=new_neurons
+                    scaling_factor=factor,
+                    extension_size=new_neurons,
+                    grow_next_post_merge=grow_next,
                 )
+                if grow_next:
+                    grown_post_merge.add(id(next_module))
 
         if self.chosen_action.type != ExpansionType.NEW_EDGE:
             if self.chosen_action.dag == self.dag:
