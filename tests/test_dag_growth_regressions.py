@@ -224,6 +224,9 @@ def test_expand_node_keeps_layernorm() -> None:
         verbose=False,
     )
     assert isinstance(node.post_merge_function[0], GrowingLayerNorm)
+    assert expansion.metrics["active_neurons"] >= 1
+    y, _ = net.dag.extended_forward(torch.randn(8, 4), mask=expansion.create_mask())
+    assert tuple(y.shape) == (8, 3)
 
 
 def test_amplitude_factor_returns_the_minimizer(monkeypatch) -> None:
