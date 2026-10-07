@@ -31,6 +31,27 @@ from gromo.utils.utils import (
 
 
 supported_layer_types = ["linear", "convolution"]
+_NORMALIZATION_VALUES = (None, "layer", "batch", "none")
+
+
+def check_normalization(normalization: str | None, use_layer_norm: bool) -> None:
+    """Accept the pipeline's normalization name without adding a second norm.
+
+    Node LayerNorm stays controlled by ``use_layer_norm``. ``normalization``
+    is stored so a recreated graph can read the same choice back. ``None``
+    means the caller did not pass the argument.
+    """
+    if normalization not in _NORMALIZATION_VALUES:
+        raise ValueError(
+            "normalization must be None, 'layer', 'batch', or 'none', "
+            f"got {normalization!r}."
+        )
+    if normalization == "layer" and not use_layer_norm:
+        raise ValueError("normalization='layer' requires use_layer_norm=True.")
+    if normalization in ("batch", "none") and use_layer_norm:
+        raise ValueError(
+            f"normalization={normalization!r} is incompatible with use_layer_norm=True."
+        )
 
 
 class GrowingDAG(nx.DiGraph, GrowingContainer):
@@ -64,6 +85,9 @@ class GrowingDAG(nx.DiGraph, GrowingContainer):
         the expected shape of the input excluding batch size and channels, by default None
     DAG_parameters : dict | None, optional
         configuration dictionary to create a custom initial dag, by default None
+    normalization : str | None, optional
+        ``"layer"``, ``"batch"``, ``"none"``, or None. Stored and checked
+        against ``use_layer_norm``. Does not insert a normalization module.
     device : torch.device | str | None, optional
         default device, by default None
 
@@ -90,6 +114,7 @@ class GrowingDAG(nx.DiGraph, GrowingContainer):
         end: str = "end",
         input_shape: tuple[int, int] | None = None,
         DAG_parameters: dict | None = None,
+        normalization: str | None = None,
         device: torch.device | str | None = None,
     ) -> None:
         nx.DiGraph.__init__(self)
@@ -102,6 +127,8 @@ class GrowingDAG(nx.DiGraph, GrowingContainer):
         self.neurons = neurons
         self.use_bias = use_bias
         self.use_layer_norm = use_layer_norm
+        check_normalization(normalization, use_layer_norm)
+        self.normalization = normalization
         self.activation = activation
         self.kernel_size = kernel_size
         if "_" in name:

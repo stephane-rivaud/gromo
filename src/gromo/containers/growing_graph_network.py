@@ -15,6 +15,7 @@ from gromo.containers.growing_dag import (
     ExpansionType,
     GrowingDAG,
     InterMergeExpansion,
+    check_normalization,
 )
 from gromo.modules.conv2d_growing_module import (
     Conv2dGrowingModule,
@@ -55,6 +56,11 @@ class GrowingGraphNetwork(GrowingContainer):
         automatically use bias in the layers, by default True
     use_layer_norm : bool, optional
         use layer normalization on the last layer, by default False
+    normalization : str | None, optional
+        ``"layer"``, ``"batch"``, ``"none"``, or None. Stored for the
+        experiment pipeline and checked against ``use_layer_norm``. Node
+        LayerNorm is still ``use_layer_norm``; this argument does not insert
+        a second normalization module.
     layer_type : str, optional
         the type of the layers used to choose between "linear" and "convolution", by default "linear"
     name : str, optional
@@ -76,6 +82,7 @@ class GrowingGraphNetwork(GrowingContainer):
         neuron_batch_size: int = 256,
         use_bias: bool = True,
         use_layer_norm: bool = False,
+        normalization: str | None = None,
         layer_type: str = "linear",
         name: str = "",
         input_shape: tuple[int, int] | None = None,
@@ -88,6 +95,8 @@ class GrowingGraphNetwork(GrowingContainer):
         )
         self.use_bias = use_bias
         self.use_layer_norm = use_layer_norm
+        check_normalization(normalization, use_layer_norm)
+        self.normalization = normalization
         self.layer_type = layer_type
         self._name = name
         self.input_shape = input_shape
@@ -169,6 +178,7 @@ class GrowingGraphNetwork(GrowingContainer):
             default_layer_type=self.layer_type,
             name=self._name,
             input_shape=self.input_shape,
+            normalization=self.normalization,
             device=self.device,
         )
 
