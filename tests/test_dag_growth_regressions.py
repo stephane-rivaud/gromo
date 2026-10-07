@@ -9,8 +9,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as functional
 
-from gromo.containers.growing_dag import Expansion, ExpansionType
+from gromo.containers.growing_dag import Expansion, ExpansionType, GrowingDAG
 from gromo.containers.growing_graph_network import GrowingGraphNetwork
+from gromo.modules.growing_normalisation import GrowingLayerNorm
 from gromo.modules.linear_growing_module import (
     LinearGrowingModule,
     LinearMergeGrowingModule,
@@ -160,3 +161,64 @@ def test_merge_delta_matches_least_squares_and_step_decreases_loss() -> None:
     update, n_samples = seq.compute_m_update()
     assert n_samples == x_all.shape[0]
     assert torch.allclose(update, x_all.T @ (-2 * y_all), rtol=1e-4, atol=1e-4)
+
+
+def test_expand_node_keeps_layernorm() -> None:
+    """Scoring a node expansion must not replace the live LayerNorm."""
+    torch.manual_seed(0)
+    set_device("cpu")
+    hidden = "1@t"
+    dag_parameters = {
+        "edges": [("start@t", hidden), (hidden, "end@t")],
+        "node_attributes": {
+            "start@t": {"type": "linear", "size": 4, "use_layer_norm": False},
+            hidden: {
+                "type": "linear",
+                "size": 4,
+                "use_layer_norm": True,
+                "activation": "selu",
+            },
+            "end@t": {"type": "linear", "size": 3, "use_layer_norm": False},
+        },
+        "edge_attributes": {"type": "linear", "use_bias": True},
+    }
+    net = GrowingGraphNetwork(
+        in_features=4,
+        out_features=3,
+        loss_fn=nn.MSELoss(),
+        neurons=2,
+        neuron_epochs=1,
+        neuron_lrate=1e-3,
+        neuron_batch_size=8,
+        use_bias=True,
+        use_layer_norm=True,
+        layer_type="linear",
+        name="t",
+        device="cpu",
+    )
+    net.dag = GrowingDAG(
+        in_features=4,
+        out_features=3,
+        neurons=2,
+        use_bias=True,
+        use_layer_norm=True,
+        name="t",
+        device="cpu",
+        DAG_parameters=dag_parameters,
+    )
+    node = net.dag.get_node_module(hidden)
+    assert isinstance(node.post_merge_function[0], GrowingLayerNorm)
+    expansion = Expansion(
+        net.dag,
+        ExpansionType.EXPANDED_NODE,
+        expanding_node=hidden,
+    )
+    start = net.dag.get_node_module(net.dag.root)
+    end = net.dag.get_node_module(net.dag.end)
+    net.expand_node(
+        expansion,
+        bottlenecks={end._name: torch.randn(8, 3), node._name: torch.randn(8, 4)},
+        activities={start._name: torch.randn(8, 4), node._name: torch.randn(8, 4)},
+        verbose=False,
+    )
+    assert isinstance(node.post_merge_function[0], GrowingLayerNorm)

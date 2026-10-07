@@ -33,6 +33,24 @@ from gromo.utils.utils import (
 )
 
 
+def _activation_for_neuron_fit(module: nn.Module) -> nn.Module:
+    """Return an activation for the auxiliary neuron fit.
+
+    ``copy.copy`` on ``nn.Sequential`` shares ``_modules``, so assigning
+    ``Identity`` into the copy rewrites the live node and deletes its
+    LayerNorm. Build a new ``Sequential`` instead. Children without
+    ``grow`` are reused and not mutated.
+    """
+    if isinstance(module, nn.Sequential):
+        children = [
+            nn.Identity() if hasattr(child, "grow") else child for child in module
+        ]
+        return nn.Sequential(*children)
+    if hasattr(module, "grow"):
+        return nn.Identity()
+    return module
+
+
 class GrowingGraphNetwork(GrowingContainer):
     """Growing DAG Network
 
@@ -544,13 +562,7 @@ class GrowingGraphNetwork(GrowingContainer):
         alpha = alpha.detach().clone().requires_grad_()
         omega = omega.detach().clone().requires_grad_()
         bias = bias.detach().clone().requires_grad_()
-        sigma = copy.copy(node_module.post_merge_function)
-        if isinstance(sigma, torch.nn.Sequential):
-            for i, module in enumerate(sigma):
-                if hasattr(module, "grow"):
-                    sigma[i] = torch.nn.Identity()
-        elif hasattr(sigma, "grow"):
-            sigma = torch.nn.Identity()
+        sigma = _activation_for_neuron_fit(node_module.post_merge_function)
 
         # Gradient descent on bottleneck
         # [bi-level]  loss = edge_weight - bottleneck
@@ -596,9 +608,10 @@ class GrowingGraphNetwork(GrowingContainer):
             target = torch.empty(0)
             for x, y in dataloader:
                 x = x.to(self.device)
-                h = node_module.post_merge_function(
-                    layer_fn(x, alpha, bias=bias_1d, **op_args)
-                )
+                # Use the fit activation, not the live node. The live module
+                # still has its LayerNorm, whose width is the node width
+                # rather than the number of new neurons.
+                h = sigma(layer_fn(x, alpha, bias=bias_1d, **op_args))
                 out = layer_fn(h, omega, bias=None, **op_args)
                 all_h = torch.cat((all_h, h.cpu()))
                 new_block_output = torch.cat((new_block_output, out.cpu()))
