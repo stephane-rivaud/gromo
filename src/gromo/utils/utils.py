@@ -580,24 +580,27 @@ def f1_macro(actual: torch.Tensor, predicted: torch.Tensor) -> float:
 
 
 def compute_BIC(nb_params: int, loss: float, n: int) -> float:
-    """Bayesian Information Criterion
-    BIC = k*log(n) - 2log(L), where k is the number of parameters
+    """Score a model so that a smaller value is a better fit.
+
+    ``choose_growth_best_action`` selects the minimum. A likelihood falls as
+    the loss rises, so the fit term has to rise with the loss. The previous
+    formula subtracted ``2 log2(loss)`` and therefore preferred the worse loss.
 
     Parameters
     ----------
     nb_params : int
         number of parameters
     loss : float
-        loss of the model
+        positive loss of the model
     n : int
         number of samples used for training
 
     Returns
     -------
     float
-        BIC score
+        score, increasing in both the parameter count and the loss
     """
-    return nb_params * np.log2(n) - 2 * np.log2(loss)
+    return nb_params * np.log2(n) + 2 * np.log2(loss)
 
 
 def alphabetic_index(i: int, alphabet: str = string.ascii_lowercase) -> str:

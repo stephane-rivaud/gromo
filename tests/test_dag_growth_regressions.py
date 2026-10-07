@@ -18,7 +18,7 @@ from gromo.modules.linear_growing_module import (
     LinearGrowingModule,
     LinearMergeGrowingModule,
 )
-from gromo.utils.utils import set_device
+from gromo.utils.utils import compute_BIC, set_device
 
 
 def _batch_mean_sse(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
@@ -273,3 +273,11 @@ def test_amplitude_factor_returns_the_minimizer(monkeypatch) -> None:
     assert actions[0].metrics["scaling_factor"] == 0.5
     edge = net.dag.get_edge_module(start, end)
     assert float(edge.scaling_factor.detach()) == 0.5
+
+
+def test_bic_minimum_prefers_the_smaller_loss() -> None:
+    """The minimum BIC must be the option with the smaller loss."""
+    k, n = 10, 1000
+    bic_good = compute_BIC(k, loss=0.1, n=n)
+    bic_bad = compute_BIC(k, loss=1.0, n=n)
+    assert bic_good < bic_bad
