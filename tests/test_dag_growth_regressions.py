@@ -1,7 +1,8 @@
 """Regression tests for the DAG growth bugs reproduced in the April 2026 audit.
 
 Each test fails on the commit before its fix and passes once that fix is
-applied. B6 also checks that a shared next-node norm grows once.
+applied. B6 checks that a shared next-node norm grows once. Selecting a new
+node whose endpoints are not already linked must not require that direct edge.
 """
 
 import torch
@@ -366,6 +367,56 @@ def test_shared_norm_grows_once_for_a_node_with_several_incoming_edges() -> None
         assert edge.out_features == out_features + added
         if edge.use_bias:
             assert edge.bias.shape[0] == out_features + added
+
+
+def test_new_node_between_nodes_without_a_direct_edge_can_be_selected() -> None:
+    """Choosing a one-hop node must not toggle a direct edge that was never added."""
+    torch.manual_seed(0)
+    set_device("cpu")
+    net = GrowingGraphNetwork(
+        in_features=4,
+        out_features=3,
+        loss_fn=nn.MSELoss(),
+        neurons=2,
+        neuron_epochs=1,
+        neuron_lrate=1e-2,
+        neuron_batch_size=8,
+        use_bias=True,
+        use_layer_norm=True,
+        layer_type="linear",
+        device="cpu",
+    )
+    dag = net.dag
+    node_attributes = {"type": "linear", "size": 3, "activation": "selu"}
+    dag.add_node_with_two_edges(
+        dag.root, "left", dag.end, node_attributes=node_attributes, zero_weights=True
+    )
+    dag.toggle_node_candidate("left", candidate=False)
+    dag.add_node_with_two_edges(
+        dag.root, "right", dag.end, node_attributes=node_attributes, zero_weights=True
+    )
+    dag.toggle_node_candidate("right", candidate=False)
+    assert ("left", "right") not in dag.edges
+
+    bridge = Expansion(
+        dag,
+        ExpansionType.NEW_NODE,
+        expanding_node="bridge",
+        previous_node="left",
+        next_node="right",
+        node_attributes=node_attributes,
+    )
+    bridge.expand()
+    bridge.metrics["loss_val"] = 0.5
+    net.choose_growth_best_action([bridge], use_bic=False)
+
+    assert "bridge" in dag.nodes
+    assert not dag.is_node_candidate("bridge")
+    assert ("left", "bridge") in dag.edges
+    assert ("bridge", "right") in dag.edges
+    assert ("left", "right") not in dag.edges
+    activation = net(torch.randn(8, 4))
+    assert activation.shape == (8, 3)
 
 
 def test_bic_minimum_prefers_the_smaller_loss() -> None:

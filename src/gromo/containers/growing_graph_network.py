@@ -1128,11 +1128,19 @@ class GrowingGraphNetwork(GrowingContainer):
             self.dag.toggle_node_candidate(
                 self.chosen_action.expanding_node, candidate=False
             )
-            self.dag.toggle_edge_candidate(
+            # A new node is inserted between two existing nodes. Those
+            # endpoints are not always already linked, so the spanned pair
+            # is not an edge to un-mark. A new edge is that pair, and expand()
+            # has already added it.
+            spanned = (
                 self.chosen_action.previous_node,
                 self.chosen_action.next_node,
-                candidate=False,
             )
+            if (
+                self.chosen_action.type == ExpansionType.NEW_EDGE
+                or spanned in self.dag.edges
+            ):
+                self.dag.toggle_edge_candidate(*spanned, candidate=False)
 
             # Discard unused edges or nodes
             for option in options:
