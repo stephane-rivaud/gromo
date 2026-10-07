@@ -20,6 +20,7 @@ from gromo.modules.linear_growing_module import (
     LinearGrowingModule,
     LinearMergeGrowingModule,
 )
+from gromo.utils.tensor_statistic import activity_gradient_sum_scale
 from gromo.utils.tools import lecun_normal_
 from gromo.utils.training_utils import evaluate_extended_dataset
 from gromo.utils.utils import (
@@ -1100,11 +1101,16 @@ class GrowingDAG(nx.DiGraph, GrowingContainer):
             for node_module in next_node_modules:
                 assert node_module.pre_activity is not None
                 assert node_module.pre_activity.grad is not None
-                # Save pre activiy gradients
+                # Save pre-activity gradients on the sum scale. optimal_delta
+                # is solved from M after the same rescaling, so the residual
+                # below subtracts two tensors of the same magnitude. The loss
+                # above stays mean-reduced: a sum-reduced loss here would
+                # apply that factor twice.
+                summed_grad = activity_gradient_sum_scale(node_module.pre_activity.grad)
                 pre_activities_grad[node_module._name] = torch.cat(
                     (
                         pre_activities_grad[node_module._name],
-                        node_module.pre_activity.grad.clone().detach().cpu(),
+                        summed_grad.clone().detach().cpu(),
                     )
                 )
             for node_module in self.get_all_node_modules():

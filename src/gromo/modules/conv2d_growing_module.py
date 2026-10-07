@@ -9,7 +9,10 @@ from gromo.modules.linear_growing_module import (
     LinearGrowingModule,
     LinearMergeGrowingModule,
 )
-from gromo.utils.tensor_statistic import TensorStatistic
+from gromo.utils.tensor_statistic import (
+    TensorStatistic,
+    activity_gradient_sum_scale,
+)
 from gromo.utils.tools import (
     apply_border_effect_on_unfolded,
     compute_mask_tensor_t,
@@ -536,7 +539,9 @@ class Conv2dMergeGrowingModule(MergeGrowingModule):
         full_activity = (
             self.construct_full_activity()
         )  # (n, total_in_parameters, W_out*H_out)
-        desired_activation = self.pre_activity.grad.flatten(start_dim=-2)
+        desired_activation = activity_gradient_sum_scale(self.pre_activity.grad).flatten(
+            start_dim=-2
+        )
         # When post_layer_function changes the spatial size (e.g. stride-2 pool),
         # the input patch count and output gradient patch count can differ.
         # Truncate both to the minimum to keep the einsum consistent.
