@@ -6,6 +6,24 @@ import torch
 from gromo.utils.utils import global_device
 
 
+def activity_gradient_sum_scale(grad: torch.Tensor) -> torch.Tensor:
+    """Put a batch-mean activity gradient on the sum-reduction scale.
+
+    ``TensorStatistic`` divides accumulated outer products by the sample
+    count. Sequential ``compute_m_update`` is fed a sum-reduced gradient, so
+    that division is the mean over samples and must stay.
+
+    DAG merge statistics are filled from a mean-reduced loss. Mean
+    cross-entropy divides the activity gradient by the batch size, which
+    shrinks ``M`` and ``dW*`` by about one batch while ``S`` is unchanged.
+    Multiplying by the batch size undoes that division once.
+
+    Do not also switch those callers to ``reduction="sum"``: the two
+    corrections would scale ``M`` by the batch size a second time.
+    """
+    return grad * grad.shape[0]
+
+
 class TensorStatistic:
     """
     Class to store a tensor statistic and update it with a given function.
