@@ -15,7 +15,11 @@ from gromo.modules.conv2d_growing_module import (
     FullConv2dGrowingModule,
 )
 from gromo.modules.growing_module import GrowingModule, MergeGrowingModule
-from gromo.modules.growing_normalisation import GrowingLayerNorm
+from gromo.modules.growing_normalisation import (
+    GrowingBatchNorm,
+    GrowingGroupNorm,
+    GrowingLayerNorm,
+)
 from gromo.modules.linear_growing_module import (
     LinearGrowingModule,
     LinearMergeGrowingModule,
@@ -32,6 +36,29 @@ from gromo.utils.utils import (
 
 
 supported_layer_types = ["linear", "convolution"]
+
+
+def _apply_post_merge(
+    fn: nn.Module,
+    x: torch.Tensor | None,
+    x_ext: torch.Tensor | None,
+) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+    """Apply a node activation to the main tensor and to an extension.
+
+    Channel-tied norms cannot see the extension: it has a different width.
+    Their ``extended_forward`` keeps that tensor unchanged.
+    """
+    if isinstance(fn, nn.Sequential):
+        for module in fn:
+            x, x_ext = _apply_post_merge(module, x, x_ext)
+        return x, x_ext
+    if isinstance(fn, (GrowingLayerNorm, GrowingBatchNorm, GrowingGroupNorm)):
+        return fn.extended_forward(x, x_ext)
+    if x is not None:
+        x = fn(x)
+    if x_ext is not None:
+        x_ext = fn(x_ext)
+    return x, x_ext
 
 
 class GrowingDAG(nx.DiGraph, GrowingContainer):
@@ -1519,10 +1546,9 @@ class GrowingDAG(nx.DiGraph, GrowingContainer):
             if verbose:
                 print("\t-->", merge_module)
 
-            output[node] = (
-                merge_module(output[node][0]),
-                merge_module(output[node][1]),
-            )
+            main, ext = output[node]
+            _, ext_out = _apply_post_merge(merge_module.post_merge_function, None, ext)
+            output[node] = (merge_module(main), ext_out)
         if verbose:
             print()
         return output[self.end]
