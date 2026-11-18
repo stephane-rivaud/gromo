@@ -14,6 +14,8 @@ from gromo.lite import (
     input_patches,
     tensor_n,
     tiny,
+    widen,
+    widen_conv2d,
     widen_linear,
 )
 from gromo.modules.conv2d_growing_module import RestrictedConv2dGrowingModule
@@ -314,6 +316,81 @@ class TestRestrictedConvMatchesV1(TorchTestCase):
         signs = torch.sign((proposal.omega * omega).sum(dim=0))
         self.assertAllClose(proposal.omega * signs[None, :], omega, atol=1e-4)
         self.assertAllClose(proposal.eigenvalues, eigenvalues, atol=1e-5)
+
+
+class TestConvSurgery(TorchTestCase):
+    """Conv2d -> Tanh -> Conv2d in float64: growth follows the restricted scheme."""
+
+    def grow(self, producer_geometry: dict, consumer_geometry: dict):
+        """Build a float64 model, collect its moments and solve TINY."""
+        inputs = torch.randn(8, 3, 9, 9, dtype=torch.float64)
+        model = nn.Sequential(
+            nn.Conv2d(3, 4, **producer_geometry),
+            nn.Tanh(),
+            nn.Conv2d(4, 5, **consumer_geometry),
+        ).double()
+        with torch.no_grad():
+            targets = torch.randn_like(model(inputs))
+        site = Site(model[0], model[2])
+        with collect([site]) as moments:
+            ((model(inputs) - targets) ** 2).sum().backward()
+        proposal = tiny(moments[site], statistical_threshold=0)
+        return model, inputs, targets, moments[site], proposal
+
+    @staticmethod
+    def mean_loss(model: nn.Module, inputs: torch.Tensor, targets: torch.Tensor):
+        with torch.no_grad():
+            return ((model(inputs) - targets) ** 2).sum(dim=(1, 2, 3)).mean().item()
+
+    def test_zero_gamma_preserves_the_function(self):
+        for name, (producer_geometry, consumer_geometry) in CONV_GEOMETRIES.items():
+            with self.subTest(geometry=name):
+                model, inputs, _, _, proposal = self.grow(
+                    producer_geometry, consumer_geometry
+                )
+                grown = grown_copy(model, "0", "2", proposal, gamma=0.0)
+                added_units = proposal.alpha.shape[0]
+                self.assertEqual(grown[0].out_channels, 4 + added_units)
+                self.assertEqual(grown[2].in_channels, 4 + added_units)
+                with torch.no_grad():
+                    self.assertAllClose(grown(inputs), model(inputs), atol=1e-12)
+
+    def test_loss_decrease_matches_the_first_order_term(self):
+        for name, (producer_geometry, consumer_geometry) in CONV_GEOMETRIES.items():
+            with self.subTest(geometry=name):
+                model, inputs, targets, moments, proposal = self.grow(
+                    producer_geometry, consumer_geometry
+                )
+                exact_first_order = proposal.parameter_update_decrease - torch.trace(
+                    proposal.omega @ proposal.alpha @ moments["tensor_m_prev"]
+                )
+                gamma = 1e-4
+                grown = grown_copy(model, "0", "2", proposal, gamma)
+                measured = (
+                    self.mean_loss(model, inputs, targets)
+                    - self.mean_loss(grown, inputs, targets)
+                ) / gamma**2
+                self.assertAlmostEqual(
+                    measured / exact_first_order.item(), 1.0, delta=1e-4
+                )
+
+    def test_new_channels_only_use_the_centre_tap(self):
+        producer_geometry, consumer_geometry = CONV_GEOMETRIES[
+            "producer stride 2, consumer 5x5"
+        ]
+        model, _, _, _, proposal = self.grow(producer_geometry, consumer_geometry)
+        grown = grown_copy(model, "0", "2", proposal, gamma=0.5)
+        new_fan_out = grown[2].weight[:, 4:].detach().clone()
+        self.assertAllClose(new_fan_out[:, :, 2, 2], 0.5 * proposal.omega)
+        new_fan_out[:, :, 2, 2] = 0
+        self.assertEqual(new_fan_out.abs().max().item(), 0.0)
+
+    def test_widen_rejects_mixed_layer_types(self):
+        _, _, _, _, proposal = self.grow(*CONV_GEOMETRIES["same padding"])
+        with self.assertRaises(TypeError):
+            widen(nn.Conv2d(3, 4, 3), nn.Linear(4, 2), proposal, 0.0)
+        with self.assertRaises(TypeError):
+            widen_conv2d(nn.Linear(3, 4), nn.Linear(4, 2), proposal, 0.0)
 
 
 class TestCollect(TorchTestCase):

@@ -5,7 +5,7 @@
 1. capture: :func:`collect` attaches temporary hooks to a :class:`Site`;
 2. moments: :class:`Moments` holds running averages of outer products;
 3. solve: :func:`tiny` and :func:`gradmax` are pure functions of the moments;
-4. surgery: :func:`widen_linear` and :func:`grown_copy` return new modules.
+4. surgery: :func:`widen` and :func:`grown_copy` return new modules.
 
 Example::
 
@@ -16,9 +16,9 @@ Example::
     proposal = tiny(moments[site], maximum_added_neurons=4)
     model = grown_copy(model, "fc1", "fc2", proposal, gamma=0.5)
 
-Status: prototype. Moments are collected for ``nn.Linear -> nn.Linear`` and
-``nn.Conv2d -> nn.Conv2d`` sites (restricted scheme of
-``RestrictedConv2dGrowingModule``); surgery supports ``nn.Linear`` only.
+Status: prototype. Sites are ``nn.Linear -> nn.Linear`` or
+``nn.Conv2d -> nn.Conv2d``; convolution sites follow the restricted scheme of
+``RestrictedConv2dGrowingModule`` (``1 x 1`` fan-out for new channels).
 ``tests/test_lite.py`` checks the results against v1.
 """
 
@@ -32,7 +32,7 @@ from gromo.lite.capture import (
     output_rows,
 )
 from gromo.lite.solve import Proposal, gradmax, tensor_n, tiny
-from gromo.lite.surgery import grown_copy, widen_linear
+from gromo.lite.surgery import grown_copy, widen, widen_conv2d, widen_linear
 
 
 __all__ = [
@@ -48,5 +48,7 @@ __all__ = [
     "output_rows",
     "tensor_n",
     "tiny",
+    "widen",
+    "widen_conv2d",
     "widen_linear",
 ]
