@@ -26,12 +26,12 @@ class Proposal:
     Attributes
     ----------
     optimal_delta : torch.Tensor | None
-        update of the consumer weight with the bias in the last column, of shape
-        ``(consumer_out, consumer_in [+1])``; applied as
+        update of the consumer ``weight.flatten(1)`` with the bias in the last
+        column, of shape ``(consumer_out, consumer_fan_in [+1])``; applied as
         ``W -= gamma**2 * optimal_delta``
     alpha : torch.Tensor
-        fan-in of the new units with the bias in the last column, of shape
-        ``(k, producer_in [+1])``
+        fan-in of the new units in the producer ``weight.flatten(1)`` layout with
+        the bias in the last column, of shape ``(k, producer_fan_in [+1])``
     omega : torch.Tensor
         fan-out of the new units, of shape ``(consumer_out, k)``
     eigenvalues : torch.Tensor
@@ -47,6 +47,27 @@ class Proposal:
     parameter_update_decrease: torch.Tensor
 
 
+def tensor_n(moments: Moments, delta: torch.Tensor) -> torch.Tensor:
+    """Negative gradient of the new units, projected off the consumer update.
+
+    ``N = -E[x' (g - delta z)^T] = -tensor_m_prev + cross_covariance @ delta^T``,
+    as in ``GrowingModule.tensor_n``.
+
+    Parameters
+    ----------
+    moments : Moments
+        moments of a site with pair moments
+    delta : torch.Tensor
+        consumer update of shape ``(consumer_out, consumer_fan_in [+1])``
+
+    Returns
+    -------
+    torch.Tensor
+        tensor of shape ``(producer_fan_in [+1], consumer_out)``
+    """
+    return -moments["tensor_m_prev"] + moments["cross_covariance"] @ delta.T
+
+
 def tiny(
     moments: Moments,
     maximum_added_neurons: int | None = None,
@@ -56,12 +77,14 @@ def tiny(
     """TINY: natural-gradient update plus new units that fit the projected residual.
 
     Matches ``GrowingModule.compute_optimal_updates`` with ``compute_delta=True``,
-    ``use_covariance=True`` and ``use_projection=True``.
+    ``use_covariance=True`` and ``use_projection=True``. For a convolution site,
+    ``optimal_delta`` follows the ``weight.flatten(1)`` layout and ``alpha`` the
+    producer ``weight.flatten(1)`` layout, each with the bias in the last column.
 
     Parameters
     ----------
     moments : Moments
-        moments of a ``nn.Linear -> nn.Linear`` site
+        moments of a ``nn.Linear -> nn.Linear`` or ``nn.Conv2d -> nn.Conv2d`` site
     maximum_added_neurons : int | None
         maximum number of new units, all significant ones if None
     statistical_threshold : float
@@ -78,10 +101,9 @@ def tiny(
     delta, parameter_update_decrease = optimal_delta(
         tensor_s, moments["tensor_m"], dtype=tensor_s.dtype
     )
-    tensor_n = -moments["tensor_m_prev"] + moments["cross_covariance"] @ delta.T
     alpha, omega, eigenvalues = compute_optimal_added_parameters(
         moments["tensor_s_growth"],
-        tensor_n,
+        tensor_n(moments, delta),
         numerical_threshold=numerical_threshold,
         statistical_threshold=statistical_threshold,
         maximum_added_neurons=maximum_added_neurons,
@@ -103,7 +125,7 @@ def gradmax(
     Parameters
     ----------
     moments : Moments
-        moments of a ``nn.Linear -> nn.Linear`` site
+        moments of a ``nn.Linear -> nn.Linear`` or ``nn.Conv2d -> nn.Conv2d`` site
     maximum_added_neurons : int | None
         maximum number of new units, all significant ones if None
     statistical_threshold : float
@@ -114,14 +136,16 @@ def gradmax(
     Proposal
         new units, without a weight update
     """
-    tensor_n = -moments["tensor_m_prev"]
+    negative_gradient = -moments["tensor_m_prev"]
     alpha, omega, eigenvalues = compute_optimal_added_parameters(
         None,
-        tensor_n,
+        negative_gradient,
         statistical_threshold=statistical_threshold,
         maximum_added_neurons=maximum_added_neurons,
         alpha_zero=True,
         ignore_singular_values=True,
     )
-    no_decrease = torch.zeros((), dtype=tensor_n.dtype, device=tensor_n.device)
+    no_decrease = torch.zeros(
+        (), dtype=negative_gradient.dtype, device=negative_gradient.device
+    )
     return Proposal(None, alpha, omega, eigenvalues, no_decrease)

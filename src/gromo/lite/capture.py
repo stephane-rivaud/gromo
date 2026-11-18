@@ -17,25 +17,28 @@ name                  definition   v1 attribute (on the consumer)
 ``tensor_s``          E[z z^T]     ``tensor_s``
 ``tensor_m``          E[z g^T]     ``tensor_m``
 ``tensor_s_growth``   E[x x^T]     ``tensor_s_growth``
-``tensor_m_prev``     E[x g^T]     ``tensor_m_prev``
-``cross_covariance``  E[x z^T]     ``cross_covariance``
+``tensor_m_prev``     E[x' g^T]    ``tensor_m_prev``
+``cross_covariance``  E[x' z^T]    ``cross_covariance``
 ====================  ===========  ====================================
 
 ``x`` and ``z`` get a trailing column of ones when their layer has a bias, and
 convolution inputs are unfolded into patches. As in v1, the sums run over all
 positions and are divided by the number of batch elements.
 
-For convolution sites, ``tensor_s_growth`` is the covariance of the producer's
-own input patches, as in ``RestrictedConv2dGrowingModule``.
-``FullConv2dGrowingModule`` unfolds the producer input over the composed
-receptive field instead, which is not implemented here.
+``x'`` is ``x`` aligned with the consumer output positions, see
+:func:`aligned_producer_patches`. For ``nn.Linear -> nn.Linear`` it is ``x``.
+For ``nn.Conv2d -> nn.Conv2d`` it follows the restricted scheme of
+``RestrictedConv2dGrowingModule``: a new unit has a ``k x k`` fan-in and a
+``1 x 1`` fan-out at the centre tap of the consumer kernel. The full scheme of
+``FullConv2dGrowingModule`` (``k x k`` fan-out, composed receptive field) is not
+implemented.
 """
 
 from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import torch
 from torch import nn
@@ -130,6 +133,86 @@ def output_rows(layer: nn.Module, output_gradient: torch.Tensor) -> torch.Tensor
     return output_gradient.flatten(0, -2)
 
 
+def centre_tap(consumer: nn.Conv2d, feature_map: torch.Tensor) -> torch.Tensor:
+    """Read ``feature_map`` where the centre tap of ``consumer`` reads its input.
+
+    Output position ``p`` of ``consumer`` reads its centre tap at input position
+    ``p * stride - padding + dilation * (kernel_size // 2)``. Positions that fall
+    in the zero padding read zeros. This is the depthwise centre-tap convolution
+    that v1 applies in ``apply_border_effect_on_unfolded``.
+
+    Parameters
+    ----------
+    consumer : nn.Conv2d
+        convolution whose geometry defines the read positions
+    feature_map : torch.Tensor
+        tensor of shape ``(batch, channels, height, width)`` with the spatial size
+        of the consumer input
+
+    Returns
+    -------
+    torch.Tensor
+        tensor of shape ``(batch, channels, out_height, out_width)`` with the
+        spatial size of the consumer output
+    """
+    pad_height, pad_width = consumer.padding  # type: ignore[misc]
+    padded = nn.functional.pad(
+        feature_map, (pad_width, pad_width, pad_height, pad_height)
+    )
+    slices = []
+    for axis in range(2):
+        input_size = feature_map.shape[2 + axis] + 2 * consumer.padding[axis]  # type: ignore[operator]
+        span = consumer.dilation[axis] * (consumer.kernel_size[axis] - 1) + 1
+        output_size = (input_size - span) // consumer.stride[axis] + 1
+        start = consumer.dilation[axis] * (consumer.kernel_size[axis] // 2)
+        stop = start + consumer.stride[axis] * (output_size - 1) + 1
+        slices.append(slice(start, stop, consumer.stride[axis]))
+    return padded[:, :, slices[0], slices[1]]
+
+
+def aligned_producer_patches(
+    site: Site, producer_patches: torch.Tensor, consumer_input: torch.Tensor
+) -> torch.Tensor:
+    """Align producer input patches with the consumer output positions.
+
+    Row ``r`` holds the producer patch that a new hidden unit reads before its
+    fan-out reaches consumer output row ``r`` of :func:`output_rows`.
+
+    Parameters
+    ----------
+    site : Site
+        ``nn.Linear -> nn.Linear`` or ``nn.Conv2d -> nn.Conv2d`` site
+    producer_patches : torch.Tensor
+        :func:`input_patches` of the producer input
+    consumer_input : torch.Tensor
+        input of the consumer
+
+    Returns
+    -------
+    torch.Tensor
+        matrix of shape ``(consumer_output_positions, producer_fan_in [+1])``
+
+    Raises
+    ------
+    TypeError
+        if the site mixes ``nn.Linear`` and ``nn.Conv2d`` layers
+    """
+    if isinstance(site.producer, nn.Linear) and isinstance(site.consumer, nn.Linear):
+        return producer_patches
+    if not (
+        isinstance(site.producer, nn.Conv2d) and isinstance(site.consumer, nn.Conv2d)
+    ):
+        raise TypeError("Pair moments need two nn.Linear or two nn.Conv2d layers.")
+    batch_size, _, height, width = consumer_input.shape
+    patch_map = (
+        producer_patches.reshape(batch_size, height * width, -1)
+        .transpose(1, 2)
+        .reshape(batch_size, -1, height, width)
+    )
+    centred = centre_tap(site.consumer, patch_map)
+    return centred.flatten(2).transpose(1, 2).flatten(0, 1)
+
+
 class Moments:
     """Running empirical averages of outer products, keyed by name."""
 
@@ -187,7 +270,9 @@ class Moments:
 class Site:
     """Hidden dimension shared by the output of ``producer`` and the input of ``consumer``.
 
-    Sites compare and hash by identity, so they can key dictionaries.
+    Sites compare and hash by identity, so they can key dictionaries. Layers
+    between ``producer`` and ``consumer`` must preserve the tensor shape
+    (activations, normalisation), as new units pass through them unchanged.
 
     Attributes
     ----------
@@ -195,27 +280,51 @@ class Site:
         ``nn.Linear`` or ``nn.Conv2d`` layer whose output features would grow
     consumer : nn.Module
         ``nn.Linear`` or ``nn.Conv2d`` layer whose input features would grow
+    conv_scheme : Literal["restricted", "full"]
+        fan-out of new units for ``nn.Conv2d -> nn.Conv2d`` sites; only
+        ``"restricted"`` (``1 x 1`` fan-out at the consumer centre tap) is
+        implemented
     """
 
     producer: nn.Module
     consumer: nn.Module
+    conv_scheme: Literal["restricted", "full"] = "restricted"
+
+    def __post_init__(self) -> None:
+        """Reject schemes that are not implemented.
+
+        Raises
+        ------
+        NotImplementedError
+            if ``conv_scheme`` is ``"full"``
+        ValueError
+            if ``conv_scheme`` is not a known scheme
+        """
+        if self.conv_scheme == "full":
+            raise NotImplementedError(
+                "The full conv scheme of FullConv2dGrowingModule (k x k fan-out, "
+                "composed receptive field) is not implemented in gromo.lite; use "
+                "conv_scheme='restricted' or the v1 module."
+            )
+        if self.conv_scheme != "restricted":
+            raise ValueError(f"Unknown conv_scheme {self.conv_scheme!r}.")
 
     @property
     def has_pair_moments(self) -> bool:
         """Whether ``tensor_m_prev`` and ``cross_covariance`` can be collected.
 
-        Both moments need producer patches aligned with consumer output
-        positions. That holds for ``nn.Linear -> nn.Linear``; convolution pairs
-        need the composed receptive field and are not supported yet.
-
         Returns
         -------
         bool
-            True when both layers are ``nn.Linear``
+            True for ``nn.Linear -> nn.Linear`` and ``nn.Conv2d -> nn.Conv2d``
         """
-        return isinstance(self.producer, nn.Linear) and isinstance(
+        both_linear = isinstance(self.producer, nn.Linear) and isinstance(
             self.consumer, nn.Linear
         )
+        both_conv = isinstance(self.producer, nn.Conv2d) and isinstance(
+            self.consumer, nn.Conv2d
+        )
+        return both_linear or both_conv
 
 
 @torch.no_grad()
@@ -248,8 +357,9 @@ def _accumulate(
     moments.add("tensor_m", consumer_patches, gradient_rows)
     moments.add("tensor_s_growth", producer_patches, producer_patches)
     if site.has_pair_moments:
-        moments.add("tensor_m_prev", producer_patches, gradient_rows)
-        moments.add("cross_covariance", producer_patches, consumer_patches)
+        aligned_patches = aligned_producer_patches(site, producer_patches, consumer_input)
+        moments.add("tensor_m_prev", aligned_patches, gradient_rows)
+        moments.add("cross_covariance", aligned_patches, consumer_patches)
     moments.samples += output_gradient.shape[0]
 
 
@@ -268,24 +378,32 @@ def _attach(site: Site, moments: Moments) -> list[RemovableHandle]:
     list[RemovableHandle]
         handles of the registered forward hooks
     """
-    cached_inputs: dict[str, torch.Tensor] = {}
+    cached_producer: dict[str, torch.Tensor] = {}
 
     def on_producer_forward(
-        _module: nn.Module, args: tuple[torch.Tensor, ...], _output: torch.Tensor
+        _module: nn.Module, args: tuple[torch.Tensor, ...], output: torch.Tensor
     ) -> None:
-        cached_inputs["producer"] = args[0].detach()
+        cached_producer["input"] = args[0].detach()
+        cached_producer["output"] = output.detach()
 
     def on_consumer_forward(
         _module: nn.Module, args: tuple[torch.Tensor, ...], output: torch.Tensor
     ) -> None:
-        producer_input = cached_inputs.pop("producer", None)
+        producer_input = cached_producer.pop("input", None)
+        producer_output = cached_producer.pop("output", None)
         if not output.requires_grad:
             return
-        if producer_input is None:
+        if producer_input is None or producer_output is None:
             raise RuntimeError(
                 "The consumer ran before the producer; check the order of the Site."
             )
         consumer_input = args[0].detach()
+        if producer_output.shape != consumer_input.shape:
+            raise ValueError(
+                f"The producer output {tuple(producer_output.shape)} and the consumer "
+                f"input {tuple(consumer_input.shape)} differ; layers between them "
+                f"must preserve the shape."
+            )
 
         def on_output_gradient(output_gradient: torch.Tensor) -> None:
             _accumulate(

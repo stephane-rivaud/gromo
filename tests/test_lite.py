@@ -7,10 +7,12 @@ from torch import nn
 
 from gromo.lite import (
     Site,
+    aligned_producer_patches,
     collect,
     gradmax,
     grown_copy,
     input_patches,
+    tensor_n,
     tiny,
     widen_linear,
 )
@@ -29,13 +31,64 @@ def copy_parameters(source: nn.Module, target: nn.Module) -> None:
     """Copy the weight and bias of a v1 layer into a plain layer."""
     with torch.no_grad():
         target.weight.copy_(source.weight)
-        target.bias.copy_(source.bias)
+        if source.bias is not None:
+            target.bias.copy_(source.bias)
 
 
 def weight_gradient_rows(layer: nn.Module, samples: int) -> torch.Tensor:
-    """Return autograd's gradient in the (fan_in + 1, fan_out) layout of tensor_m."""
-    gradient = torch.cat([layer.weight.grad.flatten(1), layer.bias.grad[:, None]], 1)
+    """Return autograd's gradient in the (fan_in [+1], fan_out) layout of tensor_m."""
+    gradient = layer.weight.grad.flatten(1)
+    if layer.bias is not None:
+        gradient = torch.cat([gradient, layer.bias.grad[:, None]], 1)
     return gradient.T / samples
+
+
+def with_bias(
+    alpha_weight: torch.Tensor, alpha_bias: torch.Tensor | None
+) -> torch.Tensor:
+    """Return a v1 fan-in in the lite layout: flattened weight, bias column last."""
+    alpha = alpha_weight.flatten(1)
+    if alpha_bias is None:
+        return alpha
+    return torch.cat([alpha, alpha_bias[:, None]], 1)
+
+
+# (producer kwargs, consumer kwargs) of nn.Conv2d sites; "bias" maps to use_bias in v1.
+CONV_GEOMETRIES = {
+    "same padding": ({"kernel_size": 3, "padding": 1}, {"kernel_size": 3, "padding": 1}),
+    "no padding": ({"kernel_size": 3}, {"kernel_size": 3}),
+    "consumer stride 2": (
+        {"kernel_size": 3, "padding": 1},
+        {"kernel_size": 3, "padding": 1, "stride": 2},
+    ),
+    "producer stride 2, consumer 5x5": (
+        {"kernel_size": 3, "padding": 1, "stride": 2},
+        {"kernel_size": 5, "padding": 2},
+    ),
+    "consumer dilation 2": (
+        {"kernel_size": 3, "padding": 1},
+        {"kernel_size": 3, "padding": 1, "dilation": 2},
+    ),
+    "rectangular kernels": (
+        {"kernel_size": (3, 1), "padding": (1, 0)},
+        {"kernel_size": (1, 3), "padding": (0, 2), "stride": (2, 1)},
+    ),
+    "no bias": (
+        {"kernel_size": 3, "padding": 1, "bias": False},
+        {"kernel_size": 3, "padding": 1, "bias": False},
+    ),
+}
+
+
+def v1_restricted_conv(
+    in_channels: int, out_channels: int, geometry: dict, **kwargs
+) -> RestrictedConv2dGrowingModule:
+    """Build a v1 Restricted convolution from nn.Conv2d keyword arguments."""
+    geometry = dict(geometry)
+    use_bias = geometry.pop("bias", True)
+    return RestrictedConv2dGrowingModule(
+        in_channels, out_channels, use_bias=use_bias, **geometry, **kwargs
+    )
 
 
 class TestLinearMatchesV1(TorchTestCase):
@@ -136,63 +189,131 @@ class TestLinearMatchesV1(TorchTestCase):
         self.assertAllClose(proposal.eigenvalues, eigenvalues, atol=1e-6)
 
 
-class TestConvMatchesV1(TorchTestCase):
-    """Conv2d -> ReLU -> Conv2d: single-layer moments match v1.
+class TestRestrictedConvMatchesV1(TorchTestCase):
+    """Conv2d -> ReLU -> Conv2d: lite matches RestrictedConv2dGrowingModule.
 
-    ``tensor_s_growth`` is the producer input covariance, as in
-    ``RestrictedConv2dGrowingModule``; ``FullConv2dGrowingModule`` instead
-    unfolds the producer input over the composed receptive field.
+    Each test runs every geometry of ``CONV_GEOMETRIES`` as a sub-test.
     """
 
-    def setUp(self):
-        super().setUp()
+    def assertSameUnits(self, proposal, v1_alpha, v1_omega, atol: float = 1e-4):
+        """Compare new units up to the SVD sign: (alpha, omega) ~ (-alpha, -omega)."""
+        signs = torch.sign((proposal.alpha * v1_alpha).sum(dim=1))
+        self.assertAllClose(proposal.alpha * signs[:, None], v1_alpha, atol=atol)
+        self.assertAllClose(proposal.omega * signs[None, :], v1_omega, atol=atol)
+
+    def run_both(self, producer_geometry: dict, consumer_geometry: dict):
+        """Accumulate v1 and lite statistics on the same weights and inputs.
+
+        The loss has random targets: with ``||f(x)||^2`` the output gradient is
+        linear in the consumer input, so ``tensor_n`` would be round-off noise.
+        """
         device = global_device()
-        self.inputs = torch.randn(16, 3, 8, 8, device=device)
-        self.v1_producer = RestrictedConv2dGrowingModule(
-            3, 4, 3, padding=1, post_layer_function=nn.ReLU(), device=device
+        inputs = torch.randn(6, 3, 9, 9, device=device)
+        v1_producer = v1_restricted_conv(
+            3, 4, producer_geometry, post_layer_function=nn.ReLU(), device=device
         )
-        self.v1_consumer = RestrictedConv2dGrowingModule(
-            4, 5, 3, padding=1, previous_module=self.v1_producer, device=device
+        v1_consumer = v1_restricted_conv(
+            4, 5, consumer_geometry, previous_module=v1_producer, device=device
         )
-        self.v1_producer.next_module = self.v1_consumer
-        self.model = nn.Sequential(
-            nn.Conv2d(3, 4, 3, padding=1), nn.ReLU(), nn.Conv2d(4, 5, 3, padding=1)
+        v1_producer.next_module = v1_consumer
+        model = nn.Sequential(
+            nn.Conv2d(3, 4, **producer_geometry),
+            nn.ReLU(),
+            nn.Conv2d(4, 5, **consumer_geometry),
         ).to(device)
-        copy_parameters(self.v1_producer, self.model[0])
-        copy_parameters(self.v1_consumer, self.model[2])
+        copy_parameters(v1_producer, model[0])
+        copy_parameters(v1_consumer, model[2])
 
-        self.v1_producer.init_computation()
-        self.v1_consumer.init_computation()
-        self.v1_consumer(self.v1_producer(self.inputs)).pow(2).sum().backward()
-        self.v1_producer.update_computation()
-        self.v1_consumer.update_computation()
+        with torch.no_grad():
+            targets = torch.randn_like(model(inputs))
 
-        self.site = Site(self.model[0], self.model[2])
-        with collect([self.site]) as moments:
-            self.model(self.inputs).pow(2).sum().backward()
-        self.moments = moments[self.site]
+        v1_producer.init_computation()
+        v1_consumer.init_computation()
+        ((v1_consumer(v1_producer(inputs)) - targets) ** 2).sum().backward()
+        v1_producer.update_computation()
+        v1_consumer.update_computation()
+
+        site = Site(model[0], model[2])
+        with collect([site]) as moments:
+            ((model(inputs) - targets) ** 2).sum().backward()
+        return v1_consumer, model, moments[site], inputs.shape[0]
 
     def test_moments_match_v1(self):
-        expected = {
-            "tensor_s": self.v1_consumer.tensor_s(),
-            "tensor_m": self.v1_consumer.tensor_m(),
-            "tensor_s_growth": self.v1_consumer.tensor_s_growth(),
-        }
-        for name, v1_value in expected.items():
-            with self.subTest(moment=name):
-                self.assertAllClose(self.moments[name], v1_value, atol=1e-5)
+        for name, (producer_geometry, consumer_geometry) in CONV_GEOMETRIES.items():
+            v1_consumer, _, moments, _ = self.run_both(
+                producer_geometry, consumer_geometry
+            )
+            expected = {
+                "tensor_s": v1_consumer.tensor_s(),
+                "tensor_m": v1_consumer.tensor_m(),
+                "tensor_s_growth": v1_consumer.tensor_s_growth(),
+                "tensor_m_prev": v1_consumer.tensor_m_prev(),
+                "cross_covariance": v1_consumer.cross_covariance(),
+            }
+            for moment, v1_value in expected.items():
+                with self.subTest(geometry=name, moment=moment):
+                    self.assertAllClose(moments[moment], v1_value, atol=1e-5)
 
     def test_tensor_m_is_the_scaled_weight_gradient(self):
-        self.assertAllClose(
-            self.moments["tensor_m"],
-            weight_gradient_rows(self.model[2], self.inputs.shape[0]),
-            atol=1e-5,
-        )
+        for name, (producer_geometry, consumer_geometry) in CONV_GEOMETRIES.items():
+            with self.subTest(geometry=name):
+                _, model, moments, samples = self.run_both(
+                    producer_geometry, consumer_geometry
+                )
+                self.assertAllClose(
+                    moments["tensor_m"],
+                    weight_gradient_rows(model[2], samples),
+                    atol=1e-5,
+                )
 
-    def test_pair_moments_are_not_collected(self):
-        self.assertNotIn("tensor_m_prev", self.moments)
-        with self.assertRaises(KeyError):
-            tiny(self.moments)
+    def test_tiny_matches_v1(self):
+        for name, (producer_geometry, consumer_geometry) in CONV_GEOMETRIES.items():
+            with self.subTest(geometry=name):
+                v1_consumer, _, moments, _ = self.run_both(
+                    producer_geometry, consumer_geometry
+                )
+                v1_consumer.compute_optimal_delta()
+                alpha_weight, alpha_bias, omega, eigenvalues = (
+                    v1_consumer._compute_optimal_added_parameters(
+                        statistical_threshold=0, use_projection=True, use_covariance=True
+                    )
+                )
+                proposal = tiny(moments, statistical_threshold=0)
+
+                self.assertAllClose(
+                    proposal.optimal_delta, v1_consumer.delta_raw, atol=1e-5
+                )
+                self.assertAllClose(
+                    tensor_n(moments, proposal.optimal_delta),
+                    v1_consumer.tensor_n,
+                    atol=1e-5,
+                )
+                self.assertAllClose(
+                    proposal.parameter_update_decrease,
+                    v1_consumer.parameter_update_decrease,
+                    atol=1e-5,
+                )
+                self.assertSameUnits(proposal, with_bias(alpha_weight, alpha_bias), omega)
+                self.assertAllClose(proposal.eigenvalues, eigenvalues, atol=1e-5)
+
+    def test_gradmax_matches_v1(self):
+        producer_geometry, consumer_geometry = CONV_GEOMETRIES["consumer stride 2"]
+        v1_consumer, _, moments, _ = self.run_both(producer_geometry, consumer_geometry)
+        alpha_weight, alpha_bias, omega, eigenvalues = (
+            v1_consumer._compute_optimal_added_parameters(
+                statistical_threshold=0,
+                use_projection=False,
+                use_covariance=False,
+                alpha_zero=True,
+                ignore_singular_values=True,
+            )
+        )
+        proposal = gradmax(moments, statistical_threshold=0)
+        self.assertEqual(proposal.alpha.abs().max().item(), 0.0)
+        self.assertAllClose(with_bias(alpha_weight, alpha_bias), proposal.alpha)
+        signs = torch.sign((proposal.omega * omega).sum(dim=0))
+        self.assertAllClose(proposal.omega * signs[None, :], omega, atol=1e-4)
+        self.assertAllClose(proposal.eigenvalues, eigenvalues, atol=1e-5)
 
 
 class TestCollect(TorchTestCase):
@@ -252,6 +373,29 @@ class TestCollect(TorchTestCase):
             input_patches(grouped, torch.randn(1, 4, 5, 5))
         with self.assertRaises(TypeError):
             input_patches(nn.Conv1d(4, 4, 3), torch.randn(1, 4, 5))
+
+    def test_full_conv_scheme_raises(self):
+        convolutions = nn.Conv2d(3, 4, 3), nn.Conv2d(4, 5, 3)
+        with self.assertRaisesRegex(NotImplementedError, "FullConv2dGrowingModule"):
+            Site(*convolutions, conv_scheme="full")
+        with self.assertRaises(ValueError):
+            Site(*convolutions, conv_scheme="diagonal")
+
+    def test_shape_changing_layers_between_producer_and_consumer_raise(self):
+        model = nn.Sequential(
+            nn.Conv2d(3, 4, 3, padding=1),
+            nn.MaxPool2d(2),
+            nn.Conv2d(4, 5, 3, padding=1),
+        )
+        site = Site(model[0], model[2])
+        with self.assertRaisesRegex(ValueError, "preserve the shape"), collect([site]):
+            model(torch.randn(2, 3, 8, 8))
+
+    def test_mixed_sites_have_no_pair_moments(self):
+        site = Site(nn.Conv2d(3, 4, 3), nn.Linear(4, 2))
+        self.assertFalse(site.has_pair_moments)
+        with self.assertRaises(TypeError):
+            aligned_producer_patches(site, torch.randn(4, 28), torch.randn(4, 4))
 
 
 class TestSurgery(TorchTestCase):
