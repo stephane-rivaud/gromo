@@ -1,5 +1,6 @@
 """Equivalence with v1 and behaviour checks for :mod:`gromo.lite`."""
 
+import inspect
 import unittest
 
 import torch
@@ -784,6 +785,16 @@ class TestWidenNormMatchesV1(TorchTestCase):
         widened = widen_norm(plain_norm, 2)
         self.assertIs(type(widened), nn.BatchNorm1d)
         self.check_same_state(widened, v1_norm)
+
+    @unittest.skipUnless(
+        "bias" in inspect.signature(nn.BatchNorm2d.__init__).parameters,
+        "affine batch normalisation without bias needs torch >= 2.13",
+    )
+    def test_affine_norm_without_bias_stays_without_bias(self):
+        norm = nn.BatchNorm2d(4, bias=False)  # type: ignore[call-arg]
+        widened = widen_norm(norm, 2)
+        self.assertIsNone(widened.bias)
+        self.assertAllClose(widened.weight[4:], torch.ones(2), atol=0)
 
     def test_zero_added_units_copy_the_norm(self):
         _, plain_norm = self.build_pair(nn.BatchNorm2d, GrowingBatchNorm2d, 4)

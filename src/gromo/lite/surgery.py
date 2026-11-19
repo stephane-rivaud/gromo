@@ -286,22 +286,25 @@ def widen_norm(
     if added_units < 0:
         raise ValueError(f"added_units must be non-negative, got {added_units}.")
     reference = norm.weight if norm.weight is not None else norm.running_mean
-    factory = (
+    options: dict = (
         {"device": reference.device, "dtype": reference.dtype}
         if reference is not None
         else {}
     )
+    if norm.affine and norm.bias is None:
+        options["bias"] = False  # affine without bias exists from torch 2.13
     new_norm = norm_class(
         norm.num_features + added_units,
         eps=norm.eps,
         momentum=norm.momentum,  # type: ignore[arg-type]
         affine=norm.affine,
         track_running_stats=norm.track_running_stats,
-        **factory,
+        **options,
     )
     new_norm.train(norm.training)
     if norm.affine:
         new_norm.weight.copy_(torch.cat([norm.weight, norm.weight.new_ones(added_units)]))
+    if norm.bias is not None:
         new_norm.bias.copy_(torch.cat([norm.bias, norm.bias.new_zeros(added_units)]))
     if norm.track_running_stats:
         assert norm.running_mean is not None and norm.running_var is not None
