@@ -6,7 +6,8 @@
 2. moments: :class:`Moments` holds running averages of outer products;
 3. solve: :func:`tiny` and :func:`gradmax` are pure functions of the moments,
    and :func:`gradmax_normalization` rescales a GradMax proposal;
-4. surgery: :func:`widen` and :func:`grown_copy` return new modules.
+4. surgery: :func:`widen`, :func:`widen_norm` and :func:`grown_copy` return new
+   modules.
 
 Example::
 
@@ -40,7 +41,13 @@ from gromo.lite.solve import (
     tensor_n,
     tiny,
 )
-from gromo.lite.surgery import grown_copy, widen, widen_conv2d, widen_linear
+from gromo.lite.surgery import (
+    grown_copy,
+    widen,
+    widen_conv2d,
+    widen_linear,
+    widen_norm,
+)
 
 
 __all__ = [
@@ -61,4 +68,5 @@ __all__ = [
     "widen",
     "widen_conv2d",
     "widen_linear",
+    "widen_norm",
 ]
