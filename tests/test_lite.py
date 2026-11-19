@@ -5,11 +5,16 @@ import unittest
 import torch
 from torch import nn
 
+from gromo.containers.growing_block import Conv2dGrowingBlock
 from gromo.lite import (
+    Moments,
+    Proposal,
     Site,
     aligned_producer_patches,
     collect,
+    fixed_proportional_budget,
     gradmax,
+    gradmax_normalization,
     grown_copy,
     input_patches,
     tensor_n,
@@ -17,10 +22,13 @@ from gromo.lite import (
     widen,
     widen_conv2d,
     widen_linear,
+    widen_norm,
 )
 from gromo.modules.conv2d_growing_module import RestrictedConv2dGrowingModule
+from gromo.modules.growing_module import GrowingModule
+from gromo.modules.growing_normalisation import GrowingBatchNorm1d, GrowingBatchNorm2d
 from gromo.modules.linear_growing_module import LinearGrowingModule
-from gromo.utils.utils import global_device
+from gromo.utils.utils import ReLUDerivativeOneAtZero, global_device
 
 
 try:
@@ -93,43 +101,114 @@ def v1_restricted_conv(
     )
 
 
+def run_linear_site() -> tuple[LinearGrowingModule, nn.Sequential, Moments]:
+    """Accumulate v1 and lite statistics of Linear -> ReLU -> Linear on the same data.
+
+    Returns
+    -------
+    tuple[LinearGrowingModule, nn.Sequential, Moments]
+        v1 consumer, plain model and lite moments of the site
+    """
+    device = global_device()
+    all_inputs = torch.randn(256, 5, device=device)
+    all_targets = torch.randn(256, 3, device=device)
+
+    v1_producer = LinearGrowingModule(5, 4, post_layer_function=nn.ReLU(), device=device)
+    v1_consumer = LinearGrowingModule(4, 3, previous_module=v1_producer, device=device)
+    v1_producer.next_module = v1_consumer
+    model = nn.Sequential(nn.Linear(5, 4), nn.ReLU(), nn.Linear(4, 3)).to(device)
+    copy_parameters(v1_producer, model[0])
+    copy_parameters(v1_consumer, model[2])
+
+    v1_producer.init_computation()
+    v1_consumer.init_computation()
+    for inputs, targets in zip(all_inputs.split(64), all_targets.split(64), strict=True):
+        prediction = v1_consumer(v1_producer(inputs))
+        ((prediction - targets) ** 2).sum().backward()
+        v1_producer.update_computation()
+        v1_consumer.update_computation()
+
+    site = Site(model[0], model[2])
+    with collect([site]) as moments:
+        for inputs, targets in zip(
+            all_inputs.split(64), all_targets.split(64), strict=True
+        ):
+            ((model(inputs) - targets) ** 2).sum().backward()
+    return v1_consumer, model, moments[site]
+
+
+def run_conv_site(
+    producer_geometry: dict, consumer_geometry: dict
+) -> tuple[RestrictedConv2dGrowingModule, nn.Sequential, Moments, int]:
+    """Accumulate v1 and lite statistics of Conv2d -> ReLU -> Conv2d on the same data.
+
+    The loss has random targets: with ``||f(x)||^2`` the output gradient is
+    linear in the consumer input, so ``tensor_n`` would be round-off noise.
+
+    Returns
+    -------
+    tuple[RestrictedConv2dGrowingModule, nn.Sequential, Moments, int]
+        v1 consumer, plain model, lite moments of the site and number of samples
+    """
+    device = global_device()
+    inputs = torch.randn(6, 3, 9, 9, device=device)
+    v1_producer = v1_restricted_conv(
+        3, 4, producer_geometry, post_layer_function=nn.ReLU(), device=device
+    )
+    v1_consumer = v1_restricted_conv(
+        4, 5, consumer_geometry, previous_module=v1_producer, device=device
+    )
+    v1_producer.next_module = v1_consumer
+    model = nn.Sequential(
+        nn.Conv2d(3, 4, **producer_geometry),
+        nn.ReLU(),
+        nn.Conv2d(4, 5, **consumer_geometry),
+    ).to(device)
+    copy_parameters(v1_producer, model[0])
+    copy_parameters(v1_consumer, model[2])
+
+    with torch.no_grad():
+        targets = torch.randn_like(model(inputs))
+
+    v1_producer.init_computation()
+    v1_consumer.init_computation()
+    ((v1_consumer(v1_producer(inputs)) - targets) ** 2).sum().backward()
+    v1_producer.update_computation()
+    v1_consumer.update_computation()
+
+    site = Site(model[0], model[2])
+    with collect([site]) as moments:
+        ((model(inputs) - targets) ** 2).sum().backward()
+    return v1_consumer, model, moments[site], inputs.shape[0]
+
+
+# GradMax as configured by experimental_grow (growing/compute_optimal_updates_kwargs/
+# gradmax.yaml, with the statistical threshold forced to 0 by the training script).
+V1_GRADMAX_KWARGS = {
+    "statistical_threshold": 0,
+    "compute_delta": False,
+    "use_covariance": False,
+    "alpha_zero": True,
+    "use_projection": False,
+    "ignore_singular_values": True,
+}
+
+
+def v1_fan_out(consumer: GrowingModule) -> torch.Tensor:
+    """Return the v1 fan-out of the new units in the lite ``(consumer_out, k)`` layout."""
+    weight = consumer.extended_input_layer.weight
+    if weight.dim() == 2:
+        return weight
+    centre_height, centre_width = (size // 2 for size in weight.shape[2:])
+    return weight[:, :, centre_height, centre_width]
+
+
 class TestLinearMatchesV1(TorchTestCase):
     """Linear -> ReLU -> Linear: every TINY and GradMax tensor matches v1."""
 
     def setUp(self):
         super().setUp()
-        device = global_device()
-        self.inputs = torch.randn(256, 5, device=device)
-        self.targets = torch.randn(256, 3, device=device)
-
-        self.v1_producer = LinearGrowingModule(
-            5, 4, post_layer_function=nn.ReLU(), device=device
-        )
-        self.v1_consumer = LinearGrowingModule(
-            4, 3, previous_module=self.v1_producer, device=device
-        )
-        self.v1_producer.next_module = self.v1_consumer
-        self.model = nn.Sequential(nn.Linear(5, 4), nn.ReLU(), nn.Linear(4, 3)).to(device)
-        copy_parameters(self.v1_producer, self.model[0])
-        copy_parameters(self.v1_consumer, self.model[2])
-
-        self.v1_producer.init_computation()
-        self.v1_consumer.init_computation()
-        for inputs, targets in zip(
-            self.inputs.split(64), self.targets.split(64), strict=True
-        ):
-            prediction = self.v1_consumer(self.v1_producer(inputs))
-            ((prediction - targets) ** 2).sum().backward()
-            self.v1_producer.update_computation()
-            self.v1_consumer.update_computation()
-
-        self.site = Site(self.model[0], self.model[2])
-        with collect([self.site]) as moments:
-            for inputs, targets in zip(
-                self.inputs.split(64), self.targets.split(64), strict=True
-            ):
-                ((self.model(inputs) - targets) ** 2).sum().backward()
-        self.moments = moments[self.site]
+        self.v1_consumer, self.model, self.moments = run_linear_site()
 
     def test_moments_match_v1(self):
         expected = {
@@ -146,7 +225,7 @@ class TestLinearMatchesV1(TorchTestCase):
     def test_tensor_m_is_the_scaled_weight_gradient(self):
         self.assertAllClose(
             self.moments["tensor_m"],
-            weight_gradient_rows(self.model[2], self.inputs.shape[0]),
+            weight_gradient_rows(self.model[2], self.moments.samples),
             atol=1e-6,
         )
 
@@ -204,41 +283,8 @@ class TestRestrictedConvMatchesV1(TorchTestCase):
         self.assertAllClose(proposal.omega * signs[None, :], v1_omega, atol=atol)
 
     def run_both(self, producer_geometry: dict, consumer_geometry: dict):
-        """Accumulate v1 and lite statistics on the same weights and inputs.
-
-        The loss has random targets: with ``||f(x)||^2`` the output gradient is
-        linear in the consumer input, so ``tensor_n`` would be round-off noise.
-        """
-        device = global_device()
-        inputs = torch.randn(6, 3, 9, 9, device=device)
-        v1_producer = v1_restricted_conv(
-            3, 4, producer_geometry, post_layer_function=nn.ReLU(), device=device
-        )
-        v1_consumer = v1_restricted_conv(
-            4, 5, consumer_geometry, previous_module=v1_producer, device=device
-        )
-        v1_producer.next_module = v1_consumer
-        model = nn.Sequential(
-            nn.Conv2d(3, 4, **producer_geometry),
-            nn.ReLU(),
-            nn.Conv2d(4, 5, **consumer_geometry),
-        ).to(device)
-        copy_parameters(v1_producer, model[0])
-        copy_parameters(v1_consumer, model[2])
-
-        with torch.no_grad():
-            targets = torch.randn_like(model(inputs))
-
-        v1_producer.init_computation()
-        v1_consumer.init_computation()
-        ((v1_consumer(v1_producer(inputs)) - targets) ** 2).sum().backward()
-        v1_producer.update_computation()
-        v1_consumer.update_computation()
-
-        site = Site(model[0], model[2])
-        with collect([site]) as moments:
-            ((model(inputs) - targets) ** 2).sum().backward()
-        return v1_consumer, model, moments[site], inputs.shape[0]
+        """Accumulate v1 and lite statistics on the same weights and inputs."""
+        return run_conv_site(producer_geometry, consumer_geometry)
 
     def test_moments_match_v1(self):
         for name, (producer_geometry, consumer_geometry) in CONV_GEOMETRIES.items():
@@ -520,6 +566,416 @@ class TestSurgery(TorchTestCase):
     def test_widen_linear_rejects_convolutions(self):
         with self.assertRaises(TypeError):
             widen_linear(nn.Conv2d(3, 4, 3), nn.Linear(4, 2), self.proposal, 0.0)
+
+
+def assert_same_columns_up_to_sign(
+    test: TorchTestCase, actual: torch.Tensor, expected: torch.Tensor, atol: float
+) -> None:
+    """Compare two ``(features, k)`` fan-outs column by column up to the SVD sign."""
+    signs = torch.sign((actual * expected).sum(dim=0))
+    test.assertAllClose(actual * signs[None, :], expected, atol=atol)
+
+
+class TestGradmaxNormalizationMatchesV1(TorchTestCase):
+    """gradmax_normalization matches normalize_optimal_updates("gradmax_normalization")."""
+
+    SCALES = (1.0, 0.5, 2.0)
+
+    def normalize_both(
+        self, consumer: GrowingModule, omega: torch.Tensor, scale: float
+    ) -> tuple[Proposal, torch.Tensor, torch.Tensor]:
+        """Normalize the same fan-out and eigenvalues with v1 and with lite."""
+        added_units = omega.shape[1]
+        eigenvalues = torch.rand(added_units, device=omega.device) + 0.5
+        proposal = Proposal(
+            optimal_delta=None,
+            alpha=torch.zeros(added_units, 1, device=omega.device),
+            omega=omega.clone(),
+            eigenvalues=eigenvalues.clone(),
+            parameter_update_decrease=torch.zeros((), device=omega.device),
+        )
+        if isinstance(consumer, RestrictedConv2dGrowingModule):
+            consumer.extended_input_layer = consumer.linear_layer_of_tensor(omega.clone())
+        else:
+            consumer.extended_input_layer = consumer.layer_of_tensor(
+                omega.clone(), bias=None
+            )
+        consumer.eigenvalues_extension = eigenvalues.clone()
+        consumer.normalize_optimal_updates(
+            normalization_type="gradmax_normalization", gradmax_scale=scale
+        )
+        normalized = gradmax_normalization(proposal, consumer.weight, scale)
+        return normalized, v1_fan_out(consumer), consumer.eigenvalues_extension
+
+    def test_linear_consumer(self):
+        device = global_device()
+        for scale in self.SCALES:
+            with self.subTest(scale=scale):
+                consumer = LinearGrowingModule(4, 3, use_bias=False, device=device)
+                omega = torch.randn(3, 5, device=device)
+                omega[:, 2] = 0.0  # a zero column keeps its value and eigenvalue
+                normalized, v1_omega, v1_eigenvalues = self.normalize_both(
+                    consumer, omega, scale
+                )
+                self.assertAllClose(normalized.omega, v1_omega, atol=1e-6)
+                self.assertAllClose(normalized.eigenvalues, v1_eigenvalues, atol=1e-6)
+                self.assertEqual(normalized.omega[:, 2].abs().max().item(), 0.0)
+
+    def test_restricted_conv_consumer(self):
+        device = global_device()
+        for scale in self.SCALES:
+            with self.subTest(scale=scale):
+                consumer = RestrictedConv2dGrowingModule(
+                    4, 5, kernel_size=3, padding=1, use_bias=False, device=device
+                )
+                omega = torch.randn(5, 3, device=device)
+                normalized, v1_omega, v1_eigenvalues = self.normalize_both(
+                    consumer, omega, scale
+                )
+                self.assertAllClose(normalized.omega, v1_omega, atol=1e-6)
+                self.assertAllClose(normalized.eigenvalues, v1_eigenvalues, atol=1e-6)
+
+    def test_columns_reach_the_target_norm(self):
+        weight = torch.randn(5, 4, 3, 3)
+        omega = torch.randn(5, 3)
+        proposal = Proposal(
+            None, torch.zeros(3, 1), omega, torch.ones(3), torch.zeros(())
+        )
+        normalized = gradmax_normalization(proposal, weight, scale=0.5)
+        target = 0.5 * weight.pow(2).sum(dim=(0, 2, 3)).sqrt().mean()
+        self.assertAllClose(normalized.omega.norm(dim=0), target.expand(3), atol=1e-6)
+        self.assertAllClose(
+            normalized.eigenvalues, (target / omega.norm(dim=0)).sqrt(), atol=1e-6
+        )
+        self.assertIs(normalized.alpha, proposal.alpha)
+
+    def test_gradmax_pipeline_matches_v1(self):
+        """compute_optimal_updates + sub-selection + normalization, as in experimental_grow."""
+        for name, (producer_geometry, consumer_geometry) in CONV_GEOMETRIES.items():
+            with self.subTest(geometry=name):
+                v1_consumer, model, moments, _ = run_conv_site(
+                    producer_geometry, consumer_geometry
+                )
+                v1_consumer.compute_optimal_updates(
+                    maximum_added_neurons=2, **V1_GRADMAX_KWARGS
+                )
+                v1_consumer.sub_select_optimal_added_parameters(threshold=0)
+                v1_consumer.normalize_optimal_updates(
+                    normalization_type="gradmax_normalization", gradmax_scale=1.0
+                )
+                proposal = gradmax_normalization(
+                    gradmax(moments, maximum_added_neurons=2, statistical_threshold=0),
+                    model[2].weight,
+                )
+                self.assertEqual(proposal.omega.shape[1], 2)
+                assert_same_columns_up_to_sign(
+                    self, proposal.omega, v1_fan_out(v1_consumer), atol=1e-5
+                )
+                self.assertAllClose(
+                    proposal.eigenvalues, v1_consumer.eigenvalues_extension, atol=1e-5
+                )
+
+    def test_non_positive_scale_raises(self):
+        proposal = Proposal(None, torch.zeros(1, 1), torch.ones(2, 1), torch.ones(1), 0)
+        with self.assertRaises(ValueError):
+            gradmax_normalization(proposal, torch.ones(2, 3), scale=0.0)
+
+    def test_degenerate_consumers_leave_the_proposal_unchanged(self):
+        proposal = Proposal(None, torch.zeros(1, 1), torch.ones(2, 1), torch.ones(1), 0)
+        for name, weight in {
+            "zero weight": torch.zeros(2, 3),
+            "no input unit": torch.zeros(2, 0),
+            "vector weight": torch.ones(2),
+        }.items():
+            with self.subTest(case=name):
+                with self.assertWarns(UserWarning):
+                    normalized = gradmax_normalization(proposal, weight)
+                self.assertIs(normalized, proposal)
+
+
+class TestFixedProportionalBudgetMatchesV1(TorchTestCase):
+    """fixed_proportional_budget matches number_of_neurons_to_add("fixed_proportional")."""
+
+    CASES = ((4, 16, 12), (8, 32, 12), (16, 64, 12), (5, 16, 4), (3, 3, 2), (2, 9, 1))
+
+    def test_linear_and_conv_consumers(self):
+        for initial, target, steps in self.CASES:
+            with self.subTest(initial=initial, target=target, steps=steps):
+                linear = LinearGrowingModule(initial, 2, target_in_features=target)
+                conv = RestrictedConv2dGrowingModule(
+                    initial, 2, kernel_size=3, target_in_channels=target
+                )
+                budget = fixed_proportional_budget(initial, target, steps)
+                self.assertEqual(
+                    budget, linear.number_of_neurons_to_add(number_of_growth_steps=steps)
+                )
+                self.assertEqual(
+                    budget, conv.number_of_neurons_to_add(number_of_growth_steps=steps)
+                )
+
+    def test_wrn_28_1_from_a_quarter_width(self):
+        budgets = [fixed_proportional_budget(w // 4, w, 12) for w in (16, 32, 64)]
+        self.assertEqual(budgets, [1, 2, 4])
+
+    def test_non_positive_number_of_steps_raises(self):
+        with self.assertRaises(ValueError):
+            fixed_proportional_budget(4, 16, 0)
+
+
+# Batch normalisation configurations compared with GrowingBatchNorm.
+NORM_VARIANTS: dict[str, dict[str, bool]] = {
+    "affine, running stats": {},
+    "no affine": {"affine": False},
+    "no running stats": {"track_running_stats": False},
+}
+
+
+class TestWidenNormMatchesV1(TorchTestCase):
+    """widen_norm matches GrowingBatchNorm.grow with its default new values."""
+
+    def build_pair(self, plain_class, v1_class, features: int, **kwargs):
+        """Build a v1 and a plain normalisation with the same random state."""
+        device = global_device()
+        v1_norm = v1_class(features, device=device, **kwargs)
+        with torch.no_grad():
+            if v1_norm.affine:
+                v1_norm.weight.uniform_(0.5, 1.5)
+                v1_norm.bias.normal_()
+            if v1_norm.track_running_stats:
+                v1_norm.running_mean.normal_()
+                v1_norm.running_var.uniform_(0.5, 2.0)
+                v1_norm.num_batches_tracked.fill_(7)
+        plain_norm = plain_class(features, device=device, **kwargs)
+        plain_norm.load_state_dict(v1_norm.state_dict())
+        return v1_norm, plain_norm
+
+    def check_same_state(self, plain_norm: nn.Module, v1_norm: nn.Module) -> None:
+        """Compare parameters, buffers and hyper-parameters."""
+        plain_state, v1_state = plain_norm.state_dict(), v1_norm.state_dict()
+        self.assertEqual(set(plain_state), set(v1_state))
+        for key, value in v1_state.items():
+            with self.subTest(entry=key):
+                self.assertAllClose(plain_state[key], value, atol=0)
+        for attribute in ("num_features", "eps", "momentum", "affine"):
+            self.assertEqual(getattr(plain_norm, attribute), getattr(v1_norm, attribute))
+
+    def test_batch_norm_2d(self):
+        for name, kwargs in NORM_VARIANTS.items():
+            with self.subTest(variant=name):
+                v1_norm, plain_norm = self.build_pair(
+                    nn.BatchNorm2d, GrowingBatchNorm2d, 4, **kwargs
+                )
+                v1_norm.grow(3)
+                widened = widen_norm(plain_norm, 3)
+                self.assertIs(type(widened), nn.BatchNorm2d)
+                self.assertEqual(plain_norm.num_features, 4)
+                self.check_same_state(widened, v1_norm)
+                inputs = torch.randn(8, 7, 5, 5, device=global_device())
+                for training in (False, True):
+                    widened.train(training)
+                    v1_norm.train(training)
+                    with torch.no_grad():
+                        self.assertAllClose(widened(inputs), v1_norm(inputs), atol=1e-6)
+                self.check_same_state(widened, v1_norm)
+
+    def test_batch_norm_1d(self):
+        v1_norm, plain_norm = self.build_pair(nn.BatchNorm1d, GrowingBatchNorm1d, 4)
+        v1_norm.grow(2)
+        widened = widen_norm(plain_norm, 2)
+        self.assertIs(type(widened), nn.BatchNorm1d)
+        self.check_same_state(widened, v1_norm)
+
+    def test_zero_added_units_copy_the_norm(self):
+        _, plain_norm = self.build_pair(nn.BatchNorm2d, GrowingBatchNorm2d, 4)
+        widened = widen_norm(plain_norm, 0)
+        self.assertIsNot(widened, plain_norm)
+        self.check_same_state(widened, plain_norm)
+
+    def test_invalid_arguments_raise(self):
+        with self.assertRaises(TypeError):
+            widen_norm(nn.GroupNorm(2, 4), 1)  # type: ignore[arg-type]
+        with self.assertRaises(ValueError):
+            widen_norm(nn.BatchNorm2d(4), -1)
+
+
+class PlainBlock(nn.Module):
+    """Pre-activation-free residual block: conv -> BN -> act -> conv, plus a 1x1 shortcut."""
+
+    def __init__(self, stride: int) -> None:
+        super().__init__()
+        self.conv1 = nn.Conv2d(3, 4, 3, padding=1, stride=stride, bias=False)
+        self.bn = nn.BatchNorm2d(4)
+        self.act = ReLUDerivativeOneAtZero()
+        self.conv2 = nn.Conv2d(4, 5, 3, padding=1, bias=False)
+        self.shortcut = nn.Conv2d(3, 5, 1, stride=stride, bias=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.shortcut(x) + self.conv2(self.act(self.bn(self.conv1(x))))
+
+
+class TestGradmaxBlockGrowthMatchesV1(TorchTestCase):
+    """A GradMax step on a plain block equals the v1 Conv2dGrowingBlock step.
+
+    The v1 side reproduces experimental_grow: statistics in evaluation mode,
+    ``compute_optimal_updates`` with the GradMax options, sub-selection at
+    threshold 0, ``gradmax_normalization``, fixed scalings (1, 1) and
+    ``apply_change``, which also grows the ``GrowingBatchNorm2d``.
+    """
+
+    ADDED_UNITS = 2
+
+    def setUp(self):
+        super().setUp()
+        self.device = global_device()
+
+    def build(self, stride: int) -> tuple[Conv2dGrowingBlock, PlainBlock]:
+        """Build a v1 block and its plain twin with the same parameters and BN state."""
+        v1_block = Conv2dGrowingBlock(
+            in_channels=3,
+            out_channels=5,
+            hidden_channels=4,
+            target_hidden_channels=8,
+            pre_activation=nn.Identity(),
+            mid_activation=nn.Sequential(
+                GrowingBatchNorm2d(4), ReLUDerivativeOneAtZero()
+            ),
+            kwargs_first_layer={
+                "kernel_size": 3,
+                "padding": 1,
+                "stride": stride,
+                "use_bias": False,
+            },
+            kwargs_second_layer={"kernel_size": 3, "padding": 1, "use_bias": False},
+            downsample=nn.Conv2d(3, 5, 1, stride=stride, bias=False),
+            device=self.device,
+        )
+        v1_norm = v1_block.first_layer.post_layer_function[0]
+        with torch.no_grad():
+            v1_norm.weight.uniform_(0.5, 1.5)
+            v1_norm.bias.normal_()
+            v1_norm.running_mean.normal_()
+            v1_norm.running_var.uniform_(0.5, 2.0)
+        plain = PlainBlock(stride).to(self.device)
+        copy_parameters(v1_block.first_layer, plain.conv1)
+        copy_parameters(v1_block.second_layer, plain.conv2)
+        plain.bn.load_state_dict(v1_norm.state_dict())
+        plain.shortcut.load_state_dict(v1_block.downsample.state_dict())
+        return v1_block, plain
+
+    def grow_both(self, stride: int):
+        """Run one GradMax growth step with v1 and with lite on the same batch."""
+        v1_block, plain = self.build(stride)
+        # Statistics run in evaluation mode, as in compute_statistics: BatchNorm uses
+        # (and keeps) its running statistics.
+        v1_block.eval()
+        plain.eval()
+        inputs = torch.randn(6, 3, 8, 8, device=self.device)
+        with torch.no_grad():
+            targets = torch.randn_like(plain(inputs))
+
+        v1_block.init_computation()
+        ((v1_block(inputs) - targets) ** 2).sum().backward()
+        v1_block.update_computation()
+        v1_block.compute_optimal_updates(
+            maximum_added_neurons=self.ADDED_UNITS, **V1_GRADMAX_KWARGS
+        )
+        v1_block.reset_computation()
+        v1_block.set_scaling_factor(1.0)
+        v1_block.sub_select_optimal_added_parameters(threshold=0)
+        v1_block.normalize_optimal_updates(
+            normalization_type="gradmax_normalization", gradmax_scale=1.0
+        )
+        v1_block.second_layer.optimal_delta_scaling = 0.0
+        v1_block.second_layer.input_extension_scaling = 1.0
+        v1_block.first_layer.output_extension_scaling = 1.0
+        v1_block.apply_change(extension_size=self.ADDED_UNITS)
+        v1_block.delete_update()
+
+        site = Site(plain.conv1, plain.conv2)
+        with collect([site]) as moments:
+            ((plain(inputs) - targets) ** 2).sum().backward()
+        proposal = gradmax_normalization(
+            gradmax(
+                moments[site],
+                maximum_added_neurons=self.ADDED_UNITS,
+                statistical_threshold=0,
+            ),
+            plain.conv2.weight,
+        )
+        grown = grown_copy(
+            plain, "conv1", "conv2", proposal, gamma=1.0, norm_names=["bn"]
+        )
+        return v1_block, plain, grown
+
+    def test_parameters_match_v1(self):
+        for stride in (1, 2):
+            with self.subTest(stride=stride):
+                v1_block, _, grown = self.grow_both(stride)
+                self.assertEqual(v1_block.hidden_neurons, 4 + self.ADDED_UNITS)
+                self.assertAllClose(
+                    grown.conv1.weight, v1_block.first_layer.weight, atol=0
+                )
+                self.assertAllClose(
+                    grown.conv2.weight[:, :4], v1_block.second_layer.weight[:, :4], atol=0
+                )
+                new_fan_out = grown.conv2.weight[:, 4:]
+                v1_new_fan_out = v1_block.second_layer.weight[:, 4:]
+                assert_same_columns_up_to_sign(
+                    self, new_fan_out[:, :, 1, 1], v1_new_fan_out[:, :, 1, 1], atol=1e-5
+                )
+                self.assertAllClose(
+                    new_fan_out.flatten(2)[:, :, [0, 1, 2, 3, 5, 6, 7, 8]],
+                    v1_new_fan_out.flatten(2)[:, :, [0, 1, 2, 3, 5, 6, 7, 8]],
+                    atol=0,
+                )
+                v1_norm = v1_block.first_layer.post_layer_function[0]
+                for key, value in v1_norm.state_dict().items():
+                    self.assertAllClose(grown.bn.state_dict()[key], value, atol=0)
+
+    def test_grown_block_matches_v1_forward_and_backward(self):
+        for stride in (1, 2):
+            with self.subTest(stride=stride):
+                v1_block, plain, grown = self.grow_both(stride)
+                inputs = torch.randn(4, 3, 8, 8, device=self.device)
+                for training in (False, True):
+                    v1_block.zero_grad()
+                    grown.zero_grad()
+                    v1_block.train(training)
+                    grown.train(training)
+                    v1_output = v1_block(inputs)
+                    output = grown(inputs)
+                    self.assertAllClose(output, v1_output, atol=1e-5)
+                    with torch.no_grad():
+                        self.assertAllClose(
+                            output, plain.train(training)(inputs), atol=1e-5
+                        )
+                    output.pow(2).sum().backward()
+                    v1_output.pow(2).sum().backward()
+                    # The new fan-in learns through sigma'(0) = 1, with the sign of omega.
+                    sign = torch.sign(
+                        (grown.conv2.weight[:, 4:] * v1_block.second_layer.weight[:, 4:])
+                        .flatten(2)
+                        .sum(dim=(0, 2))
+                    )
+                    # In training mode BatchNorm divides the zero channels by sqrt(eps),
+                    # so the tolerance follows the gradient scale.
+                    v1_gradient = v1_block.first_layer.weight.grad[4:]
+                    self.assertAllClose(
+                        grown.conv1.weight.grad[4:] * sign[:, None, None, None],
+                        v1_gradient,
+                        atol=1e-5 * v1_gradient.abs().max().item(),
+                    )
+                    self.assertGreater(
+                        grown.conv1.weight.grad[4:].abs().max().item(), 0.0
+                    )
+
+    def test_norm_names_must_match_the_hidden_dimension(self):
+        _, plain = self.build(stride=1)
+        proposal = Proposal(None, torch.zeros(1, 27), torch.ones(5, 1), torch.ones(1), 0)
+        with self.assertRaises(ValueError):
+            grown_copy(
+                plain, "conv1", "conv2", proposal, gamma=1.0, norm_names=["shortcut"]
+            )
 
 
 if __name__ == "__main__":
