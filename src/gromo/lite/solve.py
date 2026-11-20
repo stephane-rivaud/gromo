@@ -92,7 +92,8 @@ def tiny(
     statistical_threshold : float
         singular values of ``S^{-1/2} N`` below this are discarded
     numerical_threshold : float | None
-        eigenvalues of ``S`` below this are treated as zero, numerical floor if None
+        eigenvalues of ``S`` below this are treated as zero; None keeps the
+        default of ``compute_optimal_added_parameters``
 
     Returns
     -------
@@ -103,12 +104,19 @@ def tiny(
     delta, parameter_update_decrease = optimal_delta(
         tensor_s, moments["tensor_m"], dtype=tensor_s.dtype
     )
+    # Pass the threshold only when given, as gradmax does: older v1 versions
+    # take a float with a default and reject None.
+    options = (
+        {}
+        if numerical_threshold is None
+        else {"numerical_threshold": numerical_threshold}
+    )
     alpha, omega, eigenvalues = compute_optimal_added_parameters(
         moments["tensor_s_growth"],
         tensor_n(moments, delta),
-        numerical_threshold=numerical_threshold,
         statistical_threshold=statistical_threshold,
         maximum_added_neurons=maximum_added_neurons,
+        **options,
     )
     return Proposal(delta, alpha, omega, eigenvalues, parameter_update_decrease)
 
