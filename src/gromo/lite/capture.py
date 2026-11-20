@@ -38,14 +38,14 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Protocol
 
 import torch
 from torch import nn
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Sequence
 
     from torch.utils.hooks import RemovableHandle
 
@@ -232,7 +232,21 @@ class Moments:
         right : torch.Tensor
             matrix of shape ``(positions, q)``
         """
-        update = left.T @ right
+        self.add_sum(name, left.T @ right)
+
+    def add_sum(self, name: str, update: torch.Tensor) -> None:
+        """Add a batch sum of any shape to the running sum called ``name``.
+
+        Use it from an :class:`ExtraMoment`; like :meth:`add`, the sum is divided
+        by the number of samples when it is read.
+
+        Parameters
+        ----------
+        name : str
+            name of the moment
+        update : torch.Tensor
+            sum over the rows of the batch
+        """
         if name in self.sums:
             self.sums[name] += update
         else:
@@ -327,13 +341,73 @@ class Site:
         return both_linear or both_conv
 
 
+@dataclass(frozen=True, eq=False)
+class SiteBatch:
+    """Tensors read at a site for one batch, passed to each :class:`ExtraMoment`.
+
+    Attributes
+    ----------
+    site : Site
+        site the tensors were read at
+    producer_input : torch.Tensor
+        input ``x`` of the producer
+    producer_output : torch.Tensor
+        output ``h`` of the producer, before the layers between producer and consumer
+    consumer_input : torch.Tensor
+        input ``z`` of the consumer
+    output_gradient : torch.Tensor
+        gradient ``g`` of the loss with respect to the output of the consumer
+    """
+
+    site: Site
+    producer_input: torch.Tensor
+    producer_output: torch.Tensor
+    consumer_input: torch.Tensor
+    output_gradient: torch.Tensor
+
+    def consumer_input_gradient(self) -> torch.Tensor:
+        """Gradient of the loss with respect to ``z``, through the consumer only.
+
+        Computed as a vector-Jacobian product of the consumer at ``z`` with ``g``,
+        so no extra hook is needed. It is the full gradient when ``z`` feeds only
+        the consumer, as in an MLP block. The consumer is called through its
+        ``forward`` method, which bypasses the hooks of :func:`collect`.
+
+        Returns
+        -------
+        torch.Tensor
+            tensor of the shape of ``consumer_input``
+        """
+        consumer_input = self.consumer_input.detach().requires_grad_()
+        with torch.enable_grad():
+            output = self.site.consumer.forward(consumer_input)
+            (gradient,) = torch.autograd.grad(
+                output, consumer_input, self.output_gradient
+            )
+        return gradient
+
+
+class ExtraMoment(Protocol):
+    """A statistic added by a growth method on top of the standard moments."""
+
+    def __call__(self, batch: SiteBatch, moments: Moments) -> None:
+        """Add the contribution of ``batch`` to ``moments`` with :meth:`Moments.add_sum`.
+
+        Parameters
+        ----------
+        batch : SiteBatch
+            tensors read at the site for one batch
+        moments : Moments
+            accumulator of the site
+        """
+
+
 @torch.no_grad()
 def _accumulate(
     site: Site,
     moments: Moments,
-    producer_input: torch.Tensor,
-    consumer_input: torch.Tensor,
-    output_gradient: torch.Tensor,
+    batch: SiteBatch,
+    extra_moments: Sequence[ExtraMoment],
 ) -> None:
     """Add the contribution of one batch to the moments of ``site``.
 
@@ -343,13 +417,13 @@ def _accumulate(
         growth site the tensors were read from
     moments : Moments
         accumulator of ``site``
-    producer_input : torch.Tensor
-        input of ``site.producer``
-    consumer_input : torch.Tensor
-        input of ``site.consumer``
-    output_gradient : torch.Tensor
-        gradient of the loss with respect to the output of ``site.consumer``
+    batch : SiteBatch
+        tensors read at ``site`` for one batch
+    extra_moments : Sequence[ExtraMoment]
+        statistics added on top of the standard moments
     """
+    producer_input, consumer_input = batch.producer_input, batch.consumer_input
+    output_gradient = batch.output_gradient
     producer_patches = input_patches(site.producer, producer_input)
     consumer_patches = input_patches(site.consumer, consumer_input)
     gradient_rows = output_rows(site.consumer, output_gradient)
@@ -360,10 +434,14 @@ def _accumulate(
         aligned_patches = aligned_producer_patches(site, producer_patches, consumer_input)
         moments.add("tensor_m_prev", aligned_patches, gradient_rows)
         moments.add("cross_covariance", aligned_patches, consumer_patches)
+    for extra_moment in extra_moments:
+        extra_moment(batch, moments)
     moments.samples += output_gradient.shape[0]
 
 
-def _attach(site: Site, moments: Moments) -> list[RemovableHandle]:
+def _attach(
+    site: Site, moments: Moments, extra_moments: Sequence[ExtraMoment]
+) -> list[RemovableHandle]:
     """Register the hooks that feed the moments of ``site``.
 
     Parameters
@@ -372,6 +450,8 @@ def _attach(site: Site, moments: Moments) -> list[RemovableHandle]:
         growth site to observe
     moments : Moments
         accumulator of ``site``
+    extra_moments : Sequence[ExtraMoment]
+        statistics added on top of the standard moments
 
     Returns
     -------
@@ -406,9 +486,14 @@ def _attach(site: Site, moments: Moments) -> list[RemovableHandle]:
             )
 
         def on_output_gradient(output_gradient: torch.Tensor) -> None:
-            _accumulate(
-                site, moments, producer_input, consumer_input, output_gradient.detach()
+            batch = SiteBatch(
+                site,
+                producer_input,
+                producer_output,
+                consumer_input,
+                output_gradient.detach(),
             )
+            _accumulate(site, moments, batch, extra_moments)
 
         output.register_hook(on_output_gradient)
 
@@ -419,7 +504,9 @@ def _attach(site: Site, moments: Moments) -> list[RemovableHandle]:
 
 
 @contextmanager
-def collect(sites: list[Site]) -> Iterator[dict[Site, Moments]]:
+def collect(
+    sites: list[Site], extra_moments: Sequence[ExtraMoment] = ()
+) -> Iterator[dict[Site, Moments]]:
     """Accumulate the moments of each site over the passes run inside the context.
 
     Run forward and backward passes inside the ``with`` block as in training.
@@ -431,6 +518,9 @@ def collect(sites: list[Site]) -> Iterator[dict[Site, Moments]]:
     ----------
     sites : list[Site]
         growth sites to observe
+    extra_moments : Sequence[ExtraMoment]
+        statistics a growth method needs on top of the standard moments, for
+        example the splitting matrices of :func:`gromo.lite.splitting.splitting_moment`
 
     Yields
     ------
@@ -438,7 +528,11 @@ def collect(sites: list[Site]) -> Iterator[dict[Site, Moments]]:
         moments of each site, filled in as backward passes run
     """
     moments = {site: Moments() for site in sites}
-    handles = [handle for site in sites for handle in _attach(site, moments[site])]
+    handles = [
+        handle
+        for site in sites
+        for handle in _attach(site, moments[site], tuple(extra_moments))
+    ]
     try:
         yield moments
     finally:

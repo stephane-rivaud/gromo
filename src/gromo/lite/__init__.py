@@ -25,8 +25,10 @@ Status: prototype. Sites are ``nn.Linear -> nn.Linear`` or
 """
 
 from gromo.lite.capture import (
+    ExtraMoment,
     Moments,
     Site,
+    SiteBatch,
     aligned_producer_patches,
     centre_tap,
     collect,
@@ -51,9 +53,11 @@ from gromo.lite.surgery import (
 
 
 __all__ = [
+    "ExtraMoment",
     "Moments",
     "Proposal",
     "Site",
+    "SiteBatch",
     "aligned_producer_patches",
     "centre_tap",
     "collect",
