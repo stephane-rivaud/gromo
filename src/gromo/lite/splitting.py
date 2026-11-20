@@ -24,8 +24,10 @@ The method has three parts, one per step of :mod:`gromo.lite`:
 3. :func:`split_units` and :func:`split_copy` build the split modules.
 
 At ``eps = 0`` the split network computes the same function. The activation
-between producer and consumer must be elementwise; a normalisation over the
-hidden units in between is not supported.
+between producer and consumer must be elementwise. A batch normalisation in
+between is supported: the moment folds its evaluation-mode affine map
+``h = a z + b`` into the curvature, ``S_l = E[dL/dz_l * a_l**2 * sigma''(h_l) *
+x x^T]``, and the split duplicates the unit's normalisation channel.
 """
 
 from __future__ import annotations
@@ -38,13 +40,13 @@ import torch
 from torch import nn
 
 from gromo.lite.capture import input_patches, output_rows
-from gromo.lite.surgery import _resized_conv2d
+from gromo.lite.surgery import _resized_conv2d, widen_norm
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping, Sequence
 
-    from gromo.lite.capture import Moments, SiteBatch
+    from gromo.lite.capture import Moments, Site, SiteBatch
 
 
 SPLITTING_MATRICES = "splitting_matrices"
@@ -78,8 +80,43 @@ def activation_second_derivative(
     return second.detach()
 
 
+def _evaluation_affine(
+    norm: nn.modules.batchnorm._BatchNorm,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Per-feature scale and shift of a batch normalisation in evaluation mode.
+
+    Parameters
+    ----------
+    norm : nn.modules.batchnorm._BatchNorm
+        batch normalisation with running statistics, in evaluation mode
+
+    Returns
+    -------
+    tuple[torch.Tensor, torch.Tensor]
+        ``a`` and ``b`` such that ``norm(z) = a * z + b`` feature-wise
+
+    Raises
+    ------
+    ValueError
+        if ``norm`` is in training mode or has no running statistics
+    """
+    if norm.training or norm.running_mean is None or norm.running_var is None:
+        raise ValueError(
+            "splitting_moment folds a batch normalisation only in evaluation mode "
+            "with running statistics; call model.eval() before collecting."
+        )
+    scale = torch.rsqrt(norm.running_var + norm.eps)
+    if norm.weight is not None:
+        scale = scale * norm.weight
+    shift = -norm.running_mean * scale
+    if norm.bias is not None:
+        shift = shift + norm.bias
+    return scale.detach(), shift.detach()
+
+
 def splitting_moment(
     activation: Callable[[torch.Tensor], torch.Tensor],
+    norms: Mapping[Site, nn.modules.batchnorm._BatchNorm] | None = None,
 ) -> Callable[[SiteBatch, Moments], None]:
     """Extra statistic accumulating the splitting matrix of every producer unit.
 
@@ -90,19 +127,34 @@ def splitting_moment(
     Parameters
     ----------
     activation : Callable[[torch.Tensor], torch.Tensor]
-        elementwise activation between the producer and the consumer
+        elementwise activation between the producer and the consumer; its second
+        derivative is the curvature of the splitting matrix
+    norms : Mapping[Site, nn.modules.batchnorm._BatchNorm] | None
+        batch normalisation between the producer and the activation, per site; it
+        must be in evaluation mode while the moments are collected
 
     Returns
     -------
     Callable[[SiteBatch, Moments], None]
         extra moment for :func:`~gromo.lite.capture.collect`
     """
+    norm_of = dict(norms or {})
 
     def accumulate(batch: SiteBatch, moments: Moments) -> None:
         producer = batch.site.producer
         pre_activation = output_rows(producer, batch.producer_output)
         unit_gradient = output_rows(producer, batch.consumer_input_gradient())
-        weights = unit_gradient * activation_second_derivative(activation, pre_activation)
+        norm = norm_of.get(batch.site)
+        if norm is None:
+            weights = unit_gradient * activation_second_derivative(
+                activation, pre_activation
+            )
+        else:
+            scale, shift = _evaluation_affine(norm)
+            curvature = activation_second_derivative(
+                activation, pre_activation * scale + shift
+            )
+            weights = unit_gradient * curvature * scale**2
         patches = input_patches(producer, batch.producer_input)
         chunks = [
             torch.einsum(
@@ -306,12 +358,44 @@ def _fill_split(
         new_consumer.bias.copy_(consumer.bias)
 
 
+@torch.no_grad()
+def split_norm(
+    norm: nn.modules.batchnorm._BatchNorm, units: torch.Tensor
+) -> nn.modules.batchnorm._BatchNorm:
+    """Return a copy of a batch normalisation with the features ``units`` duplicated.
+
+    The copies are appended in the order of ``units``, as :func:`split_units`
+    appends the new producer units, so a split at ``eps = 0`` computes the same
+    function in training and evaluation mode.
+
+    Parameters
+    ----------
+    norm : nn.modules.batchnorm._BatchNorm
+        batch normalisation on the hidden units of the site
+    units : torch.Tensor
+        indices of the split units
+
+    Returns
+    -------
+    nn.modules.batchnorm._BatchNorm
+        normalisation with ``len(units)`` more features
+    """
+    new_norm = widen_norm(norm, int(units.numel()))
+    count = norm.num_features
+    for name in ("weight", "bias", "running_mean", "running_var"):
+        old, new = getattr(norm, name), getattr(new_norm, name)
+        if old is not None and new is not None:
+            new[count:] = old[units.to(old.device)]
+    return new_norm
+
+
 def split_copy(
     model: nn.Module,
     producer_name: str,
     consumer_name: str,
     proposal: SplitProposal,
     epsilon: float,
+    norm_names: Sequence[str] = (),
 ) -> nn.Module:
     """Return a deep copy of ``model`` with the proposed units of a site split.
 
@@ -327,11 +411,19 @@ def split_copy(
         units and directions from :func:`splitting`
     epsilon : float
         splitting step
+    norm_names : Sequence[str]
+        qualified names of batch normalisations on the hidden units, whose
+        features of the split units are duplicated
 
     Returns
     -------
     nn.Module
         split copy of ``model``
+
+    Raises
+    ------
+    TypeError
+        if a module named in ``norm_names`` is not a batch normalisation
     """
     split = copy.deepcopy(model)
     new_producer, new_consumer = split_units(
@@ -342,4 +434,9 @@ def split_copy(
     )
     split.set_submodule(producer_name, new_producer)
     split.set_submodule(consumer_name, new_consumer)
+    for norm_name in norm_names:
+        norm = split.get_submodule(norm_name)
+        if not isinstance(norm, nn.modules.batchnorm._BatchNorm):
+            raise TypeError(f"{norm_name!r} is not a batch normalisation.")
+        split.set_submodule(norm_name, split_norm(norm, proposal.units))
     return split
