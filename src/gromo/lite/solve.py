@@ -344,14 +344,16 @@ def _random_block(
             f"Unknown initialization {initialization!r}; "
             f"expected one of {_RANDOM_INITIALIZATIONS}."
         )
-    block = torch.zeros(shape, dtype=reference.dtype, device=reference.device)
     if initialization == "zeros":
-        return block
+        return torch.zeros(shape, dtype=reference.dtype, device=reference.device)
     if initialization == "copy_normal" and reference.numel() > 1:
         std = float(reference.std())
     else:
         std = (2.0 / fan_in) ** 0.5
-    return block.normal_(0.0, std, generator=generator)
+    # draw on the generator's device: a CPU generator cannot fill an MPS tensor
+    device = generator.device if generator is not None else reference.device
+    block = torch.empty(shape, dtype=reference.dtype, device=device)
+    return block.normal_(0.0, std, generator=generator).to(reference.device)
 
 
 @torch.no_grad()

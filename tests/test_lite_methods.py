@@ -120,3 +120,15 @@ class TestExtraMoments(TorchTestCase):
         self.assertAllClose(producer_output, model[0](inputs).detach())
         self.assertAllClose(gradient, hidden.grad, atol=1e-6)
         self.assertAllClose(moments[site]["count"], torch.tensor(1 / 32))
+
+    def test_generator_on_another_device_is_accepted(self) -> None:
+        producer, consumer = nn.Linear(5, 4), nn.Linear(4, 3)
+        generator = torch.Generator(device="cpu").manual_seed(0)
+        first = random_proposal(
+            producer, consumer, 2, "kaiming_normal", "zeros", generator
+        )
+        generator.manual_seed(0)
+        second = random_proposal(
+            producer, consumer, 2, "kaiming_normal", "zeros", generator
+        )
+        self.assertAllClose(first.alpha, second.alpha, atol=0)
