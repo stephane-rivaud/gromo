@@ -2,12 +2,17 @@
 
 ``gromo.lite`` separates four steps that ``GrowingModule`` combines:
 
-1. capture: :func:`collect` attaches temporary hooks to a :class:`Site`;
+1. capture: :func:`collect` attaches temporary hooks to a :class:`Site`; a
+   method can add its own statistics through ``extra_moments``;
 2. moments: :class:`Moments` holds running averages of outer products;
 3. solve: :func:`tiny` and :func:`gradmax` are pure functions of the moments,
-   and :func:`gradmax_normalization` rescales a GradMax proposal;
+   :func:`gradmax_normalization` rescales a GradMax proposal and
+   :func:`random_proposal` draws new units without statistics;
 4. surgery: :func:`widen`, :func:`widen_norm` and :func:`grown_copy` return new
    modules.
+
+:mod:`gromo.lite.splitting` adds splitting steepest descent with one module:
+an extra statistic, a solver and a surgery that splits existing units.
 
 Example::
 
@@ -45,6 +50,14 @@ from gromo.lite.solve import (
     tensor_n,
     tiny,
 )
+from gromo.lite.splitting import (
+    SplitProposal,
+    activation_second_derivative,
+    split_copy,
+    split_units,
+    splitting,
+    splitting_moment,
+)
 from gromo.lite.surgery import (
     grown_copy,
     widen,
@@ -60,6 +73,8 @@ __all__ = [
     "Proposal",
     "Site",
     "SiteBatch",
+    "SplitProposal",
+    "activation_second_derivative",
     "aligned_producer_patches",
     "centre_tap",
     "collect",
@@ -71,6 +86,10 @@ __all__ = [
     "input_patches",
     "output_rows",
     "random_proposal",
+    "split_copy",
+    "split_units",
+    "splitting",
+    "splitting_moment",
     "tensor_n",
     "tiny",
     "widen",
