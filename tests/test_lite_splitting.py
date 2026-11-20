@@ -2,7 +2,8 @@
 
 The splitting matrices are compared with brute-force computations (a per-sample
 Hessian of the unit for Linear sites, an analytic tanh'' over unfolded patches
-for convolutions). The loss change of a split is compared with its prediction
+for convolutions, the same with an evaluation-mode BatchNorm folded in). The loss
+change of a split is compared with its prediction
 ``eps**2 / 2 * sum(lambda_min)`` by finite differences.
 """
 
@@ -169,3 +170,84 @@ class TestSplitting(TorchTestCase):
                 ) / epsilon**2
                 self.assertLess(predicted, 0)
                 self.assertAlmostEqual(measured / predicted, 1.0, delta=1e-2)
+
+
+class TestSplittingThroughBatchNorm(TorchTestCase):
+    """A batch normalisation between producer and activation, as in a ResNet block."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.model = nn.Sequential(
+            nn.Conv2d(2, 4, 3, padding=1, bias=False),
+            nn.BatchNorm2d(4),
+            nn.Tanh(),
+            nn.Conv2d(4, 2, 3, padding=1),
+        ).double()
+        norm = self.model[1]
+        with torch.no_grad():
+            norm.running_mean.copy_(torch.randn(4, dtype=torch.float64))
+            norm.running_var.copy_(torch.rand(4, dtype=torch.float64) + 0.5)
+            norm.weight.copy_(torch.randn(4, dtype=torch.float64))
+            norm.bias.copy_(torch.randn(4, dtype=torch.float64))
+        self.model.eval()
+        self.inputs = torch.randn(16, 2, 6, 6, dtype=torch.float64)
+        self.targets = torch.randn(16, 2, 6, 6, dtype=torch.float64)
+
+    def collect(self):
+        """Collect the splitting moments of the site ``model[0] -> model[3]``."""
+        site = Site(self.model[0], self.model[3])
+        moment = splitting_moment(torch.tanh, norms={site: self.model[1]})
+        with collect([site], extra_moments=[moment]) as moments:
+            summed_squared_error(self.model(self.inputs), self.targets).backward()
+        self.model.zero_grad(set_to_none=True)
+        return moments[site]
+
+    def test_matrices_fold_the_evaluation_affine_map(self) -> None:
+        matrices = self.collect()["splitting_matrices"]
+        norm = self.model[1]
+        scale = norm.weight / torch.sqrt(norm.running_var + norm.eps)
+        shift = norm.bias - norm.running_mean * scale
+        with torch.no_grad():
+            pre_activation = self.model[0](self.inputs)
+            normalised = pre_activation * scale[:, None, None] + shift[:, None, None]
+        hidden = torch.tanh(normalised).requires_grad_()
+        summed_squared_error(self.model[3](hidden), self.targets).backward()
+        weights = (
+            hidden.grad
+            * tanh_second_derivative(normalised)
+            * (scale**2).detach()[:, None, None]
+        )
+        patches = nn.functional.unfold(self.inputs, 3, padding=1)
+        expected = torch.einsum("bup,bip,bjp->uij", weights.flatten(2), patches, patches)
+        self.assertAllClose(matrices, expected / 16, atol=1e-10)
+
+    def test_zero_step_preserves_the_function_in_both_modes(self) -> None:
+        proposal = splitting(self.collect())
+        self.assertGreater(proposal.units.numel(), 0)
+        split = split_copy(self.model, "0", "3", proposal, 0.0, norm_names=("1",))
+        self.assertEqual(split[1].num_features, 4 + proposal.units.numel())
+        for mode in ("eval", "train"):
+            with self.subTest(mode=mode), torch.no_grad():
+                getattr(self.model, mode)()
+                getattr(split, mode)()
+                self.assertAllClose(
+                    split(self.inputs), self.model(self.inputs), atol=1e-12
+                )
+
+    def test_loss_change_matches_the_splitting_indices(self) -> None:
+        proposal = splitting(self.collect())
+        predicted = 0.5 * proposal.eigenvalues.sum().item()
+        epsilon = 1e-3
+        split = split_copy(self.model, "0", "3", proposal, epsilon, norm_names=("1",))
+        split.eval()
+        measured = (
+            mean_loss(split, self.inputs, self.targets)
+            - mean_loss(self.model, self.inputs, self.targets)
+        ) / epsilon**2
+        self.assertLess(predicted, 0)
+        self.assertAlmostEqual(measured / predicted, 1.0, delta=1e-2)
+
+    def test_training_mode_normalisation_is_refused(self) -> None:
+        self.model.train()
+        with self.assertRaises(ValueError):
+            self.collect()
