@@ -266,3 +266,153 @@ def fixed_proportional_budget(
             f"number_of_growth_steps must be positive, got {number_of_growth_steps}."
         )
     return (target_units - initial_units) // number_of_growth_steps
+
+
+def first_order_decrease(
+    moments: Moments, proposal: Proposal, activation_slope: float = 1.0
+) -> torch.Tensor:
+    """Exact first-order loss decrease of a proposal applied with scale ``gamma``.
+
+    Growing with :func:`~gromo.lite.surgery.grown_copy` at scale ``gamma``
+    changes the consumer output by ``-gamma**2 delta z + gamma omega
+    sigma(gamma alpha x)``. With ``sigma(0) = 0`` and ``sigma'(0) = s``, the loss
+    then decreases by ``gamma**2 * D + o(gamma**2)`` with
+
+        D = parameter_update_decrease - s * trace(omega alpha tensor_m_prev).
+
+    This is the directional derivative the surgery actually follows. TINY's
+    ``parameter_update_decrease + sum(eigenvalues**2)`` differs from it by the
+    cross term ``E[<delta z, omega alpha x>]``.
+
+    Parameters
+    ----------
+    moments : Moments
+        moments of a site with pair moments
+    proposal : Proposal
+        proposal computed from ``moments``
+    activation_slope : float
+        ``sigma'(0)`` of the activation between producer and consumer, for
+        example 1 for tanh and 0.5 for GELU
+
+    Returns
+    -------
+    torch.Tensor
+        scalar ``D``
+    """
+    new_units = torch.trace(proposal.omega @ proposal.alpha @ moments["tensor_m_prev"])
+    return proposal.parameter_update_decrease - activation_slope * new_units
+
+
+_RANDOM_INITIALIZATIONS = ("zeros", "kaiming_normal", "copy_normal")
+
+
+def _random_block(
+    shape: tuple[int, int],
+    initialization: str,
+    fan_in: int,
+    reference: torch.Tensor,
+    generator: torch.Generator | None,
+) -> torch.Tensor:
+    """Draw one block of new weights as v1's extension initializations do.
+
+    Parameters
+    ----------
+    shape : tuple[int, int]
+        shape of the block
+    initialization : str
+        ``"zeros"``, ``"kaiming_normal"`` (std ``sqrt(2 / fan_in)``) or
+        ``"copy_normal"`` (std of ``reference``)
+    fan_in : int
+        fan-in used by ``"kaiming_normal"``
+    reference : torch.Tensor
+        existing weights whose standard deviation ``"copy_normal"`` copies
+    generator : torch.Generator | None
+        random generator
+
+    Returns
+    -------
+    torch.Tensor
+        block of shape ``shape`` in the dtype and device of ``reference``
+
+    Raises
+    ------
+    ValueError
+        if ``initialization`` is unknown
+    """
+    if initialization not in _RANDOM_INITIALIZATIONS:
+        raise ValueError(
+            f"Unknown initialization {initialization!r}; "
+            f"expected one of {_RANDOM_INITIALIZATIONS}."
+        )
+    block = torch.zeros(shape, dtype=reference.dtype, device=reference.device)
+    if initialization == "zeros":
+        return block
+    if initialization == "copy_normal" and reference.numel() > 1:
+        std = float(reference.std())
+    else:
+        std = (2.0 / fan_in) ** 0.5
+    return block.normal_(0.0, std, generator=generator)
+
+
+@torch.no_grad()
+def random_proposal(
+    producer: torch.nn.Linear | torch.nn.Conv2d,
+    consumer: torch.nn.Linear | torch.nn.Conv2d,
+    added_units: int,
+    fan_in: str = "kaiming_normal",
+    fan_out: str = "zeros",
+    generator: torch.Generator | None = None,
+) -> Proposal:
+    """New units with random fan-in and fan-out, without statistics.
+
+    Port of v1's extension initializations (``GrowingModule.initialize_extensions``):
+    ``"kaiming_normal"`` draws with std ``sqrt(2 / fan_in)``, using the producer
+    fan-in for the new fan-in and the grown consumer fan-in for the new fan-out;
+    ``"copy_normal"`` copies the std of the existing producer or consumer weights.
+    v1's ``noise_ratio`` is not ported. The bias of the new units is zero. The
+    paper modes of the init-mode sweep are B ``("kaiming_normal", "zeros")``,
+    C ``("zeros", "kaiming_normal")``, D ``("kaiming_normal", "kaiming_normal")``
+    and E ``("copy_normal", "copy_normal")``. For a convolution, the fan-out is a
+    ``1 x 1`` weight at the consumer centre tap, as in the restricted scheme.
+
+    Parameters
+    ----------
+    producer : torch.nn.Linear | torch.nn.Conv2d
+        layer producing the hidden units
+    consumer : torch.nn.Linear | torch.nn.Conv2d
+        layer reading them
+    added_units : int
+        number of new units
+    fan_in : str
+        initialization of the new fan-in
+    fan_out : str
+        initialization of the new fan-out
+    generator : torch.Generator | None
+        random generator
+
+    Returns
+    -------
+    Proposal
+        new units without weight update; ``eigenvalues`` is all zeros
+    """
+    producer_fan_in = producer.weight[0].numel()
+    consumer_fan_in = consumer.weight[0].numel()
+    unit_fan_in = consumer.weight[0, 0].numel()
+    alpha = _random_block(
+        (added_units, producer_fan_in),
+        fan_in,
+        producer_fan_in,
+        producer.weight,
+        generator,
+    )
+    if producer.bias is not None:
+        alpha = torch.cat([alpha, alpha.new_zeros(added_units, 1)], dim=1)
+    omega = _random_block(
+        (consumer.weight.shape[0], added_units),
+        fan_out,
+        consumer_fan_in + added_units * unit_fan_in,
+        consumer.weight,
+        generator,
+    )
+    zero = alpha.new_zeros(())
+    return Proposal(None, alpha, omega, alpha.new_zeros(added_units), zero)

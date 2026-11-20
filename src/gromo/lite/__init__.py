@@ -37,9 +37,11 @@ from gromo.lite.capture import (
 )
 from gromo.lite.solve import (
     Proposal,
+    first_order_decrease,
     fixed_proportional_budget,
     gradmax,
     gradmax_normalization,
+    random_proposal,
     tensor_n,
     tiny,
 )
@@ -61,12 +63,14 @@ __all__ = [
     "aligned_producer_patches",
     "centre_tap",
     "collect",
+    "first_order_decrease",
     "fixed_proportional_budget",
     "gradmax",
     "gradmax_normalization",
     "grown_copy",
     "input_patches",
     "output_rows",
+    "random_proposal",
     "tensor_n",
     "tiny",
     "widen",
