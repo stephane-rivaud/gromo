@@ -70,11 +70,185 @@ def tensor_n(moments: Moments, delta: torch.Tensor) -> torch.Tensor:
     return -moments["tensor_m_prev"] + moments["cross_covariance"] @ delta.T
 
 
+def _covariance_loss_gradient(moments: Moments, shrinkage: float) -> torch.Tensor:
+    """Empirical Fisher ``E = E[g g^T]`` of a site, optionally ridge-shrunk.
+
+    The shrinkage replaces ``E`` by ``(1 - shrinkage) E + shrinkage tr(E)/d I``,
+    as ``_shrink_psd_matrix`` does in v1, which keeps ``E`` invertible.
+
+    Parameters
+    ----------
+    moments : Moments
+        moments of a site
+    shrinkage : float
+        shrinkage intensity in ``[0, 1]``
+
+    Returns
+    -------
+    torch.Tensor
+        matrix of shape ``(consumer_out, consumer_out)``
+
+    Raises
+    ------
+    ValueError
+        if ``shrinkage`` is outside ``[0, 1]``
+    """
+    if not 0.0 <= shrinkage <= 1.0:
+        raise ValueError(f"fisher_shrinkage must be in [0, 1], got {shrinkage}.")
+    covariance = moments["covariance_loss_gradient"]
+    if shrinkage == 0.0:
+        return covariance
+    size = covariance.shape[0]
+    identity = torch.eye(size, dtype=covariance.dtype, device=covariance.device)
+    return (1 - shrinkage) * covariance + shrinkage * covariance.trace() / size * identity
+
+
+def natural_gradient(
+    moments: Moments, use_fisher: bool = False, fisher_shrinkage: float = 0.0
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Optimal update of the consumer weights and its first-order loss decrease.
+
+    ``delta = (S^{-1} M)^T``, or ``E^{-1} (S^{-1} M)^T`` with the empirical Fisher
+    ``E = E[g g^T]``, as ``GrowingModule.compute_optimal_delta(use_fisher=...)``.
+    With the Fisher, ``delta`` is invariant to a rescaling of the layers around
+    the site that preserves the network function.
+
+    Parameters
+    ----------
+    moments : Moments
+        moments of a site
+    use_fisher : bool
+        precondition by the empirical Fisher of the consumer output gradient
+    fisher_shrinkage : float
+        ridge shrinkage of the Fisher, in ``[0, 1]``
+
+    Returns
+    -------
+    tuple[torch.Tensor, torch.Tensor]
+        ``delta`` of shape ``(consumer_out, consumer_fan_in [+1])`` and the
+        decrease ``trace(M delta)``
+    """
+    tensor_s = moments["tensor_s"]
+    options = (
+        {
+            "tensor_covariance_loss_gradient": _covariance_loss_gradient(
+                moments, fisher_shrinkage
+            )
+        }
+        if use_fisher
+        else {}
+    )
+    return optimal_delta(tensor_s, moments["tensor_m"], dtype=tensor_s.dtype, **options)
+
+
+def optimal_updates(
+    moments: Moments,
+    *,
+    compute_delta: bool = True,
+    use_projection: bool = True,
+    use_covariance: bool = True,
+    use_fisher: bool = False,
+    fisher_shrinkage: float = 0.0,
+    ignore_singular_values: bool = False,
+    maximum_added_neurons: int | None = None,
+    statistical_threshold: float = 1e-3,
+    numerical_threshold: float | None = None,
+) -> Proposal:
+    """Consumer update and new units from the primitive options of v1.
+
+    Matches ``GrowingModule.compute_optimal_updates`` with the same options:
+    the new units come from the SVD of ``S^{-1/2} N E^{-1/2}``, where ``S`` is
+    ``tensor_s_growth`` (identity without ``use_covariance``), ``N`` is
+    :func:`tensor_n` (``-tensor_m_prev`` without ``use_projection``) and ``E``
+    the empirical Fisher (identity without ``use_fisher``). The defaults are
+    TINY's; :func:`tiny` is this function with them.
+
+    Parameters
+    ----------
+    moments : Moments
+        moments of a ``nn.Linear -> nn.Linear`` or ``nn.Conv2d -> nn.Conv2d`` site
+    compute_delta : bool
+        compute the natural-gradient update of the consumer, see
+        :func:`natural_gradient`
+    use_projection : bool
+        fit the new units to the gradient left after that update; needs
+        ``compute_delta``
+    use_covariance : bool
+        whiten by the producer input covariance ``tensor_s_growth``
+    use_fisher : bool
+        precondition the update and the new units by the empirical Fisher
+    fisher_shrinkage : float
+        ridge shrinkage of the Fisher, in ``[0, 1]``
+    ignore_singular_values : bool
+        give every new unit unit-norm fan-in and fan-out factors instead of
+        ``sqrt`` of its singular value
+    maximum_added_neurons : int | None
+        maximum number of new units, all significant ones if None
+    statistical_threshold : float
+        singular values below this are discarded
+    numerical_threshold : float | None
+        eigenvalues of ``S`` (and ``E``) below this are treated as zero; None
+        keeps the default of ``compute_optimal_added_parameters``
+
+    Returns
+    -------
+    Proposal
+        weight update (None without ``compute_delta``) and new units
+
+    Raises
+    ------
+    ValueError
+        if ``use_projection`` is set without ``compute_delta``
+    """
+    if use_projection and not compute_delta:
+        raise ValueError("use_projection needs the consumer update: set compute_delta.")
+    negative_gradient = -moments["tensor_m_prev"]
+    if compute_delta:
+        delta, parameter_update_decrease = natural_gradient(
+            moments, use_fisher, fisher_shrinkage
+        )
+    else:
+        delta = None
+        parameter_update_decrease = torch.zeros(
+            (), dtype=negative_gradient.dtype, device=negative_gradient.device
+        )
+    matrix_n = (
+        tensor_n(moments, delta)
+        if use_projection and delta is not None
+        else negative_gradient
+    )
+    # Pass optional arguments only when used: older v1 versions take a float
+    # threshold with a default and reject None, and predate some Fisher options.
+    options: dict = {}
+    if numerical_threshold is not None:
+        options["numerical_threshold"] = numerical_threshold
+    if use_fisher:
+        options["matrix_covariance_loss_gradient"] = _covariance_loss_gradient(
+            moments, fisher_shrinkage
+        )
+        if fisher_shrinkage > 0:
+            # as v1: the shrunk spectrum is real, so only the numerical floor
+            # applies, without its worst-case term
+            options["e_numerical_threshold"] = 0.0
+            options["e_worst_case_numerical_floor"] = False
+    alpha, omega, eigenvalues = compute_optimal_added_parameters(
+        moments["tensor_s_growth"] if use_covariance else None,
+        matrix_n,
+        statistical_threshold=statistical_threshold,
+        maximum_added_neurons=maximum_added_neurons,
+        ignore_singular_values=ignore_singular_values,
+        **options,
+    )
+    return Proposal(delta, alpha, omega, eigenvalues, parameter_update_decrease)
+
+
 def tiny(
     moments: Moments,
     maximum_added_neurons: int | None = None,
     statistical_threshold: float = 1e-3,
     numerical_threshold: float | None = None,
+    use_fisher: bool = False,
+    fisher_shrinkage: float = 0.0,
 ) -> Proposal:
     """TINY: natural-gradient update plus new units that fit the projected residual.
 
@@ -94,31 +268,24 @@ def tiny(
     numerical_threshold : float | None
         eigenvalues of ``S`` below this are treated as zero; None keeps the
         default of ``compute_optimal_added_parameters``
+    use_fisher : bool
+        precondition by the empirical Fisher (``use_fisher=True`` in v1)
+    fisher_shrinkage : float
+        ridge shrinkage of the Fisher, in ``[0, 1]``
 
     Returns
     -------
     Proposal
         weight update and new units
     """
-    tensor_s = moments["tensor_s"]
-    delta, parameter_update_decrease = optimal_delta(
-        tensor_s, moments["tensor_m"], dtype=tensor_s.dtype
-    )
-    # Pass the threshold only when given, as gradmax does: older v1 versions
-    # take a float with a default and reject None.
-    options = (
-        {}
-        if numerical_threshold is None
-        else {"numerical_threshold": numerical_threshold}
-    )
-    alpha, omega, eigenvalues = compute_optimal_added_parameters(
-        moments["tensor_s_growth"],
-        tensor_n(moments, delta),
-        statistical_threshold=statistical_threshold,
+    return optimal_updates(
+        moments,
+        use_fisher=use_fisher,
+        fisher_shrinkage=fisher_shrinkage,
         maximum_added_neurons=maximum_added_neurons,
-        **options,
+        statistical_threshold=statistical_threshold,
+        numerical_threshold=numerical_threshold,
     )
-    return Proposal(delta, alpha, omega, eigenvalues, parameter_update_decrease)
 
 
 def gradmax(

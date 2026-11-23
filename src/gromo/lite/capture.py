@@ -11,19 +11,22 @@ context exits, so the model itself never stores statistics.
 
 Moment names match the ``GrowingModule`` attributes that they reproduce:
 
-====================  ===========  ====================================
-name                  definition   v1 attribute (on the consumer)
-====================  ===========  ====================================
-``tensor_s``          E[z z^T]     ``tensor_s``
-``tensor_m``          E[z g^T]     ``tensor_m``
-``tensor_s_growth``   E[x x^T]     ``tensor_s_growth``
-``tensor_m_prev``     E[x' g^T]    ``tensor_m_prev``
-``cross_covariance``  E[x' z^T]    ``cross_covariance``
-====================  ===========  ====================================
+============================  ==========  ==============================
+name                          definition  v1 attribute (on the consumer)
+============================  ==========  ==============================
+``tensor_s``                  E[z z^T]    ``tensor_s``
+``tensor_m``                  E[z g^T]    ``tensor_m``
+``tensor_s_growth``           E[x x^T]    ``tensor_s_growth``
+``tensor_m_prev``             E[x' g^T]   ``tensor_m_prev``
+``cross_covariance``          E[x' z^T]   ``cross_covariance``
+``covariance_loss_gradient``  E[g g^T]    ``covariance_loss_gradient``
+============================  ==========  ==============================
 
 ``x`` and ``z`` get a trailing column of ones when their layer has a bias, and
 convolution inputs are unfolded into patches. As in v1, the sums run over all
-positions and are divided by the number of batch elements.
+positions and are divided by the number of batch elements. ``g`` is the
+gradient with respect to the consumer output, so ``covariance_loss_gradient``
+is the empirical Fisher that the solvers use when ``use_fisher`` is set.
 
 ``x'`` is ``x`` aligned with the consumer output positions, see
 :func:`aligned_producer_patches`. For ``nn.Linear -> nn.Linear`` it is ``x``.
@@ -430,6 +433,7 @@ def _accumulate(
     moments.add("tensor_s", consumer_patches, consumer_patches)
     moments.add("tensor_m", consumer_patches, gradient_rows)
     moments.add("tensor_s_growth", producer_patches, producer_patches)
+    moments.add("covariance_loss_gradient", gradient_rows, gradient_rows)
     if site.has_pair_moments:
         aligned_patches = aligned_producer_patches(site, producer_patches, consumer_input)
         moments.add("tensor_m_prev", aligned_patches, gradient_rows)

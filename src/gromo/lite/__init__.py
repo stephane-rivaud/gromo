@@ -6,8 +6,10 @@
    method can add its own statistics through ``extra_moments``;
 2. moments: :class:`Moments` holds running averages of outer products;
 3. solve: :func:`tiny` and :func:`gradmax` are pure functions of the moments,
-   :func:`gradmax_normalization` rescales a GradMax proposal and
-   :func:`random_proposal` draws new units without statistics;
+   :func:`optimal_updates` exposes v1's primitive options (projection,
+   covariance, empirical Fisher), :func:`gradmax_normalization` rescales a
+   GradMax proposal and :func:`random_proposal` draws new units without
+   statistics;
 4. surgery: :func:`widen`, :func:`widen_norm` and :func:`grown_copy` return new
    modules.
 
@@ -46,6 +48,8 @@ from gromo.lite.solve import (
     fixed_proportional_budget,
     gradmax,
     gradmax_normalization,
+    natural_gradient,
+    optimal_updates,
     random_proposal,
     tensor_n,
     tiny,
@@ -85,6 +89,8 @@ __all__ = [
     "gradmax_normalization",
     "grown_copy",
     "input_patches",
+    "natural_gradient",
+    "optimal_updates",
     "output_rows",
     "random_proposal",
     "split_copy",
