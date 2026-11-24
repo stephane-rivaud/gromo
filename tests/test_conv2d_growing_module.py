@@ -34,7 +34,7 @@ class TestConv2dMergeGrowingModule(TorchTestCase):
         We build a small chain: prev (Conv2d) -> merge (Conv2dMerge) -> next (Conv2d)
         with consistent kernel sizes so we can run forward/backward and compute stats.
         """
-        torch.manual_seed(0)
+        super().setUp()
         random.seed(0)
 
         # Common shapes
@@ -601,7 +601,7 @@ class TestConv2dGrowingModuleBase(TorchTestCase):
     _tested_class = Conv2dGrowingModule
 
     def setUp(self) -> None:
-        torch.manual_seed(0)
+        super().setUp()
         self.input_x = torch.randn(5, 2, 10, 10, device=global_device())
 
     def create_demo_layers(

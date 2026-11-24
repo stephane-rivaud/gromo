@@ -9,9 +9,10 @@ from gromo.utils.disk_dataset import (
     MemMapDataset,
     SimpleMemMapDataset,
 )
+from tests.torch_unittest import TorchTestCase
 
 
-class TestDiskDataset(unittest.TestCase):
+class TestDiskDataset(TorchTestCase):
     def test_iterates_and_concatenates_keys(self):
         """Test that DiskDataset correctly iterates and concatenates input/target keys"""
         in_a = torch.tensor([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
@@ -54,7 +55,7 @@ class TestDiskDataset(unittest.TestCase):
                 list(ds)
 
 
-class TestMemMapDataset(unittest.TestCase):
+class TestMemMapDataset(TorchTestCase):
     def test_getitem_returns_tensors(self):
         """Test that MemMapDataset returns torch tensors via __getitem__"""
         input_np = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
@@ -108,7 +109,7 @@ class TestMemMapDataset(unittest.TestCase):
                 )
 
 
-class TestSimpleMemMapDataset(unittest.TestCase):
+class TestSimpleMemMapDataset(TorchTestCase):
     def test_getitem_concatenates_multiple_files(self):
         """Test that SimpleMemMapDataset correctly concatenates multiple input/target files"""
         in1 = np.array([[1.0], [2.0]], dtype=np.float32)

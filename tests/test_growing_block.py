@@ -101,7 +101,7 @@ class TestLinearGrowingBlock(TorchTestCase):
     """Test LinearGrowingBlock functionality."""
 
     def setUp(self):
-        torch.manual_seed(0)
+        super().setUp()
         self.device = global_device()
         self.batch_size = 4
         self.in_features = 3

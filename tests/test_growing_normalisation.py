@@ -13,13 +13,15 @@ from gromo.modules.growing_normalisation import (
     GrowingGroupNorm,
     GrowingLayerNorm,
 )
+from tests.torch_unittest import TorchTestCase
 
 
-class TestGrowingBatchNorm2d(unittest.TestCase):
+class TestGrowingBatchNorm2d(TorchTestCase):
     """Test cases for GrowingBatchNorm2d class."""
 
     def setUp(self):
         """Set up test fixtures."""
+        super().setUp()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.initial_features = 32
         self.batch_size = 8
@@ -423,11 +425,12 @@ class TestGrowingBatchNorm2d(unittest.TestCase):
         torch.testing.assert_close(processed_x_ext, x_ext)
 
 
-class TestGrowingBatchNorm1d(unittest.TestCase):
+class TestGrowingBatchNorm1d(TorchTestCase):
     """Test cases for GrowingBatchNorm1d class."""
 
     def setUp(self):
         """Set up test fixtures."""
+        super().setUp()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.initial_features = 32
         self.batch_size = 8
@@ -518,10 +521,11 @@ class TestGrowingBatchNorm1d(unittest.TestCase):
         torch.testing.assert_close(processed_x_ext, x_ext)
 
 
-class TestGrowingLayerNorm(unittest.TestCase):
+class TestGrowingLayerNorm(TorchTestCase):
     """Test cases for GrowingLayerNorm class."""
 
     def setUp(self):
+        super().setUp()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.initial_features = 64
         self.batch_size = 4
@@ -788,10 +792,11 @@ class TestGrowingLayerNorm(unittest.TestCase):
         torch.testing.assert_close(processed_x_ext, x_ext)
 
 
-class TestGrowingGroupNorm(unittest.TestCase):
+class TestGrowingGroupNorm(TorchTestCase):
     """Test cases for GrowingGroupNorm class."""
 
     def setUp(self):
+        super().setUp()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.num_groups = 4
         self.initial_channels = 32
@@ -1120,8 +1125,9 @@ class TestGrowingGroupNorm(unittest.TestCase):
         torch.testing.assert_close(processed_x_ext, x_ext)
 
 
-class TestGrowingNormalisationPruning(unittest.TestCase):
+class TestGrowingNormalisationPruning(TorchTestCase):
     def setUp(self):
+        super().setUp()
         self.device = torch.device("cpu")
 
     def test_batch_norm_pruning_validation_and_edge_cases(self):

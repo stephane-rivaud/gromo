@@ -1,4 +1,4 @@
-from unittest import TestCase, main
+from unittest import main
 
 import torch
 from torch.utils.data import DataLoader, TensorDataset
@@ -8,9 +8,10 @@ from gromo.utils.tensor_statistic import (
     TensorStatiticWithEstimationError,
 )
 from gromo.utils.utils import reset_device, set_device
+from tests.torch_unittest import TorchTestCase
 
 
-class TestTensorStatistic(TestCase):
+class TestTensorStatistic(TorchTestCase):
     _tested_class = TensorStatistic
 
     def test_mean(self):
@@ -135,6 +136,7 @@ class TestTensorStatiticWithEstimationError(TestTensorStatistic):
     _tested_class = TensorStatiticWithEstimationError
 
     def setUp(self) -> None:
+        super().setUp()
         set_device("cuda" if torch.cuda.is_available() else "cpu")
         torch.manual_seed(0)
 

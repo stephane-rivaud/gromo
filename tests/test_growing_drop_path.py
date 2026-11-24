@@ -1,15 +1,15 @@
 """Unit tests for GrowingDropPath."""
 
-import unittest
 from unittest.mock import patch
 
 import torch
 
 from gromo.modules.growing_drop_path import DropPath, GrowingDropPath, drop_path
 from gromo.modules.growing_module import SupportsExtendedForward
+from tests.torch_unittest import TorchTestCase
 
 
-class TestGrowingDropPath(unittest.TestCase):
+class TestGrowingDropPath(TorchTestCase):
     """Test cases for stochastic depth helpers."""
 
     def test_drop_path_validation_and_training_modes(self):

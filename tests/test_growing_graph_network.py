@@ -25,6 +25,7 @@ except ImportError:
 
 class TestGrowingGraphNetwork(TorchTestCase):
     def setUp(self) -> None:
+        super().setUp()
         self.in_features = 3
         self.out_features = 2
         self.batch_size = 8

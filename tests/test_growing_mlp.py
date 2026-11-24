@@ -37,6 +37,7 @@ class TestGrowingMLP(TorchTestCase):
         Creates synthetic data, initializes a GrowingMLP model, and prepares
         statistics for testing the growing functionality.
         """
+        super().setUp()
         # Create synthetic data for testing
         self.in_features = 2
         self.out_features = 1
@@ -287,6 +288,7 @@ class TestPerceptron(TorchTestCase):
 
     def setUp(self):
         """Set up test fixtures for Perceptron tests."""
+        super().setUp()
         self.in_features = 3
         self.hidden_features = 5
         self.out_features = 2

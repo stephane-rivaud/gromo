@@ -11,6 +11,7 @@ from gromo.modules.linear_growing_module import (
     LinearGrowingModule,
     LinearMergeGrowingModule,
 )
+from tests.torch_unittest import TorchTestCase
 from tests.unittest_tools import unittest_parametrize
 
 
@@ -88,7 +89,7 @@ class TestContainer(GrowingContainer):
         return self.merge(x1 + x2)
 
 
-class TestGrowingContainer(unittest.TestCase):
+class TestGrowingContainer(TorchTestCase):
     """
     Test the GrowingContainer class. We only test the function calls to
     the growing layers, as the correctness of the computations should be
@@ -96,6 +97,7 @@ class TestGrowingContainer(unittest.TestCase):
     """
 
     def setUp(self):
+        super().setUp()
         # Create synthetic data
         self.in_features = 2
         self.out_features = 1

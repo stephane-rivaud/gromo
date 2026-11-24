@@ -25,6 +25,7 @@ from tests.torch_unittest import TorchTestCase
 
 class TestGrowingDAG(TorchTestCase):
     def setUp(self) -> None:
+        super().setUp()
         self.in_features = 10
         self.hidden_size = 5
         self.out_features = 2

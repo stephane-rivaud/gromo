@@ -19,6 +19,7 @@ from tests.torch_unittest import TorchTestCase
 
 class TestMergeGrowingModules(TorchTestCase):
     def setUp(self) -> None:
+        super().setUp()
         self.batch_size = 4
         self.input_shape = (12, 12)
         self.device = global_device()

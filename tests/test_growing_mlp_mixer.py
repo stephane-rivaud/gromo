@@ -10,6 +10,7 @@ from tests.torch_unittest import TorchTestCase
 
 class TestGrowingMLPMixer(TorchTestCase):
     def setUp(self):
+        super().setUp()
         # Create synthetic data
         self.in_features = (3, 32, 32)
         self.out_features = 10

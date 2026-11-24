@@ -122,6 +122,7 @@ class TestSequentialGrowingModel(TorchTestCase):
 
     def setUp(self):
         """Set up test fixtures."""
+        super().setUp()
         self.in_features = 3
         self.out_features = 2
         self.hidden_features = 4

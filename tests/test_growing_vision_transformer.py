@@ -32,6 +32,7 @@ from tests.torch_unittest import TorchTestCase
 
 class TestGrowingTransformer(TorchTestCase):
     def setUp(self):
+        super().setUp()
         self.in_features = (3, 16, 16)
         self.out_features = 5
         self.num_samples = 12
@@ -334,6 +335,7 @@ class TestGrowingTransformer(TorchTestCase):
 
 class TestGrowingTransformerCoveragePaths(TorchTestCase):
     def setUp(self):
+        super().setUp()
         self.device = torch.device("cpu")
         self.in_features = (3, 16, 16)
         self.out_features = 5
@@ -962,7 +964,7 @@ class TestGrowingTransformerDropPathIntegration(TorchTestCase):
     """
 
     def setUp(self):
-        torch.manual_seed(0)
+        super().setUp()
         self.device = torch.device("cpu")
         self.d_model = 16
         self.num_heads = 4

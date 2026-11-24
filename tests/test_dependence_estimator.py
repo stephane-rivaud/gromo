@@ -23,6 +23,7 @@ def slow_gaussian_kernel(X, sigma_sq=None):
 
 class TestDependenceEstimator(TorchTestCase):
     def setUp(self) -> None:
+        super().setUp()
         self.X = torch.rand((10, 500))
 
     def test_gaussian_kernel(self) -> None:

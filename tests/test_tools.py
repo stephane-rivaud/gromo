@@ -1138,6 +1138,7 @@ class TestNumericalFloor(TorchTestCase):
     d, rank, n = 64, 40, 5000
 
     def setUp(self):
+        super().setUp()
         generator = torch.Generator().manual_seed(0)
         z = torch.randn(self.n, self.rank, generator=generator, dtype=torch.float64)
         w = torch.randn(self.rank, self.d, generator=generator, dtype=torch.float64)

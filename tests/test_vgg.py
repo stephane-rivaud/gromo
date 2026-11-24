@@ -34,7 +34,7 @@ class TestVGG(TorchTestCase):
     """Test the configurable VGG initializer and growth behavior."""
 
     def setUp(self) -> None:
-        torch.manual_seed(0)
+        super().setUp()
 
     @staticmethod
     def _stage_conv_widths(model: VGG) -> list[tuple[int, ...]]:

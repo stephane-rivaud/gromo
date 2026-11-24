@@ -32,7 +32,7 @@ class ReLUSigmoid(torch.nn.Module):
 
 class TestGrowingModule(TorchTestCase):
     def setUp(self):
-        torch.manual_seed(0)
+        super().setUp()
         self.x = torch.randn(2, 3, device=global_device())
         self.x_ext = torch.randn(2, 7, device=global_device())
         self.layer = torch.nn.Linear(3, 5, bias=False, device=global_device())
@@ -606,7 +606,7 @@ class TestMergeGrowingModule(TorchTestCase):
     """Test MergeGrowingModule base class functionality to cover missing lines."""
 
     def setUp(self):
-        torch.manual_seed(0)
+        super().setUp()
         # Use LinearMergeGrowingModule as a concrete implementation
         self.merge_module = LinearMergeGrowingModule(
             in_features=3, device=global_device(), name="test_merge"
@@ -775,7 +775,7 @@ class TestGrowingModuleEdgeCases(TorchTestCase):
     """Test edge cases and error conditions in GrowingModule to improve coverage."""
 
     def setUp(self):
-        torch.manual_seed(0)
+        super().setUp()
         self.layer = torch.nn.Linear(3, 5, bias=False, device=global_device())
         self.model = GrowingModule(
             self.layer, tensor_s_shape=(3, 3), tensor_m_shape=(3, 5), allow_growing=False
@@ -1354,7 +1354,7 @@ class TestMergeGrowingModuleComputeOptimalDelta(TorchTestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        torch.manual_seed(0)
+        super().setUp()
 
         # Create a simpler setup with only one previous module for easier testing
         self.in_features = 3

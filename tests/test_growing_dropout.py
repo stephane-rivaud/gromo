@@ -2,19 +2,19 @@
 Unit tests for GrowingDropout variants.
 """
 
-import unittest
-
 import torch
 
 from gromo.modules.growing_dropout import GrowingDropout, GrowingDropout2d
 from gromo.modules.growing_module import SupportsExtendedForward
+from tests.torch_unittest import TorchTestCase
 
 
-class TestGrowingDropout(unittest.TestCase):
+class TestGrowingDropout(TorchTestCase):
     """Test cases for element-wise GrowingDropout (nn.Dropout equivalent)."""
 
     def setUp(self):
         """Set up test fixtures."""
+        super().setUp()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.batch_size = 8
         self.sequence_length = 5
@@ -64,11 +64,12 @@ class TestGrowingDropout(unittest.TestCase):
         torch.testing.assert_close(processed_x_ext, x_ext)
 
 
-class TestGrowingDropout2d(unittest.TestCase):
+class TestGrowingDropout2d(TorchTestCase):
     """Test cases for GrowingDropout2d class."""
 
     def setUp(self):
         """Set up test fixtures."""
+        super().setUp()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.initial_features = 32
         self.batch_size = 8

@@ -15,7 +15,7 @@ class TestConv2dGrowingBlock(TorchTestCase):
     """Test Conv2dGrowingBlock functionality."""
 
     def setUp(self):
-        torch.manual_seed(0)
+        super().setUp()
         self.device = global_device()
         self.batch_size = 2
         self.in_channels = 3

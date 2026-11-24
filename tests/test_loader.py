@@ -5,10 +5,12 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from gromo.config import loader
+from tests.torch_unittest import TorchTestCase
 
 
-class TestLogger(unittest.TestCase):
+class TestLogger(TorchTestCase):
     def setUp(self) -> None:
+        super().setUp()
         self.root = Path().cwd()
         self.toml_name = "pyproject.toml"
         self.config_name = "gromo.config"

@@ -25,7 +25,7 @@ class TestResNet(TorchTestCase):
     """Test ResNet implementation."""
 
     def setUp(self) -> None:
-        torch.manual_seed(0)
+        super().setUp()
 
     def test_init_full_resnet_structure_variations(self):
         """

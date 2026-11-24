@@ -167,6 +167,7 @@ class TestLinearGrowingModuleBase(TorchTestCase):
 
     def setUp(self):
         """Common setup for all tests."""
+        super().setUp()
         self.n = self.config.N_SAMPLES
         self.c = self.config.C_FEATURES
         # This assert is checking that the test is correct and not that the code is
@@ -2620,6 +2621,7 @@ class TestLinearGrowingModule(TestLinearGrowingModuleBase):
 
 class TestLinearMergeGrowingModule(TestLinearGrowingModuleBase):
     def setUp(self):
+        super().setUp()
         self.seed = 0
         torch.manual_seed(self.seed)
         self.demo_modules = dict()
