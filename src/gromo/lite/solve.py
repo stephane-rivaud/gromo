@@ -8,6 +8,7 @@ dtype of the moments.
 from __future__ import annotations
 
 import dataclasses
+import math
 import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -171,8 +172,9 @@ def optimal_updates(
         compute the natural-gradient update of the consumer, see
         :func:`natural_gradient`
     use_projection : bool
-        fit the new units to the gradient left after that update; needs
-        ``compute_delta``
+        fit the new units to the gradient left after the natural-gradient
+        update; as in v1, the update is computed for the projection even when
+        ``compute_delta`` is False, and then not returned
     use_covariance : bool
         whiten by the producer input covariance ``tensor_s_growth``
     use_fisher : bool
@@ -194,29 +196,22 @@ def optimal_updates(
     -------
     Proposal
         weight update (None without ``compute_delta``) and new units
-
-    Raises
-    ------
-    ValueError
-        if ``use_projection`` is set without ``compute_delta``
     """
-    if use_projection and not compute_delta:
-        raise ValueError("use_projection needs the consumer update: set compute_delta.")
     negative_gradient = -moments["tensor_m_prev"]
-    if compute_delta:
+    delta = parameter_update_decrease = None
+    if compute_delta or use_projection:
         delta, parameter_update_decrease = natural_gradient(
             moments, use_fisher, fisher_shrinkage
         )
-    else:
+    matrix_n = negative_gradient
+    if use_projection:
+        assert delta is not None  # computed above whenever use_projection is set
+        matrix_n = tensor_n(moments, delta)
+    if not compute_delta or parameter_update_decrease is None:
         delta = None
         parameter_update_decrease = torch.zeros(
             (), dtype=negative_gradient.dtype, device=negative_gradient.device
         )
-    matrix_n = (
-        tensor_n(moments, delta)
-        if use_projection and delta is not None
-        else negative_gradient
-    )
     # Pass optional arguments only when used: older v1 versions take a float
     # threshold with a default and reject None, and predate some Fisher options.
     options: dict = {}
@@ -366,8 +361,10 @@ def gradmax_normalization(
     ValueError
         if ``scale`` is not positive
     """
-    if scale <= 0:
-        raise ValueError(f"gradmax_normalization needs a positive scale, got {scale}.")
+    if not (scale > 0 and math.isfinite(scale)):
+        raise ValueError(
+            f"gradmax_normalization needs a positive finite scale, got {scale}."
+        )
     if consumer_weight.dim() < 2:
         warnings.warn(
             "gradmax_normalization: consumer weight has no reducible dimensions, "
@@ -399,7 +396,7 @@ def gradmax_normalization(
     column_norms = (proposal.omega**2).sum(dim=0).sqrt()
     non_zero = column_norms > 0
     factors = torch.ones_like(column_norms)
-    factors[non_zero] = target_norm.to(column_norms.dtype) / column_norms[non_zero]
+    factors[non_zero] = target_norm.to(column_norms) / column_norms[non_zero]
     return dataclasses.replace(
         proposal,
         omega=proposal.omega * factors[None, :],
@@ -457,7 +454,10 @@ def first_order_decrease(
 
     This is the directional derivative the surgery actually follows. TINY's
     ``parameter_update_decrease + sum(eigenvalues**2)`` differs from it by the
-    cross term ``E[<delta z, omega alpha x>]``.
+    cross term ``E[<delta z, omega alpha x>]``. It needs ``sigma`` to be
+    differentiable at 0: through ReLU no single slope is exact, and a
+    BatchNorm in training mode, which re-standardises the new units, breaks
+    the expansion altogether.
 
     Parameters
     ----------
@@ -519,11 +519,15 @@ def _random_block(
             f"Unknown initialization {initialization!r}; "
             f"expected one of {_RANDOM_INITIALIZATIONS}."
         )
-    if initialization == "zeros":
+    if initialization == "zeros" or 0 in shape:
         return torch.zeros(shape, dtype=reference.dtype, device=reference.device)
-    if initialization == "copy_normal" and reference.numel() > 1:
-        std = float(reference.std())
-    else:
+    std = (
+        float(reference.std())
+        if initialization == "copy_normal" and reference.numel() > 1
+        else 0.0
+    )
+    if std == 0.0:
+        # Kaiming, as v1 when there is no reference or its spread is zero
         std = (2.0 / fan_in) ** 0.5
     # draw on the generator's device: a CPU generator cannot fill an MPS tensor
     device = generator.device if generator is not None else reference.device
@@ -571,10 +575,18 @@ def random_proposal(
     -------
     Proposal
         new units without weight update; ``eigenvalues`` is all zeros
+
+    Raises
+    ------
+    ValueError
+        if ``added_units`` is negative
     """
-    producer_fan_in = producer.weight[0].numel()
-    consumer_fan_in = consumer.weight[0].numel()
-    unit_fan_in = consumer.weight[0, 0].numel()
+    if added_units < 0:
+        raise ValueError(f"added_units must be non-negative, got {added_units}.")
+    # from the shapes, not weight[0]: a site may have zero units
+    producer_fan_in = math.prod(producer.weight.shape[1:])
+    consumer_fan_in = math.prod(consumer.weight.shape[1:])
+    unit_fan_in = math.prod(consumer.weight.shape[2:])
     alpha = _random_block(
         (added_units, producer_fan_in),
         fan_in,

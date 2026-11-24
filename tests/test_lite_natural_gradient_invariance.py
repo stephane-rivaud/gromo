@@ -250,8 +250,6 @@ class TestFisherOptions(TorchTestCase):
     def test_invalid_options_are_refused(self) -> None:
         with self.assertRaises(ValueError):
             natural_gradient(self.moments, use_fisher=True, fisher_shrinkage=1.5)
-        with self.assertRaises(ValueError):
-            optimal_updates(self.moments, compute_delta=False, use_projection=True)
 
     def test_tiny_defaults_are_optimal_updates_defaults(self) -> None:
         from gromo.lite import tiny
