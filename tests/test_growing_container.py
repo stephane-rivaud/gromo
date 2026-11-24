@@ -210,18 +210,32 @@ class TestGrowingContainer(unittest.TestCase):
 
     def test_compute_optimal_delta(self):
         gather_statistics(self.dataloader, self.model, self.loss)
+        for layer in self.model._growing_layers:
+            self.assertIsNone(layer.optimal_delta_layer)
+            self.assertIsNone(layer.parameter_update_decrease)
+
         self.model.compute_optimal_delta()
 
         for layer in self.model._growing_layers:
             # Check if the optimal updates are computed
-            self.assertTrue(
-                hasattr(layer, "optimal_delta_layer"),
-                "compute_optimal_updates was not called on the growing layer",
-            )
-            self.assertTrue(
-                hasattr(layer, "parameter_update_decrease"),
-                "compute_optimal_updates was not called on the growing layer",
-            )
+            self.check_has_optimal_delta(layer)
+
+    def check_has_optimal_delta(self, layer):
+        """Check that the optimal delta of the layer has been computed."""
+        self.assertIsInstance(
+            layer.optimal_delta_layer,
+            nn.Linear,
+            "compute_optimal_delta was not called on the growing layer",
+        )
+        self.assertEqual(layer.optimal_delta_layer.weight.shape, layer.weight.shape)
+        self.assertIsInstance(
+            layer.parameter_update_decrease,
+            torch.Tensor,
+            "compute_optimal_delta was not called on the growing layer",
+        )
+        self.assertTrue(torch.isfinite(layer.parameter_update_decrease))
+        # first order decrease of the loss: tr(M^T S^-1 M) >= 0
+        self.assertGreaterEqual(layer.parameter_update_decrease.item(), 0.0)
 
     @unittest_parametrize(
         (
@@ -261,20 +275,12 @@ class TestGrowingContainer(unittest.TestCase):
             # Use explicit checks for configuration-specific behavior
             if not alpha_zero:
                 # TINY-specific checks
-                self.assertTrue(
-                    hasattr(layer, "optimal_delta_layer"),
-                    "compute_optimal_updates was not called on the growing layer",
-                )
-                self.assertTrue(
-                    hasattr(layer, "parameter_update_decrease"),
-                    "compute_optimal_updates was not called on the growing layer",
-                )
+                self.check_has_optimal_delta(layer)
             else:
                 # GradMax-specific checks
-                # optimal_delta_layer should not be set (may not exist or be None)
-                self.assertFalse(
-                    hasattr(layer, "optimal_delta_layer")
-                    and layer.optimal_delta_layer is not None,
+                # optimal_delta_layer should not be set
+                self.assertIsNone(
+                    layer.optimal_delta_layer,
                     "GradMax configuration should not compute optimal_delta_layer",
                 )
                 # parameter_update_decrease should still be set so first_order_improvement is usable
@@ -289,13 +295,27 @@ class TestGrowingContainer(unittest.TestCase):
 
             # Common checks for all methods
             if layer.previous_module is not None:
-                self.assertTrue(
-                    hasattr(layer, "extended_input_layer"),
+                self.assertIsInstance(
+                    layer.extended_input_layer,
+                    nn.Linear,
                     "compute_optimal_updates was not called on the growing layer",
                 )
-                self.assertTrue(
-                    hasattr(layer.previous_module, "extended_output_layer"),
+                self.assertIsInstance(
+                    layer.previous_module.extended_output_layer,
+                    nn.Linear,
                     "compute_optimal_updates was not called on the growing layer",
+                )
+                # The k added neurons connect both extensions
+                assert isinstance(layer.eigenvalues_extension, torch.Tensor)
+                added_neurons = layer.eigenvalues_extension.shape[0]
+                self.assertGreater(added_neurons, 0)
+                self.assertEqual(
+                    layer.extended_input_layer.weight.shape,
+                    (layer.out_features, added_neurons),
+                )
+                self.assertEqual(
+                    layer.previous_module.extended_output_layer.weight.shape,
+                    (added_neurons, layer.previous_module.in_features),
                 )
 
     def check_has_no_update(self, layer):

@@ -2091,11 +2091,25 @@ class TestLinearGrowingModule(TestLinearGrowingModuleBase):
     def test_fisher_shrinkage_zero_matches_default(self):
         """fisher_shrinkage=0 must reproduce the un-shrunk behaviour exactly."""
         layer2 = self._fisher_two_layer_setup()
-        eig_default = self._fisher_shrinkage_eigenvalues(
+        # Default behaviour: fisher_shrinkage is not passed
+        layer2.compute_optimal_updates(
+            statistical_threshold=0.0,
+            compute_delta=False,
+            use_projection=False,
+            use_fisher=True,
+        )
+        assert layer2.eigenvalues_extension is not None
+        eig_default = layer2.eigenvalues_extension.clone()
+        eig_zero = self._fisher_shrinkage_eigenvalues(
             layer2, fisher_shrinkage=0.0
         ).clone()
-        eig_shrunk = self._fisher_shrinkage_eigenvalues(layer2, fisher_shrinkage=0.0)
-        self.assertAllClose(eig_default, eig_shrunk)
+        self.assertAllClose(eig_default, eig_zero)
+
+        # A non-zero shrinkage changes the preconditioner, hence the eigenvalues,
+        # so the comparison above can tell a shrunk E from an un-shrunk one
+        eig_shrunk = self._fisher_shrinkage_eigenvalues(layer2, fisher_shrinkage=0.5)
+        self.assertEqual(eig_shrunk.shape, eig_default.shape)
+        self.assertGreater((eig_shrunk - eig_default).abs().max().item(), 0.1)
 
     def test_fisher_shrinkage_out_of_range_rejected(self):
         """Shrinkage intensity is a convex-combination weight: must be <= 1."""

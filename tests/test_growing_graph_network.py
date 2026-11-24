@@ -504,24 +504,54 @@ class TestGrowingGraphNetwork(TorchTestCase):
                         bias=bias if module.use_bias else None,
                     )
 
+        # Give every edge an optimal delta: choosing an action must keep them
+        optimal_delta_layers = {}
+        for edge_module in self.net.dag.get_all_edge_modules():
+            with self.assertMaybeWarns(
+                UserWarning, "Initializing zero-element tensors is a no-op"
+            ):
+                edge_module.optimal_delta_layer = edge_module.layer_of_tensor(
+                    weight=torch.zeros_like(edge_module.weight),
+                    bias=(
+                        torch.zeros_like(edge_module.bias)
+                        if edge_module.use_bias
+                        else None
+                    ),
+                )
+            optimal_delta_layers[edge_module] = edge_module.optimal_delta_layer
+
         self.net.choose_growth_best_action(options, use_bic=use_bic)
 
         # self.assertEqual(self.net.growth_history, min_index)
         self.assertIsNotNone(self.net.chosen_action)
         self.assertIs(self.net.chosen_action, options[min_index])
-        self.assertIsNotNone(
-            edge_module.optimal_delta_layer
-            for edge_module in self.net.dag.get_all_edge_modules()
-        )
+
+        # The options that were not chosen are removed from the graph
+        for option in options:
+            if option is options[min_index]:
+                continue
+            if option.type == ExpansionType.NEW_EDGE:
+                self.assertNotIn(
+                    (option.previous_node, option.next_node), self.net.dag.edges
+                )
+            elif option.type == ExpansionType.NEW_NODE:
+                self.assertNotIn(option.expanding_node, self.net.dag.nodes)
+
+        remaining_edge_modules = list(self.net.dag.get_all_edge_modules())
+        self.assertGreater(len(remaining_edge_modules), 0)
+        for edge_module in remaining_edge_modules:
+            self.assertIs(
+                edge_module.optimal_delta_layer, optimal_delta_layers[edge_module]
+            )
         if options[min_index].type != ExpansionType.NEW_EDGE:
-            self.assertIsNotNone(
-                edge_module.extended_output_layer
-                for edge_module in node_module.previous_modules
-            )
-            self.assertIsNotNone(
-                edge_module.extended_input_layer
-                for edge_module in node_module.next_modules
-            )
+            previous_modules = list(node_module.previous_modules)
+            next_modules = list(node_module.next_modules)
+            self.assertGreater(len(previous_modules), 0)
+            self.assertGreater(len(next_modules), 0)
+            for edge_module in previous_modules:
+                self.assertIsNotNone(edge_module.extended_output_layer)
+            for edge_module in next_modules:
+                self.assertIsNotNone(edge_module.extended_input_layer)
 
     def test_clean_graph_with_chosen_action_and_apply_changes(self) -> None:
         start, end = self.net_conv.dag.root, self.net_conv.dag.end

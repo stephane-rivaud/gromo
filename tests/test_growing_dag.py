@@ -450,7 +450,7 @@ class TestGrowingDAG(TorchTestCase):
         self.dag.use_bias = False
         self.dag.update_edges([(start, end)], zero_weights=True)
         self.assertIsInstance(self.dag.get_edge_module(start, end), LinearGrowingModule)
-        self.assertTrue(torch.all(self.dag.get_edge_module(start, end).weight) == 0)
+        self.assertTrue(torch.all(self.dag.get_edge_module(start, end).weight == 0))
         self.assertIsNone(self.dag.get_edge_module(start, end).bias)
 
         start, end = self.dag_conv.root, self.dag_conv.end
@@ -760,14 +760,71 @@ class TestGrowingDAG(TorchTestCase):
         self.assertIsNone(
             self.dag.get_edge_module("test", self.dag.end).optimal_delta_layer.bias
         )
-        self.assertTrue(
-            torch.all(
-                self.dag.get_edge_module("test", self.dag.end).optimal_delta_layer.weight
-                == expansions[0]
-                .dag.get_edge_module("test", self.dag.end)
-                .optimal_delta_layer.weight
+
+        def check_against_hand_computation(
+            bottleneck: dict, input_B: dict
+        ) -> torch.Tensor:
+            """Compare the delta of the edge test -> end and the bottleneck at end
+            with a computation by hand, and return the expected delta.
+
+            The edge has no bias and end has an identity post-merge function, so
+            the statistics of end are S = B^T B / n and M = B^T G / n, with B the
+            activity of the node test and G the gradient of the loss with
+            respect to the output of the graph.
+            """
+            edge_module = self.dag.get_edge_module("test", self.dag.end)
+            self.assertFalse(edge_module.use_bias)
+            gradients = []
+            for x_batch, y_batch in dataloader:
+                with torch.no_grad():
+                    prediction = self.dag(x_batch)
+                prediction.requires_grad_()
+                # default loss of calculate_bottleneck
+                loss = torch.nn.CrossEntropyLoss()(prediction, y_batch)
+                gradients.append(torch.autograd.grad(loss, prediction)[0].cpu())
+            gradient = torch.cat(gradients)
+            activity = input_B["test"]
+            n_samples = activity.shape[0]
+            with self.assertMaybeWarns(
+                UserWarning,
+                "Using the pseudo-inverse for the computation of the optimal delta",
+            ):
+                expected_delta, _ = optimal_delta(
+                    activity.T @ activity / n_samples, activity.T @ gradient / n_samples
+                )
+            self.assertAllClose(
+                edge_module.optimal_delta_layer.weight.detach().cpu(),
+                expected_delta,
+                atol=1e-6,
             )
-        )
+            self.assertAllClose(
+                bottleneck[self.dag.end],
+                gradient - activity @ expected_delta.T,
+                atol=1e-6,
+            )
+            return expected_delta
+
+        # The node test has zero weights, hence a zero activity and a zero delta
+        expected_delta = check_against_hand_computation(bottleneck, input_B)
+        self.assertTrue(torch.all(input_B["test"] == 0))
+        self.assertTrue(torch.all(expected_delta == 0))
+
+        # With random incoming weights the activity and the delta are not zero
+        with torch.no_grad():
+            incoming_edge = self.dag.get_edge_module(self.dag.root, "test")
+            incoming_edge.weight.normal_()
+            if incoming_edge.bias is not None:
+                incoming_edge.bias.normal_()
+        with self.assertMaybeWarns(
+            UserWarning,
+            "Using the pseudo-inverse for the computation of the optimal delta",
+        ):
+            bottleneck, input_B = self.dag.calculate_bottleneck(
+                actions=expansions,
+                dataloader=dataloader,
+            )
+        expected_delta = check_against_hand_computation(bottleneck, input_B)
+        self.assertGreater(expected_delta.abs().max().item(), 1e-4)
 
     def test_get_ancestors(self) -> None:
         start, end = self.dag.root, self.dag.end
