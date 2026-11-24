@@ -169,6 +169,7 @@ class TestResNet(TorchTestCase):
                 number_of_blocks_per_stage=2,
             )
 
+    @unittest_parametrize(({"use_preactivation": True}, {"use_preactivation": False}))
     def test_stage2_first_block_stride_with_skip_first_downsample(
         self,
         use_preactivation: bool = True,
@@ -224,6 +225,7 @@ class TestResNet(TorchTestCase):
         self.assertEqual(stride_downsample, (2, 2))
         self.assertEqual(output_size_downsample, (4, 4))
 
+    @unittest_parametrize(({"use_preactivation": True}, {"use_preactivation": False}))
     def test_stage2_first_block_stride_default_skip_first_downsample(
         self,
         use_preactivation: bool = True,

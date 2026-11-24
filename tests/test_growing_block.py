@@ -1129,6 +1129,7 @@ class TestLinearGrowingBlock(TorchTestCase):
             spectra["extension"]["kept"], block.eigenvalues_extension.shape[0]
         )
 
+    @unittest_parametrize(({"bias": False}, {"bias": True}))
     def test_full_addition_loop_with_features_identity_initialization(
         self, bias: bool = False
     ):
@@ -1155,6 +1156,8 @@ class TestLinearGrowingBlock(TorchTestCase):
             name="test_block_with_features",
             kwargs_layer={"use_bias": bias},
         )
+        self.assertEqual(block.first_layer.use_bias, bias)
+        self.assertEqual(block.second_layer.use_bias, bias)
 
         # Step 2: Initialize first layer with identity and second layer with zeros
         with torch.no_grad():
@@ -1222,6 +1225,16 @@ class TestLinearGrowingBlock(TorchTestCase):
                     "Optimal delta weight should be approximately the "
                     "identity matrix for already optimal layer"
                 ),
+            )
+        # With or without bias, the delta reproduces the desired update on the
+        # batch: the input of the second layer is x_batch (identity first
+        # layer) and the gradient of the loss at its output is output = x_batch
+        with torch.no_grad():
+            self.assertAllClose(
+                block.second_layer.optimal_delta_layer(x_batch),
+                x_batch,
+                atol=1e-5,
+                msg="The optimal delta should map the batch to its gradient",
             )
 
         # Step 7: Check that no new neurons are proposed
