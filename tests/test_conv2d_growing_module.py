@@ -654,8 +654,14 @@ class TestConv2dGrowingModuleBase(TorchTestCase):
         return demo_in, demo_out
 
 
-class TestConv2dGrowingModule(TestConv2dGrowingModuleBase):
-    _tested_class = Conv2dGrowingModule
+class Conv2dGrowingModuleTestCase(TestConv2dGrowingModuleBase):
+    """Demo modules of ``_tested_class`` and checks shared by the test cases of
+    ``Conv2dGrowingModule`` and of its ``Full`` and ``Restricted`` subclasses.
+
+    It holds no test, so the subclass test cases do not re-run the tests of the
+    code they inherit unchanged from ``Conv2dGrowingModule``: they run only the
+    tests of their overrides.
+    """
 
     def setUp(self):
         super().setUp()
@@ -678,6 +684,34 @@ class TestConv2dGrowingModule(TestConv2dGrowingModuleBase):
         self.bias_demos = {True: self.demo_b, False: self.demo}
 
         self.demo_couple = {b: self.create_demo_layers(b) for b in (True, False)}
+
+    def check_known_threshold_rules_end_to_end(self, rule: str | None) -> None:
+        """The default (the floor) and each known rule give a finite extension, and
+        the precision term keeps the epsilon of the statistics after a cast."""
+        demo_in, demo_out = self.demo_couple[True]
+        demo_out.init_computation()
+        y = demo_out(demo_in(self.input_x))
+        torch.nn.functional.mse_loss(y, torch.zeros_like(y)).backward()
+        demo_out.update_computation()
+
+        demo_out.compute_optimal_updates(
+            numerical_threshold=rule,  # type: ignore
+            dtype=torch.float64,
+            collect_spectra=True,
+        )
+        assert demo_out.growth_spectra is not None
+        matrix_s = demo_out.growth_spectra["matrix_s"]
+        expected = torch.finfo(torch.float32).eps * matrix_s["eigenvalues"].max().item()
+        precision = matrix_s["numerical_floor_terms"]["precision"]
+        self.assertAlmostEqual(precision / expected, 1.0, places=5)
+        self.assertGreaterEqual(matrix_s["threshold"], matrix_s["numerical_floor"])
+        self.assertLessEqual(matrix_s["kept"], matrix_s["total"])
+        assert isinstance(demo_out.extended_input_layer, torch.nn.Conv2d)
+        self.assertTrue(torch.isfinite(demo_out.extended_input_layer.weight).all())
+
+
+class TestConv2dGrowingModule(Conv2dGrowingModuleTestCase):
+    _tested_class = Conv2dGrowingModule
 
     # ------------------------------------------------------------------ #
     # Pruning
@@ -1291,36 +1325,13 @@ class TestConv2dGrowingModule(TestConv2dGrowingModuleBase):
                 torch.all(layer_out.extended_input_layer.weight[:, select:] == 0)
             )
 
+
+class TestFullConv2dGrowingModule(Conv2dGrowingModuleTestCase):
+    _tested_class = FullConv2dGrowingModule
+
     @unittest_parametrize(({"rule": None}, {"rule": "operator_norm_noise_threshold"}))
     def test_known_threshold_rules_end_to_end(self, rule: str | None):
-        """The default (the floor) and each known rule give a finite extension, and
-        the precision term keeps the epsilon of the statistics after a cast."""
-        if self._tested_class is Conv2dGrowingModule:
-            self.skipTest("Conv2dGrowingModule does not compute neuron extensions.")
-        demo_in, demo_out = self.demo_couple[True]
-        demo_out.init_computation()
-        y = demo_out(demo_in(self.input_x))
-        torch.nn.functional.mse_loss(y, torch.zeros_like(y)).backward()
-        demo_out.update_computation()
-
-        demo_out.compute_optimal_updates(
-            numerical_threshold=rule,  # type: ignore
-            dtype=torch.float64,
-            collect_spectra=True,
-        )
-        assert demo_out.growth_spectra is not None
-        matrix_s = demo_out.growth_spectra["matrix_s"]
-        expected = torch.finfo(torch.float32).eps * matrix_s["eigenvalues"].max().item()
-        precision = matrix_s["numerical_floor_terms"]["precision"]
-        self.assertAlmostEqual(precision / expected, 1.0, places=5)
-        self.assertGreaterEqual(matrix_s["threshold"], matrix_s["numerical_floor"])
-        self.assertLessEqual(matrix_s["kept"], matrix_s["total"])
-        assert isinstance(demo_out.extended_input_layer, torch.nn.Conv2d)
-        self.assertTrue(torch.isfinite(demo_out.extended_input_layer.weight).all())
-
-
-class TestFullConv2dGrowingModule(TestConv2dGrowingModule):
-    _tested_class = FullConv2dGrowingModule
+        self.check_known_threshold_rules_end_to_end(rule)
 
     def _second_layer_with_mocked_alpha_omega(
         self,
@@ -1979,8 +1990,12 @@ class TestFullConv2dGrowingModule(TestConv2dGrowingModule):
             self.assertIsInstance(tensor_s_growth_stat, TensorStatistic)
 
 
-class TestRestrictedConv2dGrowingModule(TestConv2dGrowingModule):
+class TestRestrictedConv2dGrowingModule(Conv2dGrowingModuleTestCase):
     _tested_class = RestrictedConv2dGrowingModule
+
+    @unittest_parametrize(({"rule": None}, {"rule": "operator_norm_noise_threshold"}))
+    def test_known_threshold_rules_end_to_end(self, rule: str | None):
+        self.check_known_threshold_rules_end_to_end(rule)
 
     @unittest_parametrize(
         (
