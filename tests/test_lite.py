@@ -18,6 +18,7 @@ from gromo.lite import (
     gradmax_normalization,
     grown_copy,
     input_patches,
+    optimal_updates,
     tensor_n,
     tiny,
     widen,
@@ -251,6 +252,30 @@ class TestLinearMatchesV1(TorchTestCase):
         self.assertAllClose(proposal.omega, omega, atol=1e-5)
         self.assertAllClose(proposal.eigenvalues, eigenvalues, atol=1e-6)
 
+    def test_projection_without_update_matches_v1(self):
+        # v1 computes the update to project the gradient, but does not apply it
+        self.v1_consumer.compute_optimal_updates(
+            statistical_threshold=0, compute_delta=False, use_projection=True
+        )
+        proposal = optimal_updates(
+            self.moments,
+            compute_delta=False,
+            use_projection=True,
+            statistical_threshold=0,
+        )
+        self.assertIsNone(proposal.optimal_delta)
+        self.assertEqual(proposal.parameter_update_decrease.item(), 0.0)
+        self.assertAllClose(
+            proposal.eigenvalues, self.v1_consumer.eigenvalues_extension, atol=1e-6
+        )
+        v1_alpha = self.v1_consumer.previous_module.extended_output_layer
+        v1_omega = self.v1_consumer.extended_input_layer
+        self.assertAllClose(
+            proposal.omega @ proposal.alpha,
+            v1_omega.weight @ torch.cat([v1_alpha.weight, v1_alpha.bias[:, None]], 1),
+            atol=1e-5,
+        )
+
     def test_gradmax_matches_v1(self):
         alpha_weight, alpha_bias, omega, eigenvalues = (
             self.v1_consumer._compute_optimal_added_parameters(
@@ -346,23 +371,26 @@ class TestRestrictedConvMatchesV1(TorchTestCase):
                 self.assertAllClose(proposal.eigenvalues, eigenvalues, atol=1e-5)
 
     def test_gradmax_matches_v1(self):
-        producer_geometry, consumer_geometry = CONV_GEOMETRIES["consumer stride 2"]
-        v1_consumer, _, moments, _ = self.run_both(producer_geometry, consumer_geometry)
-        alpha_weight, alpha_bias, omega, eigenvalues = (
-            v1_consumer._compute_optimal_added_parameters(
-                statistical_threshold=0,
-                use_projection=False,
-                use_covariance=False,
-                alpha_zero=True,
-                ignore_singular_values=True,
-            )
-        )
-        proposal = gradmax(moments, statistical_threshold=0)
-        self.assertEqual(proposal.alpha.abs().max().item(), 0.0)
-        self.assertAllClose(with_bias(alpha_weight, alpha_bias), proposal.alpha)
-        signs = torch.sign((proposal.omega * omega).sum(dim=0))
-        self.assertAllClose(proposal.omega * signs[None, :], omega, atol=1e-4)
-        self.assertAllClose(proposal.eigenvalues, eigenvalues, atol=1e-5)
+        for name, (producer_geometry, consumer_geometry) in CONV_GEOMETRIES.items():
+            with self.subTest(geometry=name):
+                v1_consumer, _, moments, _ = self.run_both(
+                    producer_geometry, consumer_geometry
+                )
+                alpha_weight, alpha_bias, omega, eigenvalues = (
+                    v1_consumer._compute_optimal_added_parameters(
+                        statistical_threshold=0,
+                        use_projection=False,
+                        use_covariance=False,
+                        alpha_zero=True,
+                        ignore_singular_values=True,
+                    )
+                )
+                proposal = gradmax(moments, statistical_threshold=0)
+                self.assertEqual(proposal.alpha.abs().max().item(), 0.0)
+                self.assertAllClose(with_bias(alpha_weight, alpha_bias), proposal.alpha)
+                signs = torch.sign((proposal.omega * omega).sum(dim=0))
+                self.assertAllClose(proposal.omega * signs[None, :], omega, atol=1e-4)
+                self.assertAllClose(proposal.eigenvalues, eigenvalues, atol=1e-5)
 
 
 class TestConvSurgery(TorchTestCase):
@@ -489,7 +517,7 @@ class TestCollect(TorchTestCase):
         grown = grown_copy(model, "0", "2", proposal, gamma=0.0)
         self.assertIsNone(grown[0].bias)
         with torch.no_grad():
-            self.assertAllClose(grown(self.inputs), model(self.inputs), atol=0)
+            self.assertAllClose(grown(self.inputs), model(self.inputs), atol=0, rtol=0)
 
     def test_unsupported_convolutions_raise(self):
         grouped = nn.Conv2d(4, 4, 3, groups=2)
@@ -546,13 +574,17 @@ class TestSurgery(TorchTestCase):
         self.assertEqual(grown[0].out_features, 4 + added_units)
         self.assertEqual(grown[2].in_features, 4 + added_units)
         with torch.no_grad():
-            self.assertAllClose(grown(self.inputs), self.model(self.inputs), atol=0)
+            # the new units add exact zeros, but a wider matmul may sum in another
+            # order: equal up to float64 rounding, not bit for bit
+            self.assertAllClose(
+                grown(self.inputs), self.model(self.inputs), atol=1e-14, rtol=0
+            )
 
     def test_original_model_is_unchanged(self):
         weight_before = self.model[2].weight.detach().clone()
         grown_copy(self.model, "0", "2", self.proposal, gamma=0.5)
         self.assertEqual(self.model[0].out_features, 4)
-        self.assertAllClose(self.model[2].weight, weight_before, atol=0)
+        self.assertAllClose(self.model[2].weight, weight_before, atol=0, rtol=0)
 
     def test_loss_decrease_matches_the_first_order_term(self):
         # Tanh has slope 1 at 0, so the new units add gamma^2 * omega @ alpha @ x.
@@ -756,7 +788,7 @@ class TestWidenNormMatchesV1(TorchTestCase):
         self.assertEqual(set(plain_state), set(v1_state))
         for key, value in v1_state.items():
             with self.subTest(entry=key):
-                self.assertAllClose(plain_state[key], value, atol=0)
+                self.assertAllClose(plain_state[key], value, atol=0, rtol=0)
         for attribute in ("num_features", "eps", "momentum", "affine"):
             self.assertEqual(getattr(plain_norm, attribute), getattr(v1_norm, attribute))
 
@@ -794,7 +826,7 @@ class TestWidenNormMatchesV1(TorchTestCase):
         norm = nn.BatchNorm2d(4, bias=False)  # type: ignore[call-arg]
         widened = widen_norm(norm, 2)
         self.assertIsNone(widened.bias)
-        self.assertAllClose(widened.weight[4:], torch.ones(2), atol=0)
+        self.assertAllClose(widened.weight[4:], torch.ones(2), atol=0, rtol=0)
 
     def test_zero_added_units_copy_the_norm(self):
         _, plain_norm = self.build_pair(nn.BatchNorm2d, GrowingBatchNorm2d, 4)
@@ -941,7 +973,7 @@ class TestGradmaxBlockGrowthMatchesV1(TorchTestCase):
                 )
                 v1_norm = v1_block.first_layer.post_layer_function[0]
                 for key, value in v1_norm.state_dict().items():
-                    self.assertAllClose(grown.bn.state_dict()[key], value, atol=0)
+                    self.assertAllClose(grown.bn.state_dict()[key], value, atol=0, rtol=0)
 
     def test_grown_block_matches_v1_forward_and_backward(self):
         for stride in (1, 2):
