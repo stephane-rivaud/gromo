@@ -3767,29 +3767,6 @@ class TestLinearMergeGrowingModule(TestLinearGrowingModuleBase):
         self.assertIsInstance(n_update1, torch.Tensor)
         self.assertEqual(n_samples1, 5)
 
-    def test_tensor_scalar(self):
-        """Test the tensor scalar fix from torch.tensor([1e-5]) to torch.tensor(1e-5)."""
-        # Multiple configurations to ensure the fix is covered
-        configs = [(2, 3), (1, 1), (4, 2)]
-
-        for in_feat, out_feat in configs:
-            with self.subTest(in_features=in_feat, out_features=out_feat):
-                layer = LinearGrowingModule(in_feat, out_feat, device=global_device())
-
-                # Create a merge module as previous
-                merge = LinearMergeGrowingModule(
-                    in_features=out_feat, device=global_device()
-                )
-                layer.previous_module = merge
-
-                # Test activation_gradient property (this triggers the tensor scalar fix)
-                grad = layer.activation_gradient
-                # A scalar tensor: the derivative at 0+ of the identity, the
-                # default post-merge function of the previous merge module
-                self.assertIsInstance(grad, torch.Tensor)
-                self.assertEqual(grad.dim(), 0)
-                self.assertEqual(grad.item(), 1.0)
-
     def test_add_parameters_documentation_fixes_differential_coverage(self):
         """Test add_parameters method with the documentation and implementation fixes for
         differential coverage."""
@@ -3937,14 +3914,17 @@ class TestLinearMergeGrowingModule(TestLinearGrowingModuleBase):
         configs = [
             (2, 3),
             (1, 1),
+            (4, 2),
             (5, 2),
         ]
         # Post-merge functions covering the three ways of computing the
-        # derivative at 0+: the table of known activations, a numerical
+        # derivative at 0+: the table of known activations (with the default
+        # post-merge function, the identity, which is not passed), a numerical
         # derivative of an unknown function (torch.func.grad needs the scalar
         # point of the fix), and a Sequential mixing both. The derivative of
         # Softplus at 0+ is sigmoid(0) = 0.5.
         post_merge_functions = {
+            "default": (None, 1.0, False),
             "known": (torch.nn.ReLU(), 1.0, False),
             "numerical": (torch.nn.Softplus(), 0.5, True),
             "sequential": (
@@ -3965,9 +3945,13 @@ class TestLinearMergeGrowingModule(TestLinearGrowingModuleBase):
 
                     # Create a merge module as previous
                     merge = LinearMergeGrowingModule(
-                        post_merge_function=post_merge_function,
                         in_features=out_feat,
                         device=global_device(),
+                        **(
+                            {}
+                            if post_merge_function is None
+                            else {"post_merge_function": post_merge_function}
+                        ),
                     )
                     layer.previous_module = merge
 
