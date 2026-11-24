@@ -8,12 +8,15 @@ no extended forward pass is needed.
 from __future__ import annotations
 
 import copy
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 import torch
 from torch import nn
 
 from gromo.lite.capture import _check_supported
+
+
+ModuleType = TypeVar("ModuleType", bound=nn.Module)
 
 
 if TYPE_CHECKING:
@@ -44,6 +47,29 @@ def _split_bias(
     return matrix, None
 
 
+def _carry_state(new: ModuleType, old: nn.Module) -> ModuleType:
+    """Give a rebuilt layer the training mode and gradient flags of the old one.
+
+    Parameters
+    ----------
+    new : ModuleType
+        layer built to replace ``old``
+    old : nn.Module
+        layer being replaced
+
+    Returns
+    -------
+    ModuleType
+        ``new``, in the mode of ``old`` and with the same ``requires_grad`` flags
+    """
+    new.train(old.training)
+    for name, parameter in new.named_parameters(recurse=False):
+        old_parameter = getattr(old, name, None)
+        if isinstance(old_parameter, nn.Parameter):
+            parameter.requires_grad_(old_parameter.requires_grad)
+    return new
+
+
 def _updated_consumer_parameters(
     consumer: nn.Linear | nn.Conv2d, proposal: Proposal, gamma: float
 ) -> tuple[torch.Tensor, torch.Tensor | None]:
@@ -68,7 +94,7 @@ def _updated_consumer_parameters(
     if proposal.optimal_delta is None:
         return weight, bias
     delta_weight, delta_bias = _split_bias(
-        proposal.optimal_delta, consumer.bias is not None
+        proposal.optimal_delta.to(weight), consumer.bias is not None
     )
     weight -= gamma**2 * delta_weight.reshape(weight.shape)
     if bias is not None and delta_bias is not None:
@@ -110,14 +136,16 @@ def widen_linear(
     if not (isinstance(producer, nn.Linear) and isinstance(consumer, nn.Linear)):
         raise TypeError("widen_linear expects two nn.Linear layers.")
     added_units = proposal.alpha.shape[0]
-    factory = {"device": producer.weight.device, "dtype": producer.weight.dtype}
 
-    alpha_weight, alpha_bias = _split_bias(proposal.alpha, producer.bias is not None)
+    alpha_weight, alpha_bias = _split_bias(
+        proposal.alpha.to(producer.weight), producer.bias is not None
+    )
     new_producer = nn.Linear(
         producer.in_features,
         producer.out_features + added_units,
         bias=producer.bias is not None,
-        **factory,
+        device=producer.weight.device,
+        dtype=producer.weight.dtype,
     )
     new_producer.weight.copy_(torch.cat([producer.weight, gamma * alpha_weight]))
     if producer.bias is not None and alpha_bias is not None:
@@ -130,12 +158,15 @@ def widen_linear(
         consumer.in_features + added_units,
         consumer.out_features,
         bias=consumer.bias is not None,
-        **factory,
+        device=consumer.weight.device,
+        dtype=consumer.weight.dtype,
     )
-    new_consumer.weight.copy_(torch.cat([consumer_weight, gamma * proposal.omega], dim=1))
+    new_consumer.weight.copy_(
+        torch.cat([consumer_weight, gamma * proposal.omega.to(consumer_weight)], dim=1)
+    )
     if consumer_bias is not None:
         new_consumer.bias.copy_(consumer_bias)
-    return new_producer, new_consumer
+    return _carry_state(new_producer, producer), _carry_state(new_consumer, consumer)
 
 
 def _resized_conv2d(layer: nn.Conv2d, in_channels: int, out_channels: int) -> nn.Conv2d:
@@ -207,7 +238,9 @@ def widen_conv2d(
     _check_supported(consumer)
     added_units = proposal.alpha.shape[0]
 
-    alpha_weight, alpha_bias = _split_bias(proposal.alpha, producer.bias is not None)
+    alpha_weight, alpha_bias = _split_bias(
+        proposal.alpha.to(producer.weight), producer.bias is not None
+    )
     new_producer = _resized_conv2d(
         producer, producer.in_channels, producer.out_channels + added_units
     )
@@ -229,14 +262,14 @@ def widen_conv2d(
     fan_out = consumer_weight.new_zeros(
         consumer.out_channels, added_units, *consumer.kernel_size
     )
-    fan_out[:, :, centre_height, centre_width] = gamma * proposal.omega
+    fan_out[:, :, centre_height, centre_width] = gamma * proposal.omega.to(fan_out)
     new_consumer = _resized_conv2d(
         consumer, consumer.in_channels + added_units, consumer.out_channels
     )
     new_consumer.weight.copy_(torch.cat([consumer_weight, fan_out], dim=1))
     if consumer_bias is not None:
         new_consumer.bias.copy_(consumer_bias)
-    return new_producer, new_consumer
+    return _carry_state(new_producer, producer), _carry_state(new_consumer, consumer)
 
 
 _BATCH_NORM_TYPES: tuple[type[nn.modules.batchnorm._BatchNorm], ...] = (
@@ -315,7 +348,7 @@ def widen_norm(
             torch.cat([norm.running_var, norm.running_var.new_ones(added_units)])
         )
         new_norm.num_batches_tracked.copy_(norm.num_batches_tracked)  # type: ignore[union-attr]
-    return new_norm
+    return _carry_state(new_norm, norm)
 
 
 def widen(
@@ -387,6 +420,8 @@ def grown_copy(
     ValueError
         if a normalisation does not have one feature per producer output
     """
+    if isinstance(norm_names, str):
+        norm_names = (norm_names,)
     grown = copy.deepcopy(model)
     producer = grown.get_submodule(producer_name)
     hidden_units = producer.weight.shape[0]

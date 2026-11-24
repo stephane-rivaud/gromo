@@ -39,8 +39,8 @@ from typing import TYPE_CHECKING
 import torch
 from torch import nn
 
-from gromo.lite.capture import input_patches, output_rows
-from gromo.lite.surgery import _resized_conv2d, widen_norm
+from gromo.lite.capture import _check_supported, input_patches, output_rows
+from gromo.lite.surgery import _carry_state, _resized_conv2d, widen_norm
 
 
 if TYPE_CHECKING:
@@ -130,21 +130,25 @@ def splitting_moment(
         elementwise activation between the producer and the consumer; its second
         derivative is the curvature of the splitting matrix
     norms : Mapping[Site, nn.modules.batchnorm._BatchNorm] | None
-        batch normalisation between the producer and the activation, per site; it
-        must be in evaluation mode while the moments are collected
+        batch normalisation between the producer and the activation, per site,
+        matched by the site's producer and consumer layers; it must be in
+        evaluation mode while the moments are collected
 
     Returns
     -------
     Callable[[SiteBatch, Moments], None]
         extra moment for :func:`~gromo.lite.capture.collect`
     """
-    norm_of = dict(norms or {})
+    # match by the site's layers: an equal Site built separately must find its norm
+    norm_of = {
+        (site.producer, site.consumer): norm for site, norm in (norms or {}).items()
+    }
 
     def accumulate(batch: SiteBatch, moments: Moments) -> None:
         producer = batch.site.producer
         pre_activation = output_rows(producer, batch.producer_output)
         unit_gradient = output_rows(producer, batch.consumer_input_gradient())
-        norm = norm_of.get(batch.site)
+        norm = norm_of.get((batch.site.producer, batch.site.consumer))
         if norm is None:
             weights = unit_gradient * activation_second_derivative(
                 activation, pre_activation
@@ -165,6 +169,10 @@ def splitting_moment(
             )
             for start in range(0, weights.shape[1], _UNITS_PER_CHUNK)
         ]
+        if not chunks:  # a site with no unit yet has no unit to split
+            fan_in = patches.shape[1]
+            moments.add_sum(SPLITTING_MATRICES, patches.new_zeros((0, fan_in, fan_in)))
+            return
         moments.add_sum(SPLITTING_MATRICES, torch.cat(chunks))
 
     return accumulate
@@ -210,8 +218,20 @@ def splitting(
     -------
     SplitProposal
         units to split, sorted from the most negative eigenvalue
+
+    Raises
+    ------
+    ValueError
+        if ``maximum_splits`` is negative
     """
+    if maximum_splits is not None and maximum_splits < 0:
+        raise ValueError(f"maximum_splits must be non-negative, got {maximum_splits}.")
     matrices = moments[SPLITTING_MATRICES]
+    if matrices.shape[0] == 0 or matrices.shape[-1] == 0:
+        empty = matrices.new_zeros((0,))
+        return SplitProposal(
+            empty.long(), matrices.new_zeros((0, matrices.shape[-1])), empty
+        )
     matrices = (matrices + matrices.transpose(1, 2)) / 2
     eigenvalues, eigenvectors = torch.linalg.eigh(matrices)
     smallest, directions = eigenvalues[:, 0], eigenvectors[:, :, 0]
@@ -244,6 +264,24 @@ def _split_bias(
     return matrix, None
 
 
+def _unit_count(layer: nn.Module) -> int:
+    """Number of output units of a ``nn.Linear`` or ``nn.Conv2d``.
+
+    Parameters
+    ----------
+    layer : nn.Module
+        producer of a site
+
+    Returns
+    -------
+    int
+        size of the first dimension of its weight
+    """
+    weight = layer.weight
+    assert isinstance(weight, torch.Tensor)
+    return weight.shape[0]
+
+
 @torch.no_grad()
 def split_units(
     producer: nn.Module, consumer: nn.Module, proposal: SplitProposal, epsilon: float
@@ -274,8 +312,19 @@ def split_units(
     ------
     TypeError
         if the layers are not two ``nn.Linear`` or two ``nn.Conv2d``
+    ValueError
+        if the proposed units repeat or are not units of ``producer``
     """
-    added = int(proposal.units.numel())
+    _check_supported(producer)
+    _check_supported(consumer)
+    units = proposal.units.tolist()
+    width = _unit_count(producer)
+    if len(set(units)) != len(units) or any(not 0 <= unit < width for unit in units):
+        raise ValueError(
+            f"The units to split must be distinct units of the producer (0 to "
+            f"{width - 1}), got {units}."
+        )
+    added = len(units)
     new_producer: nn.Linear | nn.Conv2d
     new_consumer: nn.Linear | nn.Conv2d
     if isinstance(producer, nn.Linear) and isinstance(consumer, nn.Linear):
@@ -303,7 +352,7 @@ def split_units(
     else:
         raise TypeError("split_units expects two nn.Linear or two nn.Conv2d layers.")
     _fill_split(producer, consumer, new_producer, new_consumer, proposal, epsilon)
-    return new_producer, new_consumer
+    return _carry_state(new_producer, producer), _carry_state(new_consumer, consumer)
 
 
 def _fill_split(
@@ -332,7 +381,7 @@ def _fill_split(
         splitting step
     """
     units = proposal.units.to(producer.weight.device)
-    step = epsilon * proposal.directions.to(producer.weight.dtype)
+    step = epsilon * proposal.directions.to(producer.weight)
     step_weight, step_bias = _split_bias(step, producer.bias is not None)
     step_weight = step_weight.reshape(units.numel(), *producer.weight.shape[1:])
 
@@ -424,7 +473,21 @@ def split_copy(
     ------
     TypeError
         if a module named in ``norm_names`` is not a batch normalisation
+    ValueError
+        if such a normalisation does not normalise the producer's units
     """
+    if isinstance(norm_names, str):
+        norm_names = (norm_names,)
+    width = _unit_count(model.get_submodule(producer_name))
+    for norm_name in norm_names:
+        norm = model.get_submodule(norm_name)
+        if not isinstance(norm, nn.modules.batchnorm._BatchNorm):
+            raise TypeError(f"{norm_name!r} is not a batch normalisation.")
+        if norm.num_features != width:
+            raise ValueError(
+                f"{norm_name!r} normalises {norm.num_features} features, but "
+                f"{producer_name!r} has {width} units."
+            )
     split = copy.deepcopy(model)
     new_producer, new_consumer = split_units(
         split.get_submodule(producer_name),
@@ -436,7 +499,6 @@ def split_copy(
     split.set_submodule(consumer_name, new_consumer)
     for norm_name in norm_names:
         norm = split.get_submodule(norm_name)
-        if not isinstance(norm, nn.modules.batchnorm._BatchNorm):
-            raise TypeError(f"{norm_name!r} is not a batch normalisation.")
+        assert isinstance(norm, nn.modules.batchnorm._BatchNorm)
         split.set_submodule(norm_name, split_norm(norm, proposal.units))
     return split
