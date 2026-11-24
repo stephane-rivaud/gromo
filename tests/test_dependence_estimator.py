@@ -96,8 +96,12 @@ class TestDependenceEstimator(TorchTestCase):
         }
         Y = torch.rand((100, 10))
         n_samples = 10
+        # calculate_dependency draws its samples with randperm: the same seed
+        # gives the same samples to the calls compared below
+        seed = 1
 
         # Call the calculate_dependency function
+        torch.manual_seed(seed)
         result = calculate_dependency(X_inputs, Y, n_samples)
 
         # Check if the result is a dictionary
@@ -112,10 +116,25 @@ class TestDependenceEstimator(TorchTestCase):
             self.assertEqual(value.dim(), 0)
             self.assertGreaterEqual(value.item(), 0)
 
-        # Test with normalization disabled
+        # Test with normalization disabled, on the same samples
+        torch.manual_seed(seed)
         result_no_norm = calculate_dependency(X_inputs, Y, n_samples, normalize=False)
+        torch.manual_seed(seed)
+        indices = torch.randperm(len(Y))[:n_samples]
+
+        def self_dependency(Z: torch.Tensor) -> torch.Tensor:
+            """HSIC of the selected samples of Z with themselves."""
+            K = center_kernel_matrix(gaussian_kernel(Z[indices]))
+            return torch.trace(K @ K) / (n_samples - 1) ** 2
+
+        hsic_y = self_dependency(Y)
         for key in result:
             self.assertNotEqual(result[key].item(), result_no_norm[key].item())
+            # The only difference is the normalisation by sqrt(HSIC(X, X) HSIC(Y, Y))
+            normalisation = torch.sqrt(self_dependency(X_inputs[key]) * hsic_y)
+            self.assertAllClose(result[key], result_no_norm[key] / normalisation)
+            # Cauchy-Schwarz: the normalised criterion is at most 1
+            self.assertLessEqual(result[key].item(), 1.0 + 1e-6)
 
         # More samples
         result_more_samples = calculate_dependency(X_inputs, Y, n_samples=20)
