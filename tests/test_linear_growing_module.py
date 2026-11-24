@@ -3981,6 +3981,11 @@ class TestLinearMergeGrowingModule(TestLinearGrowingModuleBase):
         # Test 1: No previous modules (should handle None gracefully)
         merge_module.init_computation()
         merge_module.update_computation()  # Should not crash
+        # Without a forward pass there is nothing to accumulate, and without
+        # previous modules there are no previous statistics
+        self.assertEqual(merge_module.tensor_s.samples, 0)
+        self.assertIsNone(merge_module.previous_tensor_s)
+        self.assertIsNone(merge_module.previous_tensor_m)
 
         # Test 2: With previous modules for comprehensive coverage
         prev = LinearGrowingModule(1, 2, device=global_device())
@@ -4001,8 +4006,45 @@ class TestLinearMergeGrowingModule(TestLinearGrowingModuleBase):
         prev.update_computation()
         merge_module.update_computation()
 
-        # Verify comprehensive test completed
-        self.assertTrue(True)  # If we get here, all lines were executed successfully
+        # Every statistic accumulated the 3 samples of the batch
+        assert merge_module.previous_tensor_s is not None
+        assert merge_module.previous_tensor_m is not None
+        for statistic in (
+            merge_module.tensor_s,
+            merge_module.previous_tensor_s,
+            merge_module.previous_tensor_m,
+            prev.tensor_s,
+            prev.tensor_m,
+        ):
+            self.assertEqual(statistic.samples, x.size(0), statistic.name)
+
+        # Compare with statistics computed by hand. B = (x, 1) is the input of
+        # the previous module extended for the bias, A = (merge_out, 1) is the
+        # input of the merge module and the post-merge function is the identity,
+        # so the gradient of ||merge_out|| at the merge input is
+        # merge_out / ||merge_out||.
+        n_samples = x.size(0)
+        full_activity = torch.cat((x, torch.ones_like(x)), dim=1)
+        merge_input = merge_out.detach()
+        merge_activity = torch.cat(
+            (merge_input, torch.ones(n_samples, 1, device=global_device())), dim=1
+        )
+        gradient = merge_input / merge_input.norm()
+        self.assertAllClose(
+            merge_module.previous_tensor_s(),
+            full_activity.T @ full_activity / n_samples,
+            atol=1e-6,
+        )
+        self.assertAllClose(
+            merge_module.previous_tensor_m(),
+            full_activity.T @ gradient / n_samples,
+            atol=1e-6,
+        )
+        self.assertAllClose(
+            merge_module.tensor_s(),
+            merge_activity.T @ merge_activity / n_samples,
+            atol=1e-6,
+        )
 
     def test_tensor_scalar_fix_all_cases(self):
         """Test all cases of the tensor scalar fix."""

@@ -662,11 +662,29 @@ class TestMergeGrowingModule(TorchTestCase):
             self.mock_module2
         ]  # mock_module2 has out_features=3
 
+        # Assigning the lists directly does not build the statistics of the
+        # previous modules
+        self.assertEqual(self.merge_module.total_in_features, 0)
+        self.assertIsNone(self.merge_module.previous_tensor_s)
+        self.assertIsNone(self.merge_module.previous_tensor_m)
+
         # Call grow - this should call set_next_modules and set_previous_modules
         self.merge_module.grow()
 
-        # If we reach here, the method executed successfully
-        self.assertTrue(True)
+        # The modules are kept and the statistics are rebuilt for them:
+        # mock_module2 brings 5 input features + 1 bias
+        self.assertEqual(self.merge_module.next_modules, [self.mock_module1])
+        self.assertEqual(self.merge_module.previous_modules, [self.mock_module2])
+        self.assertEqual(self.merge_module.total_in_features, 5 + 1)
+        assert self.merge_module.previous_tensor_s is not None
+        assert self.merge_module.previous_tensor_m is not None
+        self.assertEqual(self.merge_module.previous_tensor_s._shape, (6, 6))
+        self.assertEqual(self.merge_module.previous_tensor_m._shape, (6, 3))
+
+        # set_next_modules checks the sizes of the next modules
+        self.merge_module.next_modules = [self.mock_module2]  # in_features=5 != 3
+        with self.assertRaises(AssertionError):
+            self.merge_module.grow()
 
     def test_add_next_module(self):
         """Test add_next_module() method."""
@@ -1230,15 +1248,44 @@ class TestMergeGrowingModuleUpdateComputation(TorchTestCase):
         loss = torch.norm(merge_output)
         loss.backward()
 
+        # The default post-merge function is the identity
+        self.assertAllClose(merge_output, output)
+
         # Update computations to generate statistics
         prev_module.update_computation()
         merge_module.update_computation()  # This should work now with statistics
+
+        statistics = [
+            merge_module.tensor_s,
+            merge_module.previous_tensor_s,
+            merge_module.previous_tensor_m,
+            prev_module.tensor_s,
+            prev_module.tensor_m,
+        ]
+        for statistic in statistics:
+            assert statistic is not None
+            self.assertEqual(statistic.samples, x.size(0), statistic.name)
+        # S[-1] of the merge module is computed on the input of its previous
+        # module, extended with ones for the bias
+        full_activity = torch.cat((x, torch.ones_like(x)), dim=1)
+        assert merge_module.previous_tensor_s is not None
+        self.assertAllClose(
+            merge_module.previous_tensor_s(),
+            full_activity.T @ full_activity / x.size(0),
+            atol=1e-6,
+        )
 
         # Reset computations
         merge_module.reset_computation()
         prev_module.reset_computation()
 
-        self.assertTrue(True)  # If we get here, the lines were executed
+        for statistic in statistics:
+            assert statistic is not None
+            self.assertEqual(statistic.samples, 0, statistic.name)
+        self.assertFalse(merge_module.store_input)
+        self.assertFalse(merge_module.store_activity)
+        self.assertFalse(prev_module.store_input)
+        self.assertFalse(prev_module.store_pre_activity)
 
     def test_projected_v_goal(self) -> None:
         """Expressivity bottleneck when two MergeGrowingModule objects are connected"""
