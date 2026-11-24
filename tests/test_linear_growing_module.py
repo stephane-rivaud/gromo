@@ -3587,27 +3587,30 @@ class TestLinearMergeGrowingModule(TestLinearGrowingModuleBase):
             "Using the pseudo-inverse for the computation of the optimal delta",
         ):
             layer2.compute_optimal_delta()
+        self.assertEqual(layer2.tensor_s.samples, 1)
+        assert isinstance(layer2.optimal_delta_layer, torch.nn.Linear)
+        self.assertShapeEqual(layer2.optimal_delta_layer.weight, (4, 2))
+        assert layer2.optimal_delta_layer.bias is not None
+        self.assertShapeEqual(layer2.optimal_delta_layer.bias, (4,))
 
         # Test with different input shapes by doing another forward pass
         x_new = torch.randn(7, 3, device=global_device())  # Different batch size
-        output_new = layer1(x_new)
-        output_new = layer2(output_new)
+        hidden_new = layer1(x_new)
+        output_new = layer2(hidden_new)
+        # compute_n_update needs the gradient of the new pre-activation of layer2
+        loss_new = torch.norm(output_new)
+        loss_new.backward()
 
-        # Test compute_p with different configurations (if the method exists)
-        try:
-            p_result, p_samples = layer2.compute_p()
-            self.assertIsInstance(p_result, torch.Tensor)
-            self.assertEqual(p_samples, 7)
-        except (AssertionError, ValueError, RuntimeError, AttributeError):
-            pass  # Config-dependent or method not available (e.g. no compute_p).
-
-        # Test compute_n_update with different scenarios
-        try:
-            n_update, n_samples = layer1.compute_n_update()
-            self.assertIsInstance(n_update, torch.Tensor)
-            self.assertEqual(n_samples, 7)
-        except (AssertionError, ValueError, RuntimeError, TypeError, AttributeError):
-            pass  # Config-dependent failure for this shape/setup.
+        # Test compute_n_update with a batch size different from the statistics
+        n_update, n_samples = layer1.compute_n_update()
+        self.assertEqual(n_samples, 7)
+        # N = X^T V with X the input of layer1 and V the projected desired
+        # update of layer2: V = dL/dA2 - dW2* B2, where dL/dA2 = A2 / ||A2||
+        with torch.no_grad():
+            gradient = output_new / output_new.norm()
+            projected_v_goal = gradient - layer2.optimal_delta_layer(hidden_new)
+        self.assertShapeEqual(n_update, (3, 4))
+        self.assertAllClose(n_update, x_new.T @ projected_v_goal, atol=1e-6)
 
     def test_sub_select_previous_module_error_conditions(self):
         """Test sub_select_optimal_added_parameters with
@@ -3897,13 +3900,12 @@ class TestLinearMergeGrowingModule(TestLinearGrowingModuleBase):
                 layer.previous_module = merge
 
                 # Test activation_gradient property (this triggers the tensor scalar fix)
-                try:
-                    grad = layer.activation_gradient
-                    if grad is not None:
-                        self.assertIsInstance(grad, torch.Tensor)
-                except (NotImplementedError, ValueError, AttributeError):
-                    # Coverage of error path when previous is MergeGrowingModule.
-                    pass
+                grad = layer.activation_gradient
+                # A scalar tensor: the derivative at 0+ of the identity, the
+                # default post-merge function of the previous merge module
+                self.assertIsInstance(grad, torch.Tensor)
+                self.assertEqual(grad.dim(), 0)
+                self.assertEqual(grad.item(), 1.0)
 
     def test_add_parameters_documentation_fixes_differential_coverage(self):
         """Test add_parameters method with the documentation and implementation fixes for
@@ -4054,25 +4056,47 @@ class TestLinearMergeGrowingModule(TestLinearGrowingModuleBase):
             (1, 1),
             (5, 2),
         ]
+        # Post-merge functions covering the three ways of computing the
+        # derivative at 0+: the table of known activations, a numerical
+        # derivative of an unknown function (torch.func.grad needs the scalar
+        # point of the fix), and a Sequential mixing both. The derivative of
+        # Softplus at 0+ is sigmoid(0) = 0.5.
+        post_merge_functions = {
+            "known": (torch.nn.ReLU(), 1.0, False),
+            "numerical": (torch.nn.Softplus(), 0.5, True),
+            "sequential": (
+                torch.nn.Sequential(torch.nn.ReLU(), torch.nn.Softplus()),
+                0.5,
+                True,
+            ),
+        }
 
         for in_feat, out_feat in configs:
-            with self.subTest(in_features=in_feat, out_features=out_feat):
-                layer = LinearGrowingModule(in_feat, out_feat, device=global_device())
+            for case, (
+                post_merge_function,
+                expected_gradient,
+                numerical,
+            ) in post_merge_functions.items():
+                with self.subTest(in_features=in_feat, out_features=out_feat, case=case):
+                    layer = LinearGrowingModule(in_feat, out_feat, device=global_device())
 
-                # Create a merge module as previous
-                merge = LinearMergeGrowingModule(
-                    in_features=out_feat, device=global_device()
-                )
-                layer.previous_module = merge
+                    # Create a merge module as previous
+                    merge = LinearMergeGrowingModule(
+                        post_merge_function=post_merge_function,
+                        in_features=out_feat,
+                        device=global_device(),
+                    )
+                    layer.previous_module = merge
 
-                # Test activation_gradient property
-                try:
-                    grad = layer.activation_gradient
-                    if grad is not None:
-                        self.assertIsInstance(grad, torch.Tensor)
-                except (NotImplementedError, ValueError, AttributeError):
-                    # Coverage of error path when previous is MergeGrowingModule.
-                    pass
+                    # Test activation_gradient property
+                    if numerical:
+                        with self.assertWarnsRegex(UserWarning, "compute it numerically"):
+                            grad = layer.activation_gradient
+                    else:
+                        grad = layer.activation_gradient
+                    self.assertIsInstance(grad, torch.Tensor)
+                    self.assertEqual(grad.dim(), 0)
+                    self.assertAlmostEqual(grad.item(), expected_gradient, places=4)
 
     def test_comprehensive_method_modifications(self):
         """Test all modified methods comprehensively."""
@@ -4088,37 +4112,60 @@ class TestLinearMergeGrowingModule(TestLinearGrowingModuleBase):
 
         # Test add_parameters with all documented fixes
         original_weight_shape = layer.weight.shape
+        original_weight = layer.weight.detach().clone()
+        original_bias = layer.bias.detach().clone()
 
         # Test input feature addition
-        try:
-            with self.assertWarns(UserWarning):
-                # The size has been changed but it is up to the user to change the connected layers.
-                layer.add_parameters(
-                    matrix_extension=torch.randn(3, 2, device=global_device()),
-                    bias_extension=None,
-                    added_in_features=2,
-                    added_out_features=0,
-                )
-            self.assertEqual(layer.weight.shape[1], original_weight_shape[1] + 2)
-        except (AssertionError, ValueError, RuntimeError):
-            pass  # Configs where addition may fail.
+        matrix_extension = torch.randn(3, 2, device=global_device())
+        with self.assertWarns(UserWarning):
+            # The size has been changed but it is up to the user to change the connected layers.
+            layer.add_parameters(
+                matrix_extension=matrix_extension,
+                bias_extension=None,
+                added_in_features=2,
+                added_out_features=0,
+            )
+        self.assertEqual(layer.weight.shape[1], original_weight_shape[1] + 2)
+        self.assertEqual(layer.in_features, 4 + 2)
+        self.assertEqual(layer.out_features, 3)
+        # The new columns are the extension, the old ones and the bias are kept
+        self.assertAllClose(layer.weight[:, :4], original_weight)
+        self.assertAllClose(layer.weight[:, 4:], matrix_extension)
+        self.assertAllClose(layer.bias, original_bias)
 
         # Reset for output feature test
         layer = LinearGrowingModule(4, 3, device=global_device())
+        original_weight = layer.weight.detach().clone()
+        original_bias = layer.bias.detach().clone()
 
         # Test output feature addition
-        try:
-            with self.assertWarns(UserWarning):
-                # The size has been changed but it is up to the user to change the connected layers.
-                layer.add_parameters(
-                    matrix_extension=torch.randn(2, 4, device=global_device()),
-                    bias_extension=torch.randn(2, device=global_device()),
-                    added_in_features=0,
-                    added_out_features=2,
-                )
-            self.assertEqual(layer.weight.shape[0], 3 + 2)
-        except (AssertionError, ValueError, RuntimeError):
-            pass  # Configs where addition may fail.
+        matrix_extension = torch.randn(2, 4, device=global_device())
+        bias_extension = torch.randn(2, device=global_device())
+        with self.assertWarns(UserWarning):
+            # The size has been changed but it is up to the user to change the connected layers.
+            layer.add_parameters(
+                matrix_extension=matrix_extension,
+                bias_extension=bias_extension,
+                added_in_features=0,
+                added_out_features=2,
+            )
+        self.assertEqual(layer.weight.shape[0], 3 + 2)
+        self.assertEqual(layer.in_features, 4)
+        self.assertEqual(layer.out_features, 3 + 2)
+        # The new rows are the extension, the old ones are kept
+        self.assertAllClose(layer.weight[:3], original_weight)
+        self.assertAllClose(layer.weight[3:], matrix_extension)
+        self.assertAllClose(layer.bias[:3], original_bias)
+        self.assertAllClose(layer.bias[3:], bias_extension)
+
+        # Adding input and output features at the same time is refused
+        with self.assertRaises(AssertionError):
+            layer.add_parameters(
+                matrix_extension=None,
+                bias_extension=None,
+                added_in_features=1,
+                added_out_features=1,
+            )
 
     def test_linear_growing_module_init_computation_changes(self):
         """Test the modified init_computation method in LinearGrowingModule."""
