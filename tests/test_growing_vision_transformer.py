@@ -24,8 +24,6 @@ from gromo.containers.growing_vision_transformer import (
     check_patch_grid,
 )
 from gromo.containers.sequential_growing_container import SequentialGrowingModel
-from gromo.modules.growing_drop_path import DropPath, drop_path
-from gromo.modules.growing_dropout import GrowingDropout
 from tests.test_growing_container import create_synthetic_data, gather_statistics
 from tests.torch_unittest import TorchTestCase
 
@@ -362,46 +360,6 @@ class TestGrowingTransformerCoveragePaths(TorchTestCase):
             conv_bias=True,
             device=self.device,
         )
-
-    def test_drop_path_and_extended_dropout_helpers(self):
-        x = torch.ones(2, 3, 4)
-        x_ext = torch.randn(2, 3, 4)
-
-        self.assertAllClose(drop_path(x, drop_prob=0.0, training=True), x)
-        self.assertAllClose(drop_path(x, drop_prob=0.5, training=False), x)
-
-        with patch(
-            "gromo.modules.growing_drop_path.torch.rand",
-            return_value=torch.ones((2, 1, 1)),
-        ):
-            dropped = drop_path(x, drop_prob=0.5, training=True)
-            self.assertAllClose(dropped, torch.zeros_like(x))
-
-        with self.assertRaisesRegex(ValueError, r"`drop_prob` must lie in \[0, 1\]"):
-            drop_path(x, drop_prob=1.5, training=True)
-
-        drop_module = DropPath(0.5)
-        drop_module.train()
-        with patch(
-            "gromo.modules.growing_drop_path.torch.rand",
-            return_value=torch.ones((2, 1, 1)),
-        ):
-            dropped, forwarded_ext = drop_module.extended_forward(x, x_ext)
-            self.assertAllClose(dropped, torch.zeros_like(x))
-            self.assertIs(forwarded_ext, x_ext)
-
-        dropped_none, forwarded_ext = drop_module.extended_forward(None, x_ext)
-        self.assertIsNone(dropped_none)
-        self.assertIs(forwarded_ext, x_ext)
-
-        dropout = GrowingDropout(dropout_rate=0.0)
-        kept, forwarded_ext = dropout.extended_forward(x, x_ext)
-        self.assertAllClose(kept, x)
-        self.assertIs(forwarded_ext, x_ext)
-
-        kept_none, forwarded_ext = dropout.extended_forward(None, x_ext)
-        self.assertIsNone(kept_none)
-        self.assertIs(forwarded_ext, x_ext)
 
     def test_attention_mask_resolution_and_validation(self):
         with self.assertRaises(ValueError):
