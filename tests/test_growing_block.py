@@ -697,22 +697,29 @@ class TestLinearGrowingBlock(TorchTestCase):
         for obj in deleted_objects:
             self.assertIsNone(obj)
 
-    def test_growth_spectra_on_empty_block(self):
-        """The empty-block branch of compute_optimal_updates records its spectra."""
+    def empty_block_with_statistics(self, name: str) -> LinearGrowingBlock:
+        """Block with no hidden feature and an identity activation, whose statistics
+        are gathered on an indicator batch with the loss ||output||^2 / 2."""
         block = LinearGrowingBlock(
             in_features=self.in_features,
             out_features=self.in_features,
             hidden_features=0,
             activation=torch.nn.Identity(),
             device=self.device,
-            name="test_block",
+            name=name,
         )
         block.init_computation()
         x_batch = indicator_batch((self.in_features,), device=self.device)
         block.zero_grad()
         loss = (block(x_batch) ** 2).sum() / 2
         loss.backward()
+        self.assertIsNotNone(block.second_layer.pre_activity.grad)
         block.update_computation()
+        return block
+
+    def test_growth_spectra_on_empty_block(self):
+        """The empty-block branch of compute_optimal_updates records its spectra."""
+        block = self.empty_block_with_statistics("test_block")
 
         block.compute_optimal_updates(maximum_added_neurons=self.in_features)
         self.assertIsNone(block.growth_spectra)
@@ -1028,36 +1035,9 @@ class TestLinearGrowingBlock(TorchTestCase):
         hidden_neurons == 0, ensuring neurons can still be added without computing
         optimal delta.
         """
-        # Step 1: Create block with zero hidden features
-        block = LinearGrowingBlock(
-            in_features=self.in_features,
-            out_features=self.in_features,
-            hidden_features=0,  # Empty block
-            activation=torch.nn.Identity(),
-            device=self.device,
-            name="empty_block_gradmax",
-        )
+        block = self.empty_block_with_statistics("empty_block_gradmax")
 
-        # Step 2: Initialize computation
-        block.init_computation()
-
-        # Step 3: Forward/backward pass with indicator batch
-        x_batch = indicator_batch((self.in_features,), device=self.device)
-
-        block.zero_grad()
-        output = block(x_batch)
-
-        # Loss: ||output||^2 / 2
-        loss = (output**2).sum() / 2
-        loss.backward()
-
-        # Verify gradients exist
-        self.assertIsNotNone(block.second_layer.pre_activity.grad)
-
-        # Step 4: Update computation
-        block.update_computation()
-
-        # Step 5: Compute updates with GradMax configuration
+        # Compute updates with GradMax configuration
         block.compute_optimal_updates(
             compute_delta=False,
             use_covariance=False,
@@ -1066,7 +1046,7 @@ class TestLinearGrowingBlock(TorchTestCase):
             maximum_added_neurons=self.in_features,
         )
 
-        # Step 6: Verify GradMax-specific behavior
+        # Verify GradMax-specific behavior
         # GradMax should not compute optimal_delta_layer but should keep side effects usable
         self.assertFalse(
             hasattr(block.second_layer, "optimal_delta_layer")
@@ -1085,7 +1065,7 @@ class TestLinearGrowingBlock(TorchTestCase):
             atol=1e-8,
         )
 
-        # Step 7: Verify that neurons can still be added
+        # Verify that neurons can still be added
         # Extended layers should be created
         self.assertIsNotNone(
             block.first_layer.extended_output_layer,
@@ -1121,22 +1101,7 @@ class TestLinearGrowingBlock(TorchTestCase):
         """
         blocks = {}
         for use_projection in (True, False):
-            block = LinearGrowingBlock(
-                in_features=self.in_features,
-                out_features=self.in_features,
-                hidden_features=0,
-                activation=torch.nn.Identity(),
-                device=self.device,
-                name="empty_block_no_warning",
-            )
-            block.init_computation()
-
-            input_batch = indicator_batch((self.in_features,), device=self.device)
-            block.zero_grad()
-            output = block(input_batch)
-            loss = (output**2).sum() / 2
-            loss.backward()
-            block.update_computation()
+            block = self.empty_block_with_statistics("empty_block_no_warning")
 
             with warnings.catch_warnings(record=True) as caught_warnings:
                 warnings.simplefilter("always")
