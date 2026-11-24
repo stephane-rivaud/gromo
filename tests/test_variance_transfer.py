@@ -7,6 +7,7 @@ Tests cover:
 - Edge-case tests (small / zero weight variance)
 """
 
+import copy
 from typing import get_args
 
 import torch
@@ -756,14 +757,20 @@ class TestPairingStructure(TorchTestCase):
             )
 
     def test_pairing_apply_change_then_forward_with_sized_activation(self):
-        """Growing with pairing then forwarding with SizedIdentity currently fails."""
+        """Growing with pairing grows a sized mid activation, and the block can
+        still be forwarded, with an output almost unchanged by the paired neurons.
+        """
         h_t = 8
         dh = 4
+        mid_activation = GrowableIdentity(h_t)
         block = _make_conv_block(
             h_t=h_t,
-            mid_activation=GrowableIdentity(h_t),
+            mid_activation=mid_activation,
             device=self.device,
         )
+        x = torch.randn(2, 3, 8, 8, device=self.device)
+        with torch.no_grad():
+            output_before = block(x)
 
         block.create_layer_extensions(
             extension_size=dh,
@@ -771,8 +778,15 @@ class TestPairingStructure(TorchTestCase):
         )
         block.apply_change(scaling_factor=1.0, extension_size=dh)
 
-        x = torch.randn(2, 3, 8, 8, device=self.device)
-        _ = block(x)
+        # The sized activation follows the hidden size (it raises otherwise)
+        self.assertEqual(block.hidden_neurons, h_t + dh)
+        self.assertEqual(mid_activation.num_features, h_t + dh)
+        with torch.no_grad():
+            output_after = block(x)
+        self.assertShapeEqual(output_after, (2, 3, 8, 8))
+        # (V, V) / (Z, -Z) pairing cancels the new neurons up to the default
+        # noise_ratio of 1e-3 of the extensions
+        self.assertAllClose(output_after, output_before, atol=1e-2)
 
 
 class TestRescalingIdempotence(TorchTestCase):
@@ -945,6 +959,8 @@ class TestSmallWeightVarianceEdgeCases(TorchTestCase):
         # Set all weights to a constant => variance = 0
         block.first_layer.weight.data.fill_(0.5)
         block.second_layer.weight.data.fill_(0.5)
+        first_bias = block.first_layer.bias.detach().clone()
+        second_bias = block.second_layer.bias.detach().clone()
 
         # Should not crash — falls back to scale=1.0
         _grow_block(
@@ -953,6 +969,17 @@ class TestSmallWeightVarianceEdgeCases(TorchTestCase):
             rescaling="vt_constraint_old_shape",
             neuron_pairing="vv_z_negz",
         )
+
+        self.assertEqual(block.hidden_neurons, 8 + 4)
+        self.assertShapeEqual(block.first_layer.weight, (12, 3, 3, 3))
+        self.assertShapeEqual(block.second_layer.weight, (3, 12, 3, 3))
+        # Scale 1.0: the existing weights and biases are not rescaled
+        self.assertTrue(torch.all(block.first_layer.weight[:8] == 0.5))
+        self.assertTrue(torch.all(block.second_layer.weight[:, :8] == 0.5))
+        self.assertTrue(torch.equal(block.first_layer.bias[:8], first_bias))
+        self.assertTrue(torch.equal(block.second_layer.bias, second_bias))
+        self.assertTrue(torch.isfinite(block.first_layer.weight).all())
+        self.assertTrue(torch.isfinite(block.second_layer.weight).all())
 
     def test_single_hidden_channel_no_crash(self):
         """Rescaling with h_t=1 (minimal hidden dimension)."""
@@ -1167,11 +1194,19 @@ class TestCoverageSmoke(TorchTestCase):
     def test_rescaling_no_extension_no_size(self):
         """apply_rescaling with no extensions and no extension_size => ext_size=0."""
         block = _make_conv_block(h_t=8, device=self.device)
+        parameters = {
+            name: parameter.detach().clone()
+            for name, parameter in block.named_parameters()
+        }
         # No extensions exist, no extension_size passed => ext_size = 0
         block.second_layer.apply_rescaling(
             rescaling="default_vt",
             neuron_pairing=None,
         )
+        # Strategy A with ext_size = 0: beta = sqrt(fan_in_old / fan_in_old) = 1
+        # and alpha = 1, so no parameter changes
+        for name, parameter in block.named_parameters():
+            self.assertTrue(torch.equal(parameter, parameters[name]), name)
 
     def test_rescaling_no_bias(self):
         """Rescaling with bias=None hits the False branch of bias checks."""
@@ -1191,6 +1226,16 @@ class TestCoverageSmoke(TorchTestCase):
             neuron_pairing=None,
             extension_size=4,
         )
+        # Strategy B targets V[W] = 1 / fan_in_old: 3 * 3 * 3 inputs for the
+        # first layer and 8 * 3 * 3 for the second one (the extension is ignored)
+        self.assertAlmostEqual(
+            block.first_layer.weight.var().item(), 1 / (3 * 3 * 3), places=6
+        )
+        self.assertAlmostEqual(
+            block.second_layer.weight.var().item(), 1 / (8 * 3 * 3), places=6
+        )
+        self.assertIsNone(block.first_layer.bias)
+        self.assertIsNone(block.second_layer.bias)
 
     def test_pairing_no_extended_output_raises(self):
         """apply_neuron_pairing without extended_output_layer raises RuntimeError."""
@@ -1224,11 +1269,41 @@ class TestCoverageSmoke(TorchTestCase):
         # Set all weights to constant => zero variance => kaiming fallback
         block.first_layer.weight.data.fill_(0.5)
         block.second_layer.weight.data.fill_(0.5)
+        kaiming_block = copy.deepcopy(block)
+        torch.manual_seed(1)
         block.create_layer_extensions(
             extension_size=4,
             output_extension_init="copy_uniform",
             input_extension_init="copy_uniform",
         )
+        # Same draws as an explicit kaiming initialization
+        torch.manual_seed(1)
+        kaiming_block.create_layer_extensions(
+            extension_size=4,
+            output_extension_init="kaiming",
+            input_extension_init="kaiming",
+        )
+        extended_output_layer = block.first_layer.extended_output_layer
+        extended_input_layer = block.second_layer.extended_input_layer
+        assert isinstance(extended_output_layer, torch.nn.Conv2d)
+        assert isinstance(extended_input_layer, torch.nn.Conv2d)
+        self.assertShapeEqual(extended_output_layer.weight, (4, 3, 3, 3))
+        self.assertShapeEqual(extended_input_layer.weight, (3, 4, 3, 3))
+        self.assertTrue(
+            torch.equal(
+                extended_output_layer.weight,
+                kaiming_block.first_layer.extended_output_layer.weight,
+            )
+        )
+        self.assertTrue(
+            torch.equal(
+                extended_input_layer.weight,
+                kaiming_block.second_layer.extended_input_layer.weight,
+            )
+        )
+        # and not a copy of the zero variance of the reference
+        self.assertGreater(extended_output_layer.weight.var().item(), 0.0)
+        self.assertGreater(extended_input_layer.weight.var().item(), 0.0)
 
     def test_kaiming_normal_initialization(self):
         """create_layer_extensions with kaiming_normal hits the normal branch."""
@@ -1354,8 +1429,18 @@ class TestCoverageSmoke(TorchTestCase):
         """apply_rescaling reads ext_size from extended_input_layer when not passed."""
         block = _make_conv_block(h_t=8, device=self.device)
         block.second_layer.create_layer_in_extension(4)
+        first_weight = block.first_layer.weight.detach().clone()
+        second_weight = block.second_layer.weight.detach().clone()
+        second_bias = block.second_layer.bias.detach().clone()
         # Don't pass extension_size — should read from extended_input_layer
         block.second_layer.apply_rescaling(
             rescaling="default_vt",
             neuron_pairing=None,
         )
+        # Strategy A: alpha = 1 and beta = sqrt(fan_in_old / fan_in_new) with
+        # fan_in_old = 8 * 3 * 3 and fan_in_new = (8 + 4) * 3 * 3, the 4 read
+        # from the extension
+        beta = (8 / (8 + 4)) ** 0.5
+        self.assertTrue(torch.equal(block.first_layer.weight, first_weight))
+        self.assertAllClose(block.second_layer.weight, beta * second_weight)
+        self.assertAllClose(block.second_layer.bias, beta * second_bias)

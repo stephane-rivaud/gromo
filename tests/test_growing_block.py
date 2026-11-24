@@ -1,3 +1,5 @@
+import warnings
+
 import torch
 
 from gromo.containers.growing_block import GrowingBlock, LinearGrowingBlock
@@ -1503,29 +1505,65 @@ class TestLinearGrowingBlock(TorchTestCase):
         ``delta_raw`` is not computed. The implementation forces
         ``use_projection=False`` internally and should not emit a user warning.
         """
-        block = LinearGrowingBlock(
-            in_features=self.in_features,
-            out_features=self.in_features,
-            hidden_features=0,
-            activation=torch.nn.Identity(),
-            device=self.device,
-            name="empty_block_no_warning",
+        blocks = {}
+        for use_projection in (True, False):
+            block = LinearGrowingBlock(
+                in_features=self.in_features,
+                out_features=self.in_features,
+                hidden_features=0,
+                activation=torch.nn.Identity(),
+                device=self.device,
+                name="empty_block_no_warning",
+            )
+            block.init_computation()
+
+            input_batch = indicator_batch((self.in_features,), device=self.device)
+            block.zero_grad()
+            output = block(input_batch)
+            loss = (output**2).sum() / 2
+            loss.backward()
+            block.update_computation()
+
+            with warnings.catch_warnings(record=True) as caught_warnings:
+                warnings.simplefilter("always")
+                block.compute_optimal_updates(
+                    compute_delta=True,
+                    use_covariance=True,
+                    alpha_zero=False,
+                    use_projection=use_projection,
+                    maximum_added_neurons=self.in_features,
+                )
+            user_warnings = [
+                f"{w.category.__name__}: {w.message}"
+                for w in caught_warnings
+                if issubclass(w.category, UserWarning)
+            ]
+            self.assertEqual(
+                user_warnings, [], f"Unexpected warnings with {use_projection=}"
+            )
+            blocks[use_projection] = block
+
+        block = blocks[True]
+        # No delta in the empty-block path, but a usable first order improvement
+        self.assertIsNone(block.second_layer.optimal_delta_layer)
+        self.assertIsInstance(block.parameter_update_decrease, torch.Tensor)
+        self.assertEqual(block.parameter_update_decrease.item(), 0.0)
+        assert isinstance(block.eigenvalues_extension, torch.Tensor)
+        self.assertGreater(block.eigenvalues_extension.shape[0], 0)
+        assert isinstance(block.second_layer.extended_input_layer, torch.nn.Linear)
+
+        # use_projection=True is ignored: the result is the one without projection
+        block_no_projection = blocks[False]
+        assert isinstance(block_no_projection.eigenvalues_extension, torch.Tensor)
+        self.assertAllClose(
+            block.eigenvalues_extension, block_no_projection.eigenvalues_extension
         )
-        block.init_computation()
-
-        input_batch = indicator_batch((self.in_features,), device=self.device)
-        block.zero_grad()
-        output = block(input_batch)
-        loss = (output**2).sum() / 2
-        loss.backward()
-        block.update_computation()
-
-        block.compute_optimal_updates(
-            compute_delta=True,
-            use_covariance=True,
-            alpha_zero=False,
-            use_projection=True,
-            maximum_added_neurons=self.in_features,
+        assert isinstance(
+            block_no_projection.second_layer.extended_input_layer, torch.nn.Linear
+        )
+        self.assertAllClose(
+            block.second_layer.extended_input_layer.weight,
+            block_no_projection.second_layer.extended_input_layer.weight,
         )
 
     def test_apply_change(self):
