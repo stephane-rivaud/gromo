@@ -531,60 +531,36 @@ class TestTools(TorchTestCase):
             )
 
     def test_compute_optimal_added_parameters_svd_error_handling(self):
-        """Test SVD LinAlgError handling and debug output"""
-        matrix_s = torch.eye(3) * 2.0
-        matrix_n = torch.randn(3, 2)
-
-        # Mock the SVD to trigger LinAlgError
-        # The function now prints diagnostics and re-raises the error (no retry)
-        captured_output = io.StringIO()
-
-        with unittest.mock.patch("torch.linalg.svd") as mock_svd:
-            mock_svd.side_effect = torch.linalg.LinAlgError("Mocked SVD error")
-            with unittest.mock.patch("sys.stdout", captured_output):
-                with self.assertRaises(torch.linalg.LinAlgError) as context:
-                    # Function should raise the error after printing diagnostics
+        """An SVD LinAlgError prints the matrices and is re-raised, without retry."""
+        for matrix_s, matrix_n in (
+            (torch.eye(3) * 2.0, torch.randn(3, 2)),
+            (torch.eye(2) * 3.0, torch.randn(2, 4)),
+        ):
+            with self.subTest(shape_s=matrix_s.shape, shape_n=matrix_n.shape):
+                captured_output = io.StringIO()
+                with (
+                    unittest.mock.patch("torch.linalg.svd") as mock_svd,
+                    contextlib.redirect_stdout(captured_output),
+                    self.assertRaises(torch.linalg.LinAlgError) as context,
+                ):
+                    mock_svd.side_effect = torch.linalg.LinAlgError("Mocked SVD error")
                     compute_optimal_added_parameters(matrix_s, matrix_n)
 
-            # Verify debug output was printed
-            output = captured_output.getvalue()
-            self.assertIn("Warning: An error occurred during the SVD computation", output)
-            self.assertIn("matrix_s:", output)
-            self.assertIn("matrix_n:", output)
-            self.assertIn("matrix_s_inverse_sqrt:", output)
-            self.assertIn("matrix_p:", output)
+                # The error is re-raised after a single call (no retry)
+                self.assertIn("Mocked SVD error", str(context.exception))
+                self.assertEqual(mock_svd.call_count, 1)
 
-            # Verify the error was re-raised
-            self.assertIn("Mocked SVD error", str(context.exception))
-
-            # Verify SVD was called once (no retry)
-            self.assertEqual(mock_svd.call_count, 1)
-
-    def test_compute_optimal_added_parameters_matrix_shapes_in_error(self):
-        """Test that matrix information is correctly printed in SVD error scenario"""
-        matrix_s = torch.eye(2) * 3.0
-        matrix_n = torch.randn(2, 4)
-
-        # Capture stdout to verify matrix information is printed
-        captured_output = io.StringIO()
-
-        with unittest.mock.patch("torch.linalg.svd") as mock_svd:
-            mock_svd.side_effect = torch.linalg.LinAlgError("Test error")
-            with contextlib.redirect_stdout(captured_output):
-                with self.assertRaises(torch.linalg.LinAlgError):
-                    compute_optimal_added_parameters(matrix_s, matrix_n)
-
-            output = captured_output.getvalue()
-
-            # Verify specific matrix information is printed
-            self.assertIn("matrix_s.min()=", output)
-            self.assertIn("matrix_s.max()=", output)
-            self.assertIn("matrix_s.shape=", output)
-            self.assertIn("matrix_n.min()=", output)
-            self.assertIn("matrix_n.max()=", output)
-            self.assertIn("matrix_n.shape=", output)
-            self.assertIn("matrix_s_inverse_sqrt.min()=", output)
-            self.assertIn("matrix_p.min()=", output)
+                # The diagnostics name and describe every matrix
+                output = captured_output.getvalue()
+                self.assertIn(
+                    "Warning: An error occurred during the SVD computation", output
+                )
+                for name in ("matrix_s", "matrix_n", "matrix_s_inverse_sqrt", "matrix_p"):
+                    self.assertIn(f"{name}:", output)
+                    self.assertIn(f"{name}.min()=", output)
+                for name in ("matrix_s", "matrix_n"):
+                    self.assertIn(f"{name}.max()=", output)
+                    self.assertIn(f"{name}.shape=", output)
 
     @unittest_parametrize(
         ({"force_pseudo_inverse": False}, {"force_pseudo_inverse": True})
@@ -695,62 +671,39 @@ class TestTools(TorchTestCase):
         self.assertEqual(delta.shape, (2, 3))
         self.assertFalse(torch.isnan(delta).any())
 
-    def test_compute_optimal_delta_negative_decrease_warning(self):
-        """Test warning when parameter_update_decrease is negative.
+    def test_compute_optimal_delta_negative_decrease_float64_retry(self):
+        """A negative parameter_update_decrease warns, then retries in float64.
 
         Note: This is a defensive test for a theoretically rare case.
         Due to the mathematical properties of the computation, negative decrease
         should be very rare with well-conditioned positive definite matrices.
         """
-        # Create matrices and force a scenario by mocking the trace computation
-        tensor_s = torch.eye(2, dtype=torch.float32)
-        tensor_m = torch.ones(2, 2, dtype=torch.float32)
-
-        # Mock torch.trace to return a negative value
-        with unittest.mock.patch("gromo.utils.tools.warn") as mock_warn:
-            with unittest.mock.patch("torch.trace", return_value=torch.tensor(-1.0)):
-                optimal_delta(tensor_s, tensor_m)
-
-                # The warning should be called
-                mock_warn.assert_called()
-
-                # Check that the specific warning about negative decrease was called
-                warning_calls = [
-                    call
-                    for call in mock_warn.call_args_list
-                    if len(call[0]) > 0
-                    and "parameter update decrease should be positive" in call[0][0]
-                ]
-                self.assertTrue(
-                    len(warning_calls) > 0, "Should warn about negative decrease"
-                )
-                warn_calls = [str(call) for call in mock_warn.call_args_list]
-                self.assertTrue(any("should be positive" in call for call in warn_calls))
-
-    def test_compute_optimal_delta_negative_decrease_float64_retry(self):
-        """Test retry with float64 when negative decrease occurs."""
         tensor_s = torch.eye(2, dtype=torch.float32)
         tensor_m = torch.ones(2, 2, dtype=torch.float32)
 
         # Mock torch.trace to return negative value, triggering the retry mechanism
-        with unittest.mock.patch("torch.trace", return_value=torch.tensor(-1.0)):
-            with unittest.mock.patch("gromo.utils.tools.warn") as mock_warn:
-                optimal_delta(tensor_s, tensor_m)
+        with (
+            unittest.mock.patch("torch.trace", return_value=torch.tensor(-1.0)),
+            unittest.mock.patch("gromo.utils.tools.warn") as mock_warn,
+        ):
+            optimal_delta(tensor_s, tensor_m)
 
-                # Should warn about negative decrease and trying float64
-                warn_calls = [str(call) for call in mock_warn.call_args_list]
-                self.assertTrue(
-                    any(
-                        "parameter update decrease should be positive" in call
-                        for call in warn_calls
-                    )
-                )
-                self.assertTrue(
-                    any(
-                        "Trying to use the pseudo-inverse with torch.float64" in call
-                        for call in warn_calls
-                    )
-                )
+        # The message (first argument) of a warning is about the negative decrease
+        warning_calls = [
+            call
+            for call in mock_warn.call_args_list
+            if len(call[0]) > 0
+            and "parameter update decrease should be positive" in call[0][0]
+        ]
+        self.assertTrue(len(warning_calls) > 0, "Should warn about negative decrease")
+        # and another one about the retry in float64
+        warn_calls = [str(call) for call in mock_warn.call_args_list]
+        self.assertTrue(
+            any(
+                "Trying to use the pseudo-inverse with torch.float64" in call
+                for call in warn_calls
+            )
+        )
 
     def test_compute_optimal_delta_negative_decrease_zero_fallback(self):
         """Test zero fallback when pseudo-inverse also gives negative decrease."""
