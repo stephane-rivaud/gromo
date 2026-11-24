@@ -313,7 +313,11 @@ class TestGrowingGraphNetwork(TorchTestCase):
             self.assertEqual(factor, 1.0)
 
     def test_inter_training(self) -> None:
-        pass
+        self.skipTest(
+            "TODO: test the training of the network between two growth steps "
+            "(loss decreases, graph structure and node sizes unchanged); "
+            "GrowingGraphNetwork has no dedicated method for it yet."
+        )
 
     @unittest_parametrize(({"evaluate": True}, {"evaluate": False}))
     def test_execute_expansions(self, evaluate: bool) -> None:

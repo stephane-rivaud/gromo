@@ -886,8 +886,14 @@ class TestMergeGrowingModules(TorchTestCase):
 
     def test_linear_merge_to_conv_merge(self):
         # Direct connection between LinearMergeGrowingModule and Conv2dMergeGrowingModule
-        # TODO:
-        pass
+        self.skipTest(
+            "TODO: connect a LinearMergeGrowingModule directly to a "
+            "Conv2dMergeGrowingModule and check the statistic shapes, the "
+            "forward/backward pass and the optimal delta, as "
+            "test_direct_connection does for Conv2dMerge -> LinearMerge. "
+            "Conv2dMergeGrowingModule.set_previous_modules currently rejects "
+            "a LinearMergeGrowingModule with a TypeError."
+        )
 
 
 if __name__ == "__main__":
