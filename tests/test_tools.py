@@ -506,19 +506,23 @@ class TestTools(TorchTestCase):
         matrix = 4 * torch.eye(3)
 
         expected = sqrt_inverse_matrix_semi_positive(matrix)
+        # (4 I)^(-1/2) = I / 2
+        self.assertAllClose(expected, 0.5 * torch.eye(3), atol=1e-6)
 
         # Test with preferred_linalg_library set to "magma"
         if torch.cuda.is_available():
             matrix_cuda = matrix.cuda()
+            # Restore the global backend even if the test fails
+            self.addCleanup(
+                torch.backends.cuda.preferred_linalg_library,
+                torch.backends.cuda.preferred_linalg_library(),
+            )
             torch.backends.cuda.preferred_linalg_library(
                 "magma"
             )  # Set preferred library to magma
             result_magma = sqrt_inverse_matrix_semi_positive(matrix_cuda)
             self.assertIsNotNone(result_magma)
             self.assertEqual(result_magma.device.type, "cuda")
-            torch.backends.cuda.preferred_linalg_library(
-                "default"
-            )  # Reset to default after test
             self.assertAllClose(
                 result_magma.cpu(),
                 expected,
