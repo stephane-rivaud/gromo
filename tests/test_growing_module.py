@@ -1404,76 +1404,52 @@ class TestMergeGrowingModuleComputeOptimalDelta(TorchTestCase):
             self.prev_module.update_computation()
             self.merge_module.update_computation()
 
-    def test_compute_optimal_delta_basic_functionality(self):
-        """Test basic compute_optimal_delta functionality."""
+    def test_compute_optimal_delta_update(self):
+        """compute_optimal_delta returns None, and sets the optimal delta layer of
+        the previous module only when update is True (the default)."""
         self._setup_computation_with_data()
+        orig_delta = self.prev_module.optimal_delta_layer
 
-        # Test basic call - should return None by default
-        result = self.merge_module.compute_optimal_delta()
-        self.assertIsNone(result)
+        # update=False leaves the optimal delta layer as it was
+        self.assertIsNone(self.merge_module.compute_optimal_delta(update=False))
+        self.assertEqual(self.prev_module.optimal_delta_layer, orig_delta)
 
-        # Verify that previous modules now have optimal_delta_layer set
+        self.assertIsNone(self.merge_module.compute_optimal_delta())
         self.assertIsNotNone(self.prev_module.optimal_delta_layer)
 
     def test_compute_optimal_delta_return_deltas(self):
-        """Test compute_optimal_delta with return_deltas=True."""
+        """With return_deltas=True, compute_optimal_delta returns a finite
+        (weight, bias) delta for the previous module, also when the pseudo-inverse
+        is forced."""
         self._setup_computation_with_data()
 
-        # Test with return_deltas=True
-        deltas = self.merge_module.compute_optimal_delta(return_deltas=True)
+        for force_pseudo_inverse in (False, True):
+            with self.subTest(force_pseudo_inverse=force_pseudo_inverse):
+                deltas = self.merge_module.compute_optimal_delta(
+                    return_deltas=True, force_pseudo_inverse=force_pseudo_inverse
+                )
 
-        # Should return list of tuples
-        self.assertIsInstance(deltas, list)
-        assert deltas is not None  # Type narrowing for mypy
-        self.assertEqual(len(deltas), 1)  # One previous module
+                # Should return list of tuples
+                self.assertIsInstance(deltas, list)
+                assert deltas is not None  # Type narrowing for mypy
+                self.assertEqual(len(deltas), 1)  # One previous module
 
-        # Check delta tuple
-        delta_w, delta_b = deltas[0]
-        prev_module = self.merge_module.previous_modules[0]
+                # Check delta tuple
+                delta_w, delta_b = deltas[0]
+                prev_module = self.merge_module.previous_modules[0]
 
-        # Check weight delta shape
-        expected_shape = (prev_module.out_features, prev_module.in_features)
-        self.assertEqual(delta_w.shape, expected_shape)
-        self.assertIsInstance(delta_w, torch.Tensor)
+                # Check weight delta shape
+                expected_shape = (prev_module.out_features, prev_module.in_features)
+                self.assertEqual(delta_w.shape, expected_shape)
+                self.assertIsInstance(delta_w, torch.Tensor)
+                self.assertFalse(torch.isnan(delta_w).any())
 
-        # Check bias delta
-        if prev_module.use_bias:
-            self.assertIsNotNone(delta_b)
-            self.assertEqual(delta_b.shape, (prev_module.out_features,))
-        else:
-            self.assertIsNone(delta_b)
-
-    def test_compute_optimal_delta_no_update(self):
-        """Test compute_optimal_delta with update=False."""
-        self._setup_computation_with_data()
-
-        # Store original optimal_delta_layer state
-        orig_delta = self.prev_module.optimal_delta_layer
-
-        # Call with update=False
-        self.merge_module.compute_optimal_delta(update=False)
-
-        # Should not have updated the optimal_delta_layer
-        self.assertEqual(self.prev_module.optimal_delta_layer, orig_delta)
-
-    def test_compute_optimal_delta_force_pseudo_inverse(self):
-        """Test compute_optimal_delta with force_pseudo_inverse=True."""
-        self._setup_computation_with_data()
-
-        # Test with forced pseudo-inverse
-        deltas = self.merge_module.compute_optimal_delta(
-            return_deltas=True, force_pseudo_inverse=True
-        )
-
-        # Should still produce valid results
-        self.assertIsInstance(deltas, list)
-        assert deltas is not None  # Type narrowing for mypy
-        self.assertEqual(len(deltas), 1)
-
-        # Verify deltas are tensors with correct shapes
-        delta_w, _ = deltas[0]
-        self.assertIsInstance(delta_w, torch.Tensor)
-        self.assertFalse(torch.isnan(delta_w).any())
+                # Check bias delta
+                if prev_module.use_bias:
+                    self.assertIsNotNone(delta_b)
+                    self.assertEqual(delta_b.shape, (prev_module.out_features,))
+                else:
+                    self.assertIsNone(delta_b)
 
     def test_compute_optimal_delta_assertions(self):
         """Test assertion checks in compute_optimal_delta."""
