@@ -111,7 +111,9 @@ def input_patches(layer: nn.Module, layer_input: torch.Tensor) -> torch.Tensor:
     else:
         patches = layer_input.flatten(0, -2)
     if layer.bias is not None:
-        patches = torch.cat([patches, torch.ones_like(patches[:, :1])], dim=1)
+        # new_ones, not ones_like(patches[:, :1]): with a zero-width input the
+        # slice has no column and the bias column would be lost
+        patches = torch.cat([patches, patches.new_ones((patches.shape[0], 1))], dim=1)
     return patches
 
 
@@ -253,7 +255,8 @@ class Moments:
         if name in self.sums:
             self.sums[name] += update
         else:
-            self.sums[name] = update
+            # a copy: the running sum is updated in place by later batches
+            self.sums[name] = update.clone()
 
     def __contains__(self, name: object) -> bool:
         return name in self.sums
@@ -275,7 +278,14 @@ class Moments:
         ------
         KeyError
             if the moment was not collected
+        ValueError
+            if no sample was collected
         """
+        if self.samples == 0:
+            raise ValueError(
+                f"No sample was collected, so moment {name!r} has no average: run "
+                f"a backward pass on a non-empty batch inside collect()."
+            )
         if name not in self.sums:
             raise KeyError(
                 f"Moment {name!r} was not collected; available: {sorted(self.sums)}."
@@ -288,8 +298,12 @@ class Site:
     """Hidden dimension shared by the output of ``producer`` and the input of ``consumer``.
 
     Sites compare and hash by identity, so they can key dictionaries. Layers
-    between ``producer`` and ``consumer`` must preserve the tensor shape
-    (activations, normalisation), as new units pass through them unchanged.
+    between ``producer`` and ``consumer`` must act on each unit separately
+    (elementwise activations, dropout, a BatchNorm over the units), as new
+    units pass through them unchanged. Layers that mix units (a softmax or a
+    LayerNorm over the hidden dimension, attention) break that: growth at
+    scale 0 no longer preserves the function. Only the shape is checked, so
+    they are not detected.
 
     Attributes
     ----------
@@ -381,13 +395,17 @@ class SiteBatch:
         torch.Tensor
             tensor of the shape of ``consumer_input``
         """
-        consumer_input = self.consumer_input.detach().requires_grad_()
+        # run the consumer in its own dtype: the batch may have been promoted
+        # to float32 for accumulation (mixed precision, half-precision models)
+        weight = self.site.consumer.weight
+        assert isinstance(weight, torch.Tensor)
+        consumer_input = self.consumer_input.detach().to(weight.dtype).requires_grad_()
         with torch.enable_grad():
             output = self.site.consumer.forward(consumer_input)
             (gradient,) = torch.autograd.grad(
-                output, consumer_input, self.output_gradient
+                output, consumer_input, self.output_gradient.to(output.dtype)
             )
-        return gradient
+        return gradient.to(self.consumer_input.dtype)
 
 
 class ExtraMoment(Protocol):
@@ -403,6 +421,39 @@ class ExtraMoment(Protocol):
         moments : Moments
             accumulator of the site
         """
+
+
+def _in_accumulation_dtype(batch: SiteBatch) -> SiteBatch:
+    """Cast the tensors of a batch to one floating dtype, at least float32.
+
+    Under mixed precision (``torch.autocast``) the layer inputs and the output
+    gradient can have different dtypes, and half-precision moments would reach
+    solvers that have no half-precision kernels on CPU.
+
+    Parameters
+    ----------
+    batch : SiteBatch
+        tensors read at a site
+
+    Returns
+    -------
+    SiteBatch
+        the same tensors in their promoted dtype, float32 for half precision
+    """
+    tensors = (
+        batch.producer_input,
+        batch.producer_output,
+        batch.consumer_input,
+        batch.output_gradient,
+    )
+    dtype = tensors[0].dtype
+    for tensor in tensors[1:]:
+        dtype = torch.promote_types(dtype, tensor.dtype)
+    if dtype in (torch.float16, torch.bfloat16):
+        dtype = torch.float32
+    if all(tensor.dtype == dtype for tensor in tensors):
+        return batch
+    return SiteBatch(batch.site, *(tensor.to(dtype) for tensor in tensors))
 
 
 @torch.no_grad()
@@ -425,6 +476,9 @@ def _accumulate(
     extra_moments : Sequence[ExtraMoment]
         statistics added on top of the standard moments
     """
+    if batch.output_gradient.shape[0] == 0:
+        return  # an empty batch adds nothing (and a conv reshape would fail)
+    batch = _in_accumulation_dtype(batch)
     producer_input, consumer_input = batch.producer_input, batch.consumer_input
     output_gradient = batch.output_gradient
     producer_patches = input_patches(site.producer, producer_input)
@@ -443,8 +497,38 @@ def _accumulate(
     moments.samples += output_gradient.shape[0]
 
 
+def _layer_input(args: tuple, kwargs: dict) -> torch.Tensor:
+    """The input tensor of a ``nn.Linear`` or ``nn.Conv2d`` call.
+
+    Parameters
+    ----------
+    args : tuple
+        positional arguments of the call
+    kwargs : dict
+        keyword arguments of the call
+
+    Returns
+    -------
+    torch.Tensor
+        the tensor passed positionally or as ``input=``
+
+    Raises
+    ------
+    TypeError
+        if the call has no input tensor
+    """
+    if args:
+        return args[0]
+    if "input" in kwargs:
+        return kwargs["input"]
+    raise TypeError("The layer was called without an input tensor.")
+
+
 def _attach(
-    site: Site, moments: Moments, extra_moments: Sequence[ExtraMoment]
+    site: Site,
+    moments: Moments,
+    extra_moments: Sequence[ExtraMoment],
+    gradient_handles: list[RemovableHandle],
 ) -> list[RemovableHandle]:
     """Register the hooks that feed the moments of ``site``.
 
@@ -456,6 +540,9 @@ def _attach(
         accumulator of ``site``
     extra_moments : Sequence[ExtraMoment]
         statistics added on top of the standard moments
+    gradient_handles : list[RemovableHandle]
+        receives the handles of the gradient hooks registered during forward
+        passes, so that :func:`collect` can remove them on exit
 
     Returns
     -------
@@ -465,13 +552,16 @@ def _attach(
     cached_producer: dict[str, torch.Tensor] = {}
 
     def on_producer_forward(
-        _module: nn.Module, args: tuple[torch.Tensor, ...], output: torch.Tensor
+        _module: nn.Module, args: tuple, kwargs: dict, output: torch.Tensor
     ) -> None:
-        cached_producer["input"] = args[0].detach()
-        cached_producer["output"] = output.detach()
+        cached_producer["input"] = _layer_input(args, kwargs).detach()
+        # a copy: an in-place activation (nn.SiLU(inplace=True), ...) would
+        # otherwise overwrite the cached output; autograd already refuses
+        # in-place changes to the layer inputs, which it saves for backward
+        cached_producer["output"] = output.detach().clone()
 
     def on_consumer_forward(
-        _module: nn.Module, args: tuple[torch.Tensor, ...], output: torch.Tensor
+        _module: nn.Module, args: tuple, kwargs: dict, output: torch.Tensor
     ) -> None:
         producer_input = cached_producer.pop("input", None)
         producer_output = cached_producer.pop("output", None)
@@ -481,7 +571,7 @@ def _attach(
             raise RuntimeError(
                 "The consumer ran before the producer; check the order of the Site."
             )
-        consumer_input = args[0].detach()
+        consumer_input = _layer_input(args, kwargs).detach()
         if producer_output.shape != consumer_input.shape:
             raise ValueError(
                 f"The producer output {tuple(producer_output.shape)} and the consumer "
@@ -499,11 +589,11 @@ def _attach(
             )
             _accumulate(site, moments, batch, extra_moments)
 
-        output.register_hook(on_output_gradient)
+        gradient_handles.append(output.register_hook(on_output_gradient))
 
     return [
-        site.producer.register_forward_hook(on_producer_forward),
-        site.consumer.register_forward_hook(on_consumer_forward),
+        site.producer.register_forward_hook(on_producer_forward, with_kwargs=True),
+        site.consumer.register_forward_hook(on_consumer_forward, with_kwargs=True),
     ]
 
 
@@ -516,7 +606,9 @@ def collect(
     Run forward and backward passes inside the ``with`` block as in training.
     Use a loss with ``reduction="sum"`` so that the moments are per-sample
     averages, as in v1. Forward passes that do not track gradients are
-    ignored. Each layer of a site must run once per forward pass.
+    ignored, and so are backward passes run after the block exits. Each layer
+    of a site must run once per forward pass. Moments are accumulated in the
+    promoted dtype of the tensors read, at least float32.
 
     Parameters
     ----------
@@ -531,14 +623,16 @@ def collect(
     dict[Site, Moments]
         moments of each site, filled in as backward passes run
     """
+    sites = list(sites)
     moments = {site: Moments() for site in sites}
+    gradient_handles: list[RemovableHandle] = []
     handles = [
         handle
         for site in sites
-        for handle in _attach(site, moments[site], tuple(extra_moments))
+        for handle in _attach(site, moments[site], tuple(extra_moments), gradient_handles)
     ]
     try:
         yield moments
     finally:
-        for handle in handles:
+        for handle in handles + gradient_handles:
             handle.remove()
