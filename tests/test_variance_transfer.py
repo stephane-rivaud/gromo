@@ -624,33 +624,54 @@ class TestActivationVariance(TorchTestCase):
 
     - Strategy B: ``V[conv_path] ~ 1``
     - Strategy C: ``V[conv_path] ~ h_t / h_{t+1}``
+
+    With ``h_t = 128`` and ``dh = 16`` the two targets are 1.0 and 0.889, so the
+    tolerance ``DELTA`` must stay below half of their gap for the tests to tell
+    the strategies apart.
     """
+
+    # Input and output width of the block: a wide output averages the variance
+    # over many features, which makes each draw precise
+    FEATURES = 64
+    DELTA = 0.04
 
     def setUp(self):
         super().setUp()
         self.device = global_device()
 
     def _make_block_with_perturbed_weights(self, h_t):
-        """Create block with weights far from Kaiming scale."""
-        block = _make_linear_block(h_t=h_t, device=self.device)
+        """Create block with weights far from Kaiming scale.
+
+        The biases are set to zero: the targets above only account for the
+        weights, and the rescaled biases would add a few percent of variance.
+        """
+        block = _make_linear_block(
+            h_t=h_t,
+            in_features=self.FEATURES,
+            out_features=self.FEATURES,
+            device=self.device,
+        )
         block.first_layer.weight.data.mul_(2.0)
         block.second_layer.weight.data.mul_(0.5)
+        block.first_layer.bias.data.zero_()
+        block.second_layer.bias.data.zero_()
         return block
 
     def _mean_main_path_variance(self, rescaling, h_t=128, dh=16, n_draws=10):
         """Variance of the main path after growth, averaged over independent draws.
 
-        A single draw is noisy (standard deviation ~0.2), and the random generators
-        of the CPU, CUDA and MPS backends give different draws for the same seed, so
-        one fixed seed passes or fails depending on the backend. Averaging over
-        ``n_draws`` seeds brings the standard deviation of the mean to ~0.07.
+        The random generators of the CPU, CUDA and MPS backends give different
+        draws for the same seed, so one fixed seed passes or fails depending on
+        the backend. With ``FEATURES = 64`` a single draw has a standard
+        deviation of ~0.025, and averaging over ``n_draws`` seeds brings the
+        standard deviation of the mean to ~0.008, five times below ``DELTA``.
         """
         variances = []
         for seed in range(n_draws):
             torch.manual_seed(seed)
             block = self._make_block_with_perturbed_weights(h_t)
             _grow_block(block, dh=dh, rescaling=rescaling, neuron_pairing="vv_z_negz")
-            x = torch.randn(512, 8, device=self.device)
+            x = torch.randn(512, self.FEATURES, device=self.device)
             with torch.no_grad():
                 main_path = block(x) - block.downsample(x)
             variances.append(main_path.var().item())
@@ -658,13 +679,16 @@ class TestActivationVariance(TorchTestCase):
 
     def test_activation_variance_strategy_b(self):
         """V[conv_path]_init ~ 1 for Strategy B with pairing."""
-        var_cp = self._mean_main_path_variance("vt_constraint_old_shape")
+        h_t, dh = 128, 16
+        var_cp = self._mean_main_path_variance("vt_constraint_old_shape", h_t=h_t, dh=dh)
         self.assertAlmostEqual(
             var_cp,
             1.0,
-            delta=0.2,
+            delta=self.DELTA,
             msg=f"V[main_path]={var_cp:.4f}, expected ~1.0",
         )
+        # Not the target of Strategy C
+        self.assertGreater(abs(var_cp - h_t / (h_t + dh)), self.DELTA)
 
     def test_activation_variance_strategy_c(self):
         """V[conv_path]_init ~ h_t / h_{t+1} for Strategy C with pairing."""
@@ -674,9 +698,11 @@ class TestActivationVariance(TorchTestCase):
         self.assertAlmostEqual(
             var_cp,
             expected_var,
-            delta=0.2,
+            delta=self.DELTA,
             msg=f"V[main_path]={var_cp:.4f}, expected ~{expected_var:.4f}",
         )
+        # Not the target of Strategy B
+        self.assertGreater(abs(var_cp - 1.0), self.DELTA)
 
 
 class TestPairingStructure(TorchTestCase):

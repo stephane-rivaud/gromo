@@ -188,7 +188,7 @@ class TestUtils(TorchTestCase):
                 epochs = 50
                 batch_size = 8
 
-                # Test error cases
+                # Test error cases: a forward function needs parameters...
                 with self.assertRaises(AttributeError):
                     mini_batch_gradient_descent(
                         callable_forward,
@@ -200,6 +200,8 @@ class TestUtils(TorchTestCase):
                         batch_size,
                         verbose=False,
                     )
+                # ...and a non-empty list of them
+                with self.assertRaises(AttributeError):
                     mini_batch_gradient_descent(
                         callable_forward,
                         cost_fn,
@@ -254,8 +256,12 @@ class TestUtils(TorchTestCase):
         self.assertIsInstance(min_loss, float)
         assert isinstance(factor, float)
         assert isinstance(min_loss, float)
-        self.assertGreater(min_loss, 1.0)  # Minimum value should be close to 1
+        # The minimum of the function is 1 at x = 2, and the logarithmic grid of
+        # [1, 10] has a point within 2.5% of 2, so the loss is within 1e-3 of 1
+        self.assertGreaterEqual(min_loss, 1.0)
+        self.assertLess(min_loss, 1.0 + 1e-3)
         self.assertGreater(factor, 0.0)  # Factor should be positive
+        self.assertAlmostEqual(factor, 2.0, delta=0.05)
 
         # Test with return_history=True
         factors, losses = line_search(quadratic_cost, return_history=True)
