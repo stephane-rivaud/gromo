@@ -2820,154 +2820,84 @@ class TestLinearMergeGrowingModule(TestLinearGrowingModuleBase):
         with self.assertRaises(TypeError):
             layer.set_previous_modules([torch.nn.Linear(3, 2)])  # type: ignore
 
-    @unittest_parametrize(({"bias": True}, {"bias": False}))
-    def test_compute_optimal_delta_basic_functionality(self, bias):
-        """Test basic compute_optimal_delta functionality."""
+    def gather_merge_statistics(
+        self, bias: bool, passes: int = 3
+    ) -> tuple[dict, LinearMergeGrowingModule]:
+        """Demo modules of ``bias``, after their merge module gathered its
+        statistics over ``passes`` forward/backward passes on ``self.input_x``."""
         demo_layers = self.demo_modules[bias]
         merge_module = demo_layers["add"]
-
-        # Initialize tensor statistics computation
         merge_module.init_computation()
-
-        # Ensure modules are properly set up with data - multiple passes with gradients
-        for _ in range(3):
+        for _ in range(passes):
             demo_layers["seq"].zero_grad()
-            output = demo_layers["seq"](self.input_x)
-            loss = torch.norm(output)
+            loss = torch.norm(demo_layers["seq"](self.input_x))
             loss.backward()
-
-            # CRITICAL: Manually update tensor statistics after forward/backward pass
             merge_module.update_computation()
+        return demo_layers, merge_module
 
-        # Test basic compute_optimal_delta call
+    @unittest_parametrize(({"bias": True}, {"bias": False}))
+    def test_compute_optimal_delta_basic_functionality(self, bias):
+        """By default (update=True) compute_optimal_delta returns None and sets the
+        optimal delta layer of the previous module, with or without bias."""
+        demo_layers, merge_module = self.gather_merge_statistics(bias)
+
         result = merge_module.compute_optimal_delta()
 
-        # Should return None by default (no return_deltas)
         self.assertIsNone(result)
-
-        # Verify that internal computations occurred (tensor updates)
         self.assertIsNotNone(merge_module.previous_tensor_s)
         self.assertIsNotNone(merge_module.previous_tensor_m)
         self.assertGreater(merge_module.previous_tensor_s.samples, 0)
         self.assertGreater(merge_module.previous_tensor_m.samples, 0)
 
-    @unittest_parametrize(({"bias": True}, {"bias": False}))
-    def test_compute_optimal_delta_with_return_deltas(self, bias):
-        """Test compute_optimal_delta with return_deltas=True."""
-        demo_layers = self.demo_modules[bias]
-        merge_module = demo_layers["add"]
-
-        # Initialize tensor statistics computation
-        merge_module.init_computation()
-
-        # Ensure modules are properly set up with data - multiple passes with gradients
-        for _ in range(3):
-            demo_layers["seq"].zero_grad()
-            output = demo_layers["seq"](self.input_x)
-            loss = torch.norm(output)
-            loss.backward()
-
-            # CRITICAL: Manually update tensor statistics after forward/backward pass
-            merge_module.update_computation()
-
-        # Test with return_deltas=True
-        deltas = merge_module.compute_optimal_delta(return_deltas=True)
-
-        # Should return list of tuples (delta_w, delta_b)
-        self.assertIsInstance(deltas, list)
-        self.assertEqual(len(deltas), len(merge_module.previous_modules))
-
-        # Each delta should be a tuple (weight_delta, bias_delta)
-        for i, (delta_w, delta_b) in enumerate(deltas):
-            prev_module = merge_module.previous_modules[i]
-            expected_weight_shape = (prev_module.out_features, prev_module.in_features)
-            self.assertEqual(delta_w.shape, expected_weight_shape)
-            self.assertIsInstance(delta_w, torch.Tensor)
-
-            # Check bias delta based on module configuration
-            if prev_module.use_bias:
-                self.assertIsNotNone(delta_b)
-                expected_bias_shape = (prev_module.out_features,)
-                self.assertEqual(delta_b.shape, expected_bias_shape)
-            else:
-                self.assertIsNone(delta_b)
-
-    @unittest_parametrize(({"bias": True}, {"bias": False}))
-    def test_compute_optimal_delta_pseudo_inverse_fallback(self, bias):
-        """Test compute_optimal_delta with pseudo-inverse fallback."""
-        demo_layers = self.demo_modules[bias]
-        merge_module = demo_layers["add"]
-
-        # Initialize tensor statistics computation
-        merge_module.init_computation()
-
-        # Ensure modules are properly set up with data
-        for _ in range(3):
-            demo_layers["seq"].zero_grad()
-            output = demo_layers["seq"](self.input_x)
-            loss = torch.norm(output)
-            loss.backward()
-
-            # CRITICAL: Manually update tensor statistics after forward/backward pass
-            merge_module.update_computation()
-
-        # Test pseudo-inverse by forcing it
-        deltas = merge_module.compute_optimal_delta(
-            return_deltas=True, force_pseudo_inverse=True
+        prev_module = demo_layers["prev"]
+        self.assertIsNotNone(prev_module.optimal_delta_layer)
+        assert prev_module.optimal_delta_layer is not None  # Type assertion for linter
+        self.assertEqual(prev_module.optimal_delta_layer.bias is not None, bias)
+        self.assertEqual(
+            prev_module.optimal_delta_layer.in_features, prev_module.in_features
+        )
+        self.assertEqual(
+            prev_module.optimal_delta_layer.out_features, prev_module.out_features
         )
 
-        # Should still return valid deltas
-        self.assertIsInstance(deltas, list)
-        self.assertEqual(len(deltas), len(merge_module.previous_modules))
-
-        # Verify all deltas have correct shapes
-        for i, (delta_w, delta_b) in enumerate(deltas):
-            prev_module = merge_module.previous_modules[i]
-            expected_weight_shape = (prev_module.out_features, prev_module.in_features)
-            self.assertEqual(delta_w.shape, expected_weight_shape)
-
     @unittest_parametrize(({"bias": True}, {"bias": False}))
-    def test_compute_optimal_delta_different_bias_configs(self, bias):
-        """Test compute_optimal_delta with different bias configurations."""
-        # Use the existing demo modules which have a working single-input setup
-        demo_layers = self.demo_modules[bias]
-        merge_module = demo_layers["add"]
+    def test_compute_optimal_delta_with_return_deltas(self, bias):
+        """With return_deltas=True, compute_optimal_delta returns one (weight, bias)
+        delta per previous module, and forcing the pseudo-inverse gives the same
+        deltas on these well-conditioned statistics."""
+        _, merge_module = self.gather_merge_statistics(bias)
 
-        # Initialize tensor statistics computation
-        merge_module.init_computation()
+        deltas_by_method = {
+            force_pseudo_inverse: merge_module.compute_optimal_delta(
+                return_deltas=True, force_pseudo_inverse=force_pseudo_inverse
+            )
+            for force_pseudo_inverse in (False, True)
+        }
 
-        # Ensure modules are properly set up with data - multiple passes with gradients
-        for _ in range(3):
-            demo_layers["seq"].zero_grad()
-            output = demo_layers["seq"](self.input_x)
-            loss = torch.norm(output)
-            loss.backward()
-
-            # CRITICAL: Manually update tensor statistics after forward/backward pass
-            merge_module.update_computation()
-
-        # Test compute_optimal_delta with the bias configuration
-        deltas = merge_module.compute_optimal_delta(return_deltas=True)
-
-        # Should handle bias configurations correctly
-        self.assertIsNotNone(deltas)
-        self.assertIsInstance(deltas, list)
-        assert deltas is not None  # Type narrowing for mypy
-        self.assertEqual(len(deltas), len(merge_module.previous_modules))
-
-        # Check delta shapes account for bias differences
-        for i, (delta_w, delta_b) in enumerate(deltas):
-            prev_module = merge_module.previous_modules[i]
-            expected_weight_shape = (prev_module.out_features, prev_module.in_features)
-            self.assertEqual(delta_w.shape, expected_weight_shape)
-
-            # Check bias handling
-            if prev_module.use_bias:
-                self.assertIsNotNone(delta_b)
-                expected_bias_shape = (prev_module.out_features,)
-                self.assertEqual(delta_b.shape, expected_bias_shape)
-            else:
-                self.assertIsNone(delta_b)
+        for force_pseudo_inverse, deltas in deltas_by_method.items():
+            with self.subTest(force_pseudo_inverse=force_pseudo_inverse):
+                self.assertIsInstance(deltas, list)
+                assert deltas is not None  # Type narrowing for mypy
+                self.assertEqual(len(deltas), len(merge_module.previous_modules))
+                for prev_module, (delta_w, delta_b) in zip(
+                    merge_module.previous_modules, deltas, strict=True
+                ):
+                    self.assertIsInstance(delta_w, torch.Tensor)
+                    self.assertEqual(
+                        delta_w.shape,
+                        (prev_module.out_features, prev_module.in_features),
+                    )
+                    if prev_module.use_bias:
+                        self.assertIsNotNone(delta_b)
+                        self.assertEqual(delta_b.shape, (prev_module.out_features,))
+                    else:
+                        self.assertIsNone(delta_b)
+        for (delta_w, delta_b), (delta_w_pinv, delta_b_pinv) in zip(
+            deltas_by_method[False], deltas_by_method[True], strict=True
+        ):
+            self.assertAllClose(delta_w, delta_w_pinv, atol=1e-4, rtol=1e-4)
+            if delta_b is not None:
+                self.assertAllClose(delta_b, delta_b_pinv, atol=1e-4, rtol=1e-4)
 
     def test_compute_optimal_delta_error_conditions(self):
         """Test error conditions in compute_optimal_delta."""
@@ -3788,73 +3718,10 @@ class TestLinearMergeGrowingModule(TestLinearGrowingModuleBase):
         self.assertIsNotNone(delta_b)  # Should have bias
         self.assertEqual(delta_b.shape, (prev_module.out_features,))
 
-    @unittest_parametrize(({"bias": True}, {"bias": False}))
-    def test_compute_optimal_delta_update_true_bias_handling(self, bias):
-        """Test compute_optimal_delta with update=True for both bias cases
-
-        This test specifically targets the missing differential coverage for the
-        bias/no-bias handling paths in compute_optimal_delta method.
-        """
-        # Use the existing demo modules infrastructure
-        demo_layers = self.demo_modules[bias]
-        merge_module = demo_layers["add"]
-
-        # Initialize tensor statistics computation
-        merge_module.init_computation()
-
-        # Ensure modules are properly set up with data - multiple passes with gradients
-        for _ in range(3):
-            demo_layers["seq"].zero_grad()
-            output = demo_layers["seq"](self.input_x)
-            loss = torch.norm(output)
-            loss.backward()
-
-            # Update tensor statistics after forward/backward pass
-            merge_module.update_computation()
-
-        # Test with update=True to trigger the bias handling paths
-        merge_module.compute_optimal_delta(update=True)
-
-        # Verify optimal_delta_layer was created for the previous module
-        prev_module = demo_layers["prev"]
-        self.assertIsNotNone(prev_module.optimal_delta_layer)
-        assert prev_module.optimal_delta_layer is not None  # Type assertion for linter
-
-        # Check bias handling based on the module configuration
-        if bias:
-            # bias=True case
-            self.assertTrue(prev_module.optimal_delta_layer.bias is not None)
-            self.assertEqual(
-                prev_module.optimal_delta_layer.in_features, prev_module.in_features
-            )
-            self.assertEqual(
-                prev_module.optimal_delta_layer.out_features, prev_module.out_features
-            )
-        else:
-            # bias=False case
-            self.assertIsNone(prev_module.optimal_delta_layer.bias)
-            self.assertEqual(
-                prev_module.optimal_delta_layer.in_features, prev_module.in_features
-            )
-            self.assertEqual(
-                prev_module.optimal_delta_layer.out_features, prev_module.out_features
-            )
-
     def test_compute_optimal_delta_update_false_no_layer_creation(self):
         """Test compute_optimal_delta with update=False (should not create layers)"""
-        # Use bias=True demo modules
-        demo_layers = self.demo_modules[True]
-        merge_module = demo_layers["add"]
+        demo_layers, merge_module = self.gather_merge_statistics(True, passes=2)
         prev_module = demo_layers["prev"]
-
-        # Initialize computation and populate data
-        merge_module.init_computation()
-        for _ in range(2):
-            demo_layers["seq"].zero_grad()
-            output = demo_layers["seq"](self.input_x)
-            loss = torch.norm(output)
-            loss.backward()
-            merge_module.update_computation()
 
         # Store initial state
         initial_optimal_delta_layer = prev_module.optimal_delta_layer
