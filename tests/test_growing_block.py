@@ -209,11 +209,17 @@ class TestLinearGrowingBlock(TorchTestCase):
     ) -> tuple[LinearGrowingBlock, torch.Tensor, torch.Tensor]:
         """Block with ``self.hidden_neurons`` or 0 hidden features, with
         ``self.downsample`` or the default identity, an input batch and the
-        expected identity branch on it."""
+        expected identity branch on it.
+
+        The pre-activation is a ReLU, not the default identity, so that the
+        tests tell ``x`` and ``pre_activation(x)`` apart (the batch has negative
+        entries).
+        """
         block = LinearGrowingBlock(
             in_features=self.in_features,
             out_features=self.out_features if with_downsample else self.in_features,
             hidden_features=self.hidden_neurons if positive_features else 0,
+            pre_activation=torch.nn.ReLU(),
             device=self.device,
             **({"downsample": self.downsample} if with_downsample else {}),
         )
